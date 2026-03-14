@@ -340,7 +340,6 @@ body { font-family: "Raleway", sans-serif; }
 /* Header cleanup and dropdown navigation */
 body {
   margin: 0;
-  padding-top: 92px;
 }
 .header-dynamic {
   position: fixed;
@@ -376,19 +375,26 @@ body {
   font-size: 2.15rem;
   line-height: 1;
   letter-spacing: .02em;
-  transform: translateY(0);
-  transition: transform .28s ease, font-size .28s ease, letter-spacing .28s ease;
   white-space: nowrap;
+  position: absolute;
+  left: 26px;
+  top: 50%;
+  transform: translateY(-50%);
+  transform-origin: center center;
+  transition: left .32s ease, top .32s ease, transform .32s ease, font-size .32s ease, letter-spacing .28s ease;
 }
 .header-dynamic.header-compact .head-top {
+  left: 50%;
+  top: 50%;
   font-size: 1.5rem;
-  transform: translateY(-1px);
+  transform: translate(-50%, -50%);
 }
 .header-menu-wrap {
   position: relative;
   display: flex;
   align-items: center;
   margin-left: auto;
+  z-index: 2;
 }
 .menu-toggle {
   width: 48px;
@@ -457,14 +463,15 @@ body {
   min-height: 62px;
 }
 .head-topActive {
+  left: 50%;
+  top: 50%;
   font-size: 1.5rem;
-  transform: translateY(-1px);
+  transform: translate(-50%, -50%);
 }
 @media (max-width: 768px) {
-  body { padding-top: 80px; }
   .header-dynamic { min-height: 80px; padding: 0 16px; }
   .header-dynamic.header-compact { min-height: 58px; padding: 0 14px; }
-  .header-dynamic .head-top { font-size: 1.55rem; }
-  .header-dynamic.header-compact .head-top { font-size: 1.2rem; }
+  .header-dynamic .head-top { left: 16px; font-size: 1.55rem; }
+  .header-dynamic.header-compact .head-top { font-size: 1.2rem; left: 50%; }
   .dropdown-menu { min-width: 190px; }
 }
