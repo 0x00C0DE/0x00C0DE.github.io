@@ -1,53 +1,53 @@
 /*
-Header behavior restored to match original site motion,
-while preserving the dropdown navigation.
-Based on the original scroll animation logic provided by Braden. 
+Restored original-style scroll animation for the red header,
+while preserving the dropdown navigation in the header.
 */
 
 document.addEventListener('DOMContentLoaded', function () {
   const header = document.querySelector('.header-top');
-  const brand = document.querySelector('.head-top');
+  const head = document.querySelector('.head-top');
+  const navIcons = document.querySelector('.header-menu-wrap');
   const navMenu = document.querySelector('.navBar-top');
-  const menuWrap = document.querySelector('.header-menu-wrap');
   const menuButton = document.querySelector('.menu-toggle');
 
-  function syncHeaderOnScroll() {
+  function syncHeader() {
     const scrolled = window.pageYOffset || document.documentElement.scrollTop || 0;
-
     if (scrolled > 4) {
-      if (header) header.classList.add('header-topActive');
-      if (brand) brand.classList.add('head-topActive');
+      header && header.classList.add('header-topActive');
+      head && head.classList.add('head-topActive');
+      navIcons && navIcons.classList.add('icon-topActive');
     } else {
-      if (header) header.classList.remove('header-topActive');
-      if (brand) brand.classList.remove('head-topActive');
+      header && header.classList.remove('header-topActive');
+      head && head.classList.remove('head-topActive');
+      navIcons && navIcons.classList.remove('icon-topActive');
     }
   }
 
-  if (menuButton && menuWrap) {
-    menuButton.addEventListener('click', function (e) {
-      e.stopPropagation();
-      const open = menuWrap.classList.toggle('menu-open');
+  if (menuButton && navIcons) {
+    menuButton.addEventListener('click', function (event) {
+      event.stopPropagation();
+      const open = navIcons.classList.toggle('menu-open');
       menuButton.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
 
-    document.addEventListener('click', function (e) {
-      if (!menuWrap.contains(e.target)) {
-        menuWrap.classList.remove('menu-open');
+    document.addEventListener('click', function (event) {
+      if (!navIcons.contains(event.target)) {
+        navIcons.classList.remove('menu-open');
         menuButton.setAttribute('aria-expanded', 'false');
       }
     });
 
     if (navMenu) {
-      navMenu.addEventListener('click', function (e) {
-        if (e.target.tagName === 'A') {
-          menuWrap.classList.remove('menu-open');
+      navMenu.addEventListener('click', function (event) {
+        if (event.target.tagName === 'A') {
+          navIcons.classList.remove('menu-open');
           menuButton.setAttribute('aria-expanded', 'false');
         }
       });
     }
   }
 
-  window.addEventListener('scroll', syncHeaderOnScroll, { passive: true });
-  window.addEventListener('resize', syncHeaderOnScroll);
-  syncHeaderOnScroll();
+  window.addEventListener('scroll', syncHeader, { passive: true });
+  window.addEventListener('resize', syncHeader);
+  syncHeader();
 });
