@@ -36,7 +36,4 @@ var _0x5558=["\x2E\x68\x65\x61\x64\x65\x72\x2D\x74\x6F\x70","\x2E\x68\x65\x61\x6
     }
   }
 
-  window.addEventListener('scroll', syncHeaderOnScroll, { passive: true });
-  window.addEventListener('resize', syncHeaderOnScroll);
-  syncHeaderOnScroll();
 });
