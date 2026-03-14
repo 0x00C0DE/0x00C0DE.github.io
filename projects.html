@@ -4,26 +4,11 @@
   <meta charset="UTF-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>0x00C0DE | Software Developer</title>
+  <title>0x00C0DE | Projects</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.3.0/css/all.min.css">
   <link rel="stylesheet" href="style-0x00C0DE.css">
   <script src="https://code.jquery.com/jquery-3.3.1.js"></script>
   <script src="JS-0x00C0DE.js" charset="utf-8" defer></script>
-  <script>
-    var i = 0;
-    var images = [];
-    var time = 3000;
-    images[0] = "https://i.imgur.com/rcjuT29.png";
-    images[1] = "https://i.imgur.com/9Q8BQ3X.png";
-    images[2] = "https://i.imgur.com/OFnpyxM.png";
-    images[3] = "https://i.imgur.com/SMxZMQW.png";
-    function changeImg() {
-      document.slide.src = images[i];
-      if (i < images.length - 1) { i++; } else { i = 0; }
-      setTimeout("changeImg()", time);
-    }
-    window.onload = changeImg;
-  </script>
 </head>
 <body>
 <header class="header-top">
@@ -31,59 +16,17 @@
   <nav class="navBar-top nav-inline">
     <a href="index.html">Home</a>
     <a href="projects.html">Projects</a>
-    <a href="#about">About</a>
+    <a href="https://github.com/0x00C0DE">GitHub</a>
   </nav>
 </header>
-
 <main>
-  <div class="intro">
-    <h1>A Software Developer</h1>
-    <p>I am a software developer and I love to learn and work on things that I am passionate and interested in.</p>
-    <a class="hero-button" href="projects.html">View Pinned Projects</a>
-  </div>
-  <div class="achievements">
-    <div class="work">
-      <i class="fas fa-atom"></i>
-      <p class="work-heading">Projects</p>
-      <p class="work-text">I have worked on various projects and I am very proud of working on them. I'm always looking for new projects that catch my interest.</p>
+  <section class="project-hero">
+    <div class="project-hero-inner">
+      <h1>Pinned Projects</h1>
+      <p>Dedicated landing pages for the repositories pinned on the GitHub profile.</p>
     </div>
-    <div class="work">
-      <i class="fas fa-computer"></i>
-      <p class="work-heading">Skills</p>
-      <p class="work-text">I have a lot of skills and I am very good at them. I'm very experienced in Python, and I'm always looking for new Python skills and techniques that I could pick up and add to my arsenal.</p>
-    </div>
-    <div class="work">
-      <i class="fas fa-ethernet"></i>
-      <p class="work-heading">Network</p>
-      <p class="work-text">I have a lot of network skills and I am very good at them. I have experience in managing and monitoring networks, but always eager to learn more advanced techniques in networking.</p>
-    </div>
-  </div>
-  <div class="about-me" id="about">
-    <div class="about-me-text">
-      <h2>About Me</h2>
-      <p>Hi, I'm 0x00C0DE or also known as SmallMediumPizza, but you can call me Braden :]. I am a recent graduate from Oregon State University with a B.S in Computer Science. As a software developer, I love to work on projects I find interesting. Some notable projects I've worked on include:</p>
-      <ol>
-        <li><a href="project-collision-avoidance.html">Collision Avoidance for AMR</a></li>
-        <li><a href="project-qr-totp.html">Python Google Authenticator QR generator and checker</a></li>
-        <li><a href="project-smallsh.html">Simple basic shell</a></li>
-        <li><a href="project-proprts.html">PROPRTS</a></li>
-      </ol>
-      <p>I'm an experienced developer with 5+ years of Python knowledge under my belt. Although I tend to emphasize my skills in Python, I have dabbled in various languages such as C++, C, JS, Java, Kotlin, SQL, Prolog, etc.</p>
-      <div class="box">
-        <img class="slide-show" name="slide" src="https://i.imgur.com/VFWo6t4.jpg" alt="Project slideshow">
-      </div>
-      <p style="font-size: 20px">(Slide show demo of Python Google Authenticator QR code generator and checker)</p>
-    </div>
-    <div class="about-me-photo">
-      <img src="https://i.imgur.com/KHiJtUI.jpg" alt="Braden portrait">
-    </div>
-  </div>
-
-  <section class="project-preview-section">
-    <div class="section-heading">
-      <h2>Pinned Project Pages</h2>
-      <p>Browse dedicated pages for each pinned repository while keeping the same visual style as the rest of the site.</p>
-    </div>
+  </section>
+  <section class="project-preview-section project-page-list">
     <div class="project-grid">
 
       <article class="project-card">
@@ -166,21 +109,18 @@
     </div>
   </section>
 </main>
-
 <footer class="footer">
   <div class="copy">&copy; 2026 0x00C0DE</div>
   <div class="bottom-links">
     <div class="links">
-      <span>More Info</span>
+      <span>Navigate</span>
       <a href="index.html">Home</a>
       <a href="projects.html">Projects</a>
-      <a href="#about">About</a>
     </div>
     <div class="links">
-      <span>Social Links</span>
+      <span>Profiles</span>
       <a href="https://github.com/0x00C0DE"><i class="fab fa-github"></i></a>
-      <a href="https://www.instagram.com/smallmediumpizza/"><i class="fab fa-instagram"></i></a>
-      <a href="https://www.youtube.com/channel/UCYOKNvGyqvRPnDnvmbE-1Xw"><i class="fab fa-youtube"></i></a>
+      <a href="https://0x00c0de.github.io/"><i class="fas fa-globe"></i></a>
     </div>
   </div>
 </footer>
