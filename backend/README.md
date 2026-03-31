@@ -1,35 +1,9 @@
-# Blog Append API
+# Blog Append Backend
 
-This backend accepts append-only blog submissions from the terminal site and writes them to a text file in GitHub through the Contents API.
+This repo now includes a Cloudflare Worker backend under [worker/](../worker), which is the recommended free hosted option for public use.
 
-## Environment
+The Express backend files remain as a local fallback, but you do not need to run them locally if you deploy the Worker.
 
-Copy `.env.example` to `.env` and set:
+Recommended production endpoint:
 
-- `GITHUB_PAT`
-- `GITHUB_OWNER`
-- `GITHUB_REPO`
-- `GITHUB_BRANCH`
-- `GITHUB_BLOG_PATH`
-- `ALLOWED_ORIGIN`
-
-## Run
-
-```bash
-npm install
-npm run dev
-```
-
-The frontend `post` command defaults to:
-
-`http://localhost:8787/api/blog/append`
-
-Override it in production by defining:
-
-```html
-<script>
-  window.BLOG_POST_API_URL = "https://your-backend.example.com/api/blog/append";
-</script>
-```
-
-before `commands.js` is loaded.
+`https://your-worker-subdomain.workers.dev/api/blog/append`

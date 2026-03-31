@@ -23,3 +23,7 @@ cat LINKS.txt
 post Your blog entry goes here
 resume
 fortune
+
+Blog backend
+------------
+The recommended public deployment path is a Cloudflare Worker backend that appends to BLOG.txt through the GitHub API.

@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "0x00c0de-blog-append",
+  "main": "src/index.js",
+  "compatibility_date": "2026-03-31",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "ALLOWED_ORIGIN": "https://0x00c0de.github.io",
+    "GITHUB_OWNER": "0x00C0DE",
+    "GITHUB_REPO": "0x00C0DE.github.io",
+    "GITHUB_BRANCH": "main",
+    "GITHUB_BLOG_PATH": "BLOG.txt",
+    "MAX_POST_LENGTH": "500",
+    "RATE_LIMIT_WINDOW_MS": "3600000",
+    "RATE_LIMIT_MAX": "10"
+  }
+}
