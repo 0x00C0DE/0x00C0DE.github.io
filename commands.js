@@ -233,41 +233,11 @@ function getAsciiCanvasContext(width, height) {
     return canvas.getContext('2d', { willReadFrequently: true });
 }
 
-function drawImageCover(context, imageSource, width, height) {
-    const sourceWidth = imageSource.naturalWidth || imageSource.videoWidth || imageSource.width;
-    const sourceHeight = imageSource.naturalHeight || imageSource.videoHeight || imageSource.height;
-    const sourceAspect = sourceWidth / sourceHeight;
-    const targetAspect = width / height;
-    let cropWidth = sourceWidth;
-    let cropHeight = sourceHeight;
-    let cropX = 0;
-    let cropY = 0;
-
-    if (sourceAspect > targetAspect) {
-        cropWidth = Math.round(sourceHeight * targetAspect);
-        cropX = Math.floor((sourceWidth - cropWidth) / 2);
-    } else if (sourceAspect < targetAspect) {
-        cropHeight = Math.round(sourceWidth / targetAspect);
-        cropY = Math.floor((sourceHeight - cropHeight) / 2);
-    }
-
-    context.fillStyle = '#000000';
-    context.fillRect(0, 0, width, height);
-    context.drawImage(imageSource, cropX, cropY, cropWidth, cropHeight, 0, 0, width, height);
-}
-
 async function renderImageToAscii(imageSource, width, height, options = {}) {
-    const { fit = 'stretch' } = options;
     const context = getAsciiCanvasContext(width, height);
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = 'high';
-
-    if (fit === 'cover') {
-        drawImageCover(context, imageSource, width, height);
-    } else {
-        context.drawImage(imageSource, 0, 0, width, height);
-    }
-
+    context.drawImage(imageSource, 0, 0, width, height);
     return processImage(context, width, height);
 }
 
@@ -478,7 +448,7 @@ async function userpic_command(args) {
 
     try {
         const image = await decodeSelectedImage(file);
-        const asciiLines = await renderImageToAscii(image, width, height, { fit: 'cover' });
+        const asciiLines = await renderImageToAscii(image, width, height);
         showAsciiStill(asciiLines);
         return [];
     } catch (error) {
