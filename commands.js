@@ -134,6 +134,34 @@ function resizeAsciiArt(lines, stepX = 4, stepY = 4) {
     return resized;
 }
 
+function loadImage(url) {
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.crossOrigin = 'anonymous';
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error(`unable to load image: ${url}`));
+        image.src = url;
+    });
+}
+
+async function resolveImgurImage(url) {
+    const imgurMatch = url.match(/^https?:\/\/(?:www\.)?imgur\.com\/([a-zA-Z0-9]+)(?:\.[a-zA-Z0-9]+)?\/?$/i);
+    if (!imgurMatch) {
+        return url;
+    }
+    const imageId = imgurMatch[1];
+    const candidateUrls = ['jpg', 'jpeg', 'png', 'webp', 'gif'].map(ext => `https://i.imgur.com/${imageId}.${ext}`);
+    for (const candidate of candidateUrls) {
+        try {
+            await loadImage(candidate);
+            return candidate;
+        } catch (_) {
+            // Try the next extension.
+        }
+    }
+    throw new Error(`unable to resolve imgur image for ${url}`);
+}
+
 function date_command() {
     return [new Date().toString()];
 }
@@ -188,17 +216,24 @@ async function movie_command(args) {
 }
 
 async function picture_command(args) {
-    const response = await fetch('convertcase-net.txt', { cache: 'no-store' });
-    if (!response.ok) {
-        return ['picture: unable to load convertcase-net.txt'];
+    const sourceUrl = args[0] || 'https://imgur.com/KHiJtUI';
+    try {
+        const resolvedUrl = await resolveImgurImage(sourceUrl);
+        const image = await loadImage(resolvedUrl);
+        const canvas = document.createElement('canvas');
+        const maxWidth = 160;
+        const scale = image.width > maxWidth ? maxWidth / image.width : 1;
+        const width = Math.max(1, Math.floor(image.width * scale));
+        const height = Math.max(1, Math.floor(image.height * scale * 0.55));
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        context.drawImage(image, 0, 0, width, height);
+        const lines = processImage(context, width, height);
+        return resizeAsciiArt(lines, 2, 3).map(line => escapeHtml(line));
+    } catch (error) {
+        return [`picture: ${error.message}`];
     }
-    const text = await response.text();
-    const lines = text
-        .replace(/\r/g, '')
-        .split('\n')
-        .filter(line => line.length > 0);
-    return resizeAsciiArt(lines)
-        .map(line => escapeHtml(line));
 }
 
 function projects_command() {
