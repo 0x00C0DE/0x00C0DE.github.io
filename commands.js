@@ -319,7 +319,7 @@ function resume_command() {
 }
 
 function pwd_command() {
-    return ['/home/0x00c0de/pub'];
+    return ['/home/0x00C0DE/Unk0wn'];
 }
 
 function whoami_command() {

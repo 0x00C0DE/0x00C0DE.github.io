@@ -1,6 +1,6 @@
 ﻿const PROMPT_USER = "guest";
 const PROMPT_HOST = "localhost";
-const PROMPT_PATH = "/home/0x00c0de/pub";
+const PROMPT_PATH = "/home/0x00C0DE/Unk0wn";
 
 let commandHistory = [];
 let historyIndex = -1;
