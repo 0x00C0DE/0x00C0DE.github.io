@@ -340,6 +340,15 @@ function readFileAsDataUrl(file) {
     });
 }
 
+function buildAsciiDownloadFilename(file) {
+    const baseName = (file && file.name ? file.name : 'userpic')
+        .replace(/\.[^.]+$/, '')
+        .replace(/[^a-z0-9-_]+/gi, '-')
+        .replace(/^-+|-+$/g, '')
+        .toLowerCase();
+    return `${baseName || 'userpic'}-ascii.png`;
+}
+
 function date_command() {
     return [new Date().toString()];
 }
@@ -477,7 +486,11 @@ async function userpic_command(args) {
         const asciiLines = await renderImageToAscii(image, width, height);
         showAsciiStill(asciiLines, {
             title: 'userpic',
-            hint: 'drag to pan, pinch to zoom, tap close to return'
+            hint: 'drag to pan, pinch to zoom, save to download the ascii image',
+            download: {
+                filename: buildAsciiDownloadFilename(file),
+                label: 'save'
+            }
         });
         return [];
     } catch (error) {

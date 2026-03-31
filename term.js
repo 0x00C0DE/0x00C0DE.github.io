@@ -68,6 +68,96 @@ async function showMovie(args) {
     }, { once: true });
 }
 
+function renderAsciiArtToCanvas(asciiLines, options = {}) {
+    const lines = Array.isArray(asciiLines) ? asciiLines : [];
+    const canvas = document.createElement("canvas");
+    const scale = Math.max(1, Math.min(3, Math.ceil(window.devicePixelRatio || 1)));
+    const fontSize = options.fontSize || 16;
+    const lineHeight = Math.round(fontSize * 1.15);
+    const horizontalPadding = options.horizontalPadding || 28;
+    const verticalPadding = options.verticalPadding || 28;
+    const fontFamily = '"Courier New", monospace';
+    const context = canvas.getContext("2d");
+
+    context.font = `${fontSize}px ${fontFamily}`;
+    const maxLineWidth = lines.reduce((currentMax, line) => {
+        return Math.max(currentMax, Math.ceil(context.measureText(line).width));
+    }, 0);
+
+    const logicalWidth = Math.max(320, maxLineWidth + horizontalPadding * 2);
+    const logicalHeight = Math.max(200, lines.length * lineHeight + verticalPadding * 2);
+    canvas.width = logicalWidth * scale;
+    canvas.height = logicalHeight * scale;
+
+    const renderContext = canvas.getContext("2d");
+    renderContext.scale(scale, scale);
+    renderContext.fillStyle = "#070001";
+    renderContext.fillRect(0, 0, logicalWidth, logicalHeight);
+
+    const glow = renderContext.createLinearGradient(0, 0, 0, logicalHeight);
+    glow.addColorStop(0, "rgba(85, 10, 16, 0.82)");
+    glow.addColorStop(1, "rgba(0, 0, 0, 0)");
+    renderContext.fillStyle = glow;
+    renderContext.fillRect(0, 0, logicalWidth, logicalHeight);
+
+    renderContext.font = `${fontSize}px ${fontFamily}`;
+    renderContext.textBaseline = "top";
+    renderContext.fillStyle = "#ff5f6d";
+
+    lines.forEach((line, index) => {
+        renderContext.fillText(line, horizontalPadding, verticalPadding + index * lineHeight);
+    });
+
+    return canvas;
+}
+
+function exportCanvasAsBlob(canvas, type = "image/png") {
+    return new Promise((resolve, reject) => {
+        canvas.toBlob(blob => {
+            if (!blob) {
+                reject(new Error("unable to export image"));
+                return;
+            }
+            resolve(blob);
+        }, type);
+    });
+}
+
+async function downloadAsciiArtImage(asciiLines, options = {}) {
+    const canvas = renderAsciiArtToCanvas(asciiLines, options);
+    const blob = await exportCanvasAsBlob(canvas, "image/png");
+    const filename = options.filename || "ascii-art.png";
+
+    if (navigator.canShare && typeof File !== "undefined") {
+        try {
+            const file = new File([blob], filename, { type: "image/png" });
+            if (navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                    files: [file],
+                    title: options.title || "ASCII art image"
+                });
+                return;
+            }
+        } catch (error) {
+            if (error && error.name !== "AbortError") {
+                console.error("ascii share failed", error);
+            } else {
+                return;
+            }
+        }
+    }
+
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = filename;
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
 function showAsciiStill(asciiLines, options = {}) {
     const terminal = document.getElementById("terminal");
     terminal.classList.add("viewer-mode");
@@ -75,7 +165,10 @@ function showAsciiStill(asciiLines, options = {}) {
         <div class="ascii-viewer">
             <div class="ascii-toolbar">
                 <span class="ascii-title">${options.title || "ascii viewer"}</span>
-                <button type="button" class="ascii-close" id="ascii-close-button">close</button>
+                <div class="ascii-actions">
+                    ${options.download ? `<button type="button" class="ascii-save" id="ascii-save-button">${options.download.label || "save"}</button>` : ""}
+                    <button type="button" class="ascii-close" id="ascii-close-button">close</button>
+                </div>
             </div>
             <div class="ascii-hint">${options.hint || "drag to pan, pinch to zoom"}</div>
             <div class="ascii-scroll" id="ascii-scroll-region">
@@ -91,6 +184,10 @@ function showAsciiStill(asciiLines, options = {}) {
         if (closeButton) {
             closeButton.removeEventListener("click", restoreTerminal);
         }
+        const saveButton = document.getElementById("ascii-save-button");
+        if (saveButton) {
+            saveButton.removeEventListener("click", handleAsciiSave);
+        }
         setupTerminal();
     };
 
@@ -100,8 +197,34 @@ function showAsciiStill(asciiLines, options = {}) {
         }
     };
 
+    const handleAsciiSave = async () => {
+        try {
+            const saveButton = document.getElementById("ascii-save-button");
+            if (saveButton) {
+                saveButton.disabled = true;
+                saveButton.textContent = "saving";
+            }
+            await downloadAsciiArtImage(asciiLines, {
+                filename: options.download && options.download.filename ? options.download.filename : "ascii-art.png",
+                title: options.title || "ASCII art image"
+            });
+        } catch (error) {
+            console.error("ascii save failed", error);
+        } finally {
+            const saveButton = document.getElementById("ascii-save-button");
+            if (saveButton) {
+                saveButton.disabled = false;
+                saveButton.textContent = options.download && options.download.label ? options.download.label : "save";
+            }
+        }
+    };
+
     document.addEventListener("keydown", handleAsciiKeyDown);
     document.getElementById("ascii-close-button").addEventListener("click", restoreTerminal);
+    const saveButton = document.getElementById("ascii-save-button");
+    if (saveButton) {
+        saveButton.addEventListener("click", handleAsciiSave);
+    }
 }
 
 async function handleKeyDown(e) {

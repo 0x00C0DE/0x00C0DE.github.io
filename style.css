@@ -162,11 +162,18 @@ A {
     gap: 1rem;
 }
 
+.ascii-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+}
+
 .ascii-title {
     color: #ffd166;
     text-transform: lowercase;
 }
 
+.ascii-save,
 .ascii-close {
     font-family: "Courier New", monospace;
     font-size: clamp(12px, 0.95vw, 16px);
@@ -175,6 +182,11 @@ A {
     color: #ff8f99;
     padding: 0.35rem 0.75rem;
     cursor: pointer;
+}
+
+.ascii-save:disabled {
+    opacity: 0.65;
+    cursor: progress;
 }
 
 .ascii-hint {
