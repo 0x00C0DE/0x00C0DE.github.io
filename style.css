@@ -132,7 +132,8 @@ A {
     display: none;
 }
 
-#asciiArt {
+#asciiArt,
+.ascii-output {
     font-family: "Courier New", monospace;
     font-size: clamp(7px, 0.62vw, 12px);
     line-height: clamp(7px, 0.62vw, 12px);

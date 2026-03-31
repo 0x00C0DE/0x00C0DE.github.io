@@ -262,6 +262,10 @@ async function renderImageToAscii(imageSource, width, height, options = {}) {
     return processImage(context, width, height);
 }
 
+function formatAsciiOutput(lines) {
+    return [`<div class="ascii-output">${lines.join('<br>')}</div>`];
+}
+
 async function selectUserImageFile() {
     const input = document.getElementById('user-image-input');
     if (!input) {
@@ -452,8 +456,8 @@ async function post_command(args) {
 }
 
 async function userpic_command(args) {
-    const width = args[0] ? parseInt(args[0], 10) : 100;
-    const height = args[1] ? parseInt(args[1], 10) : 90;
+    const width = args[0] ? parseInt(args[0], 10) : 160;
+    const height = args[1] ? parseInt(args[1], 10) : 80;
 
     const file = await selectUserImageFile();
     if (!file) {
@@ -465,7 +469,8 @@ async function userpic_command(args) {
 
     try {
         const image = await decodeSelectedImage(file);
-        return await renderImageToAscii(image, width, height, { preserveAspectRatio: true });
+        const asciiLines = await renderImageToAscii(image, width, height, { preserveAspectRatio: true });
+        return formatAsciiOutput(asciiLines);
     } catch (error) {
         console.error('userpic failed', error);
         return ['userpic: unable to process selected image'];
