@@ -8,7 +8,8 @@
         "About this website",
         "------------------",
         "This website mimics an old unix terminal, following the interaction style of yangeorget.net.",
-        "Use cat PROJECTS.txt to browse pinned work, or type help for the full command list."
+        "Use cat PROJECTS.txt to browse pinned work, or type help for the full command list.",
+        "The fortune command pulls live fortune-cookie messages from astrology.com."
     ],
     "PROJECTS.txt": [
         "Pinned projects",
@@ -71,6 +72,9 @@
     ]
 };
 
+const ASTROLOGY_FORTUNE_URL = 'https://www.astrology.com/compatibility/fortune-cookie.html';
+const ASTROLOGY_FORTUNE_PROXY_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(ASTROLOGY_FORTUNE_URL)}`;
+
 function banner_command() {
     return [
         ' ',
@@ -87,7 +91,7 @@ function help_command() {
         '  clear       - Clear the terminal screen',
         '  date        - Display current date and time',
         '  echo        - Display text',
-        '  fortune     - Display a random fortune',
+        '  fortune     - Display a live fortune from astrology.com',
         '  github      - Open GitHub in a new tab',
         '  help        - Show this help message',
         '  history     - Show command history',
@@ -134,16 +138,31 @@ function echo_command(args) {
     return [args.join(' ')];
 }
 
-function fortune_command() {
-    const fortunes = [
-        'Talk is cheap. Show me the code.',
-        'The best way to predict the future is to invent it.',
-        'I would tell you a joke about UDP, but you might not get it.',
-        'Good software, like wine, takes time.',
-        'There are only two hard things in Computer Science: cache invalidation and naming things.',
-        'A bug is never just a bug. It is always a clue.'
-    ];
-    return [fortunes[Math.floor(Math.random() * fortunes.length)]];
+function parseAstrologyFortunes(source) {
+    const match = source.match(/const\s+FORTUNE_COOKIE_RESP\s*=\s*(\[[\s\S]*?\]);/);
+    if (!match) {
+        throw new Error('fortune array not found');
+    }
+    const fortunes = JSON.parse(match[1]);
+    if (!Array.isArray(fortunes) || fortunes.length === 0) {
+        throw new Error('fortune array empty');
+    }
+    return fortunes;
+}
+
+async function fortune_command() {
+    try {
+        const response = await fetch(ASTROLOGY_FORTUNE_PROXY_URL, { cache: 'no-store' });
+        if (!response.ok) {
+            throw new Error(`request failed with status ${response.status}`);
+        }
+        const html = await response.text();
+        const fortunes = parseAstrologyFortunes(html);
+        return [fortunes[Math.floor(Math.random() * fortunes.length)]];
+    } catch (error) {
+        console.error('fortune fetch failed', error);
+        return ['fortune: unable to retrieve astrology.com fortune right now'];
+    }
 }
 
 function github_command() {
