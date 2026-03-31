@@ -31,8 +31,13 @@ After deploying this branch, the Worker exposes:
 
 - `GET /api/visitors`
 - `POST /api/visitors/track`
+- `POST /api/visitors/leave`
 
-The frontend creates a stable browser visitor ID in `localStorage` and sends it to the Worker so the count reflects unique browsers/devices rather than raw page reloads.
+The frontend creates a stable browser visitor ID in `localStorage` plus a per-page visit ID, so the widget can track:
+
+- total visits
+- unique visitors
+- currently on-site visitors
 
 ## Local development
 
@@ -74,3 +79,4 @@ Visitor counter endpoints after redeploying this Worker:
 
 - `https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors`
 - `https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/track`
+- `https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/leave`

@@ -21,6 +21,10 @@ export default {
             return handleVisitorTrack(request, env);
         }
 
+        if (request.method === 'POST' && url.pathname === '/api/visitors/leave') {
+            return handleVisitorLeave(request, env);
+        }
+
         if (request.method === 'POST' && url.pathname === '/api/blog/append') {
             return handleAppend(request, env);
         }
@@ -44,25 +48,23 @@ export class VisitorCounter {
         if (request.method === 'POST' && url.pathname === '/track') {
             const body = await request.json().catch(() => null);
             const visitorId = sanitizeVisitorId(body?.visitorId);
-            if (!visitorId) {
-                return new Response(JSON.stringify({ error: 'visitorId is required' }), {
-                    status: 400,
-                    headers: {
-                        'Content-Type': 'application/json; charset=utf-8'
-                    }
-                });
+            const visitId = sanitizeVisitId(body?.visitId);
+            const action = body?.action === 'visit' ? 'visit' : 'heartbeat';
+            if (!visitorId || !visitId) {
+                return this.jsonErrorResponse('visitorId and visitId are required', 400);
             }
 
-            const totalVisitors = await this.trackVisitor(visitorId);
-            return new Response(JSON.stringify({
-                ok: true,
-                totalVisitors
-            }), {
-                status: 200,
-                headers: {
-                    'Content-Type': 'application/json; charset=utf-8'
-                }
-            });
+            return this.jsonSuccessResponse(await this.trackVisitor(visitorId, visitId, action));
+        }
+
+        if (request.method === 'POST' && url.pathname === '/leave') {
+            const body = await request.json().catch(() => null);
+            const visitId = sanitizeVisitId(body?.visitId);
+            if (!visitId) {
+                return this.jsonErrorResponse('visitId is required', 400);
+            }
+
+            return this.jsonSuccessResponse(await this.removeVisit(visitId));
         }
 
         return new Response(JSON.stringify({ error: 'not found' }), {
@@ -73,11 +75,10 @@ export class VisitorCounter {
         });
     }
 
-    async getCountResponse() {
-        const totalVisitors = Number(await this.state.storage.get('totalVisitors') || 0);
+    jsonSuccessResponse(stats) {
         return new Response(JSON.stringify({
             ok: true,
-            totalVisitors
+            ...stats
         }), {
             status: 200,
             headers: {
@@ -86,18 +87,99 @@ export class VisitorCounter {
         });
     }
 
-    async trackVisitor(visitorId) {
-        const visitorKey = `visitor:${visitorId}`;
-        const alreadySeen = await this.state.storage.get(visitorKey);
-        let totalVisitors = Number(await this.state.storage.get('totalVisitors') || 0);
+    jsonErrorResponse(error, status) {
+        return new Response(JSON.stringify({ error }), {
+            status,
+            headers: {
+                'Content-Type': 'application/json; charset=utf-8'
+            }
+        });
+    }
 
-        if (!alreadySeen) {
-            totalVisitors += 1;
-            await this.state.storage.put(visitorKey, Date.now());
-            await this.state.storage.put('totalVisitors', totalVisitors);
+    async getCountResponse() {
+        const snapshot = await this.readSnapshot();
+        const activeSessions = await this.pruneActiveSessions(snapshot.activeSessions);
+        return this.jsonSuccessResponse({
+            visits: snapshot.visits,
+            uniqueVisitors: snapshot.uniqueVisitors,
+            onSite: Object.keys(activeSessions).length
+        });
+    }
+
+    async trackVisitor(visitorId, visitId, action) {
+        const snapshot = await this.readSnapshot();
+        let { visits, uniqueVisitors, activeSessions } = snapshot;
+        activeSessions = await this.pruneActiveSessions(activeSessions);
+
+        if (action === 'visit') {
+            visits += 1;
         }
 
-        return totalVisitors;
+        const visitorKey = `visitor:${visitorId}`;
+        const alreadySeen = await this.state.storage.get(visitorKey);
+        if (!alreadySeen) {
+            uniqueVisitors += 1;
+            await this.state.storage.put(visitorKey, Date.now());
+        }
+
+        activeSessions[visitId] = Date.now();
+
+        await this.state.storage.put({
+            totalVisits: visits,
+            totalUniqueVisitors: uniqueVisitors,
+            activeSessions
+        });
+
+        return {
+            visits,
+            uniqueVisitors,
+            onSite: Object.keys(activeSessions).length
+        };
+    }
+
+    async removeVisit(visitId) {
+        const snapshot = await this.readSnapshot();
+        const activeSessions = await this.pruneActiveSessions(snapshot.activeSessions);
+        if (activeSessions[visitId]) {
+            delete activeSessions[visitId];
+            await this.state.storage.put('activeSessions', activeSessions);
+        }
+
+        return {
+            visits: snapshot.visits,
+            uniqueVisitors: snapshot.uniqueVisitors,
+            onSite: Object.keys(activeSessions).length
+        };
+    }
+
+    async readSnapshot() {
+        const stored = await this.state.storage.get(['totalVisits', 'totalUniqueVisitors', 'totalVisitors', 'activeSessions']);
+        const legacyTotal = Number(stored.totalVisitors || 0);
+        return {
+            visits: Number(stored.totalVisits || legacyTotal),
+            uniqueVisitors: Number(stored.totalUniqueVisitors || legacyTotal),
+            activeSessions: stored.activeSessions || {}
+        };
+    }
+
+    async pruneActiveSessions(activeSessions) {
+        const now = Date.now();
+        let dirty = false;
+        const nextSessions = {};
+
+        for (const [visitId, lastSeen] of Object.entries(activeSessions || {})) {
+            if (Number(lastSeen) + VISITOR_ONSITE_WINDOW_MS > now) {
+                nextSessions[visitId] = Number(lastSeen);
+            } else {
+                dirty = true;
+            }
+        }
+
+        if (dirty) {
+            await this.state.storage.put('activeSessions', nextSessions);
+        }
+
+        return nextSessions;
     }
 }
 
@@ -127,6 +209,25 @@ async function handleVisitorTrack(request, env) {
     });
     return proxyJsonResponse(response, env.ALLOWED_ORIGIN);
 }
+
+async function handleVisitorLeave(request, env) {
+    if (!env.VISITOR_COUNTER) {
+        return jsonResponse({ error: 'visitor counter binding not configured' }, 500, env.ALLOWED_ORIGIN);
+    }
+
+    const body = await request.text();
+    const stub = getVisitorCounterStub(env);
+    const response = await stub.fetch('https://visitor-counter/leave', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body
+    });
+    return proxyJsonResponse(response, env.ALLOWED_ORIGIN);
+}
+
+const VISITOR_ONSITE_WINDOW_MS = 120000;
 
 async function handleAppend(request, env) {
     try {
@@ -178,6 +279,19 @@ function containsControlCharacters(value) {
 }
 
 function sanitizeVisitorId(value) {
+    if (typeof value !== 'string') {
+        return '';
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed || trimmed.length > 128) {
+        return '';
+    }
+
+    return trimmed.replace(/[^a-zA-Z0-9:_-]/g, '');
+}
+
+function sanitizeVisitId(value) {
     if (typeof value !== 'string') {
         return '';
     }

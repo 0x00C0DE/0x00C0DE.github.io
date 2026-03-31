@@ -93,8 +93,9 @@ const ASTROLOGY_FORTUNE_SOURCES = [
 const BLOG_POST_API_URL = window.BLOG_POST_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/append';
 const VISITOR_COUNT_API_URL = window.VISITOR_COUNT_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors';
 const VISITOR_TRACK_API_URL = window.VISITOR_TRACK_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/track';
+const VISITOR_LEAVE_API_URL = window.VISITOR_LEAVE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/leave';
 const BLOG_MAX_POST_LENGTH = 500;
-const VISITOR_COUNTER_REFRESH_MS = 30000;
+const VISITOR_HEARTBEAT_MS = 20000;
 const TEXT_FILES = Object.freeze([
     'BLOG.txt',
     'README.txt',
@@ -111,10 +112,12 @@ const TEXT_FILES = Object.freeze([
 const TEXT_FILE_LOOKUP = new Map(TEXT_FILES.map(filename => [filename.toUpperCase(), filename]));
 const visitorCounterState = {
     visitorId: null,
-    currentTotal: null,
+    visitId: null,
+    stats: null,
     initialized: false,
-    pollingId: null,
-    pending: null
+    heartbeatId: null,
+    pendingStats: null,
+    leaveSent: false
 };
 
 function escapeHtml(text) {
@@ -180,7 +183,7 @@ function banner_command() {
     return [
         ' ',
         '<div class="banner-art">0x00C0DE</div>',
-        '<div id="visitor-counter-line" data-visitor-counter>Visitors seen: loading...</div>',
+        buildVisitorWidgetMarkup(),
         'Type "help" for a list of commands.',
         ' '
     ];
@@ -205,7 +208,7 @@ function help_command() {
         '  pwd         - Print working directory',
         '  resume      - Open my resume PDF in a new tab',
         '  userpic w h - Upload or take your own picture and display it as ASCII art',
-        '  visitors    - Display the live total visitor count',
+        '  visitors    - Display the live visitor stats widget',
         '  whoami      - Print current username',
         '  instagram   - Open Instagram in a new tab',
         '  projects    - Open the projects terminal page',
@@ -523,6 +526,13 @@ function generateVisitorId() {
     return `visitor-${Date.now().toString(36)}-${randomChunk}`;
 }
 
+function getCurrentVisitId() {
+    if (!visitorCounterState.visitId) {
+        visitorCounterState.visitId = generateVisitorId().replace(/^visitor-/, 'visit-');
+    }
+    return visitorCounterState.visitId;
+}
+
 function getPersistentVisitorId() {
     if (visitorCounterState.visitorId) {
         return visitorCounterState.visitorId;
@@ -550,54 +560,97 @@ function getPersistentVisitorId() {
     return nextId;
 }
 
+function getDefaultVisitorStats() {
+    return {
+        visits: 0,
+        uniqueVisitors: 0,
+        onSite: 0
+    };
+}
+
+function getCurrentVisitorStats() {
+    return visitorCounterState.stats || getDefaultVisitorStats();
+}
+
+function formatVisitorDigits(value, width = 7) {
+    const safeValue = Math.max(0, Number.isFinite(value) ? Math.floor(value) : 0);
+    const digits = String(safeValue).padStart(width, '0');
+    const firstNonZeroIndex = digits.search(/[1-9]/);
+    const zeroCutoff = firstNonZeroIndex === -1 ? digits.length - 1 : firstNonZeroIndex;
+
+    return digits
+        .split('')
+        .map((digit, index) => {
+            const className = digit === '0' && index < zeroCutoff ? 'visitor-digit visitor-digit-dim' : 'visitor-digit';
+            return `<span class="${className}">${digit}</span>`;
+        })
+        .join('');
+}
+
+function buildVisitorWidgetMarkup(stats = null) {
+    const currentStats = stats || getCurrentVisitorStats();
+    return `
+        <div class="visitor-widget" data-visitor-counter>
+            <div class="visitor-widget-row">
+                <span class="visitor-label">Visits:</span>
+                <span class="visitor-value" data-visitor-field="visits">${formatVisitorDigits(currentStats.visits)}</span>
+            </div>
+            <div class="visitor-widget-row">
+                <span class="visitor-label">Uniq. Visitors:</span>
+                <span class="visitor-value" data-visitor-field="uniqueVisitors">${formatVisitorDigits(currentStats.uniqueVisitors)}</span>
+            </div>
+            <div class="visitor-widget-row">
+                <span class="visitor-label">On-site:</span>
+                <span class="visitor-value" data-visitor-field="onSite">${formatVisitorDigits(currentStats.onSite)}</span>
+            </div>
+        </div>
+    `.trim();
+}
+
 function renderVisitorCounter() {
     const elements = document.querySelectorAll('[data-visitor-counter]');
     if (!elements.length) {
         return;
     }
 
-    const content = Number.isFinite(visitorCounterState.currentTotal)
-        ? `Visitors seen: ${visitorCounterState.currentTotal}`
-        : 'Visitors seen: loading...';
-
+    const currentStats = getCurrentVisitorStats();
     elements.forEach(element => {
-        element.textContent = content;
+        element.querySelectorAll('[data-visitor-field]').forEach(field => {
+            const fieldName = field.getAttribute('data-visitor-field');
+            field.innerHTML = formatVisitorDigits(currentStats[fieldName]);
+        });
     });
 }
 
-async function fetchVisitorCounter(options = {}) {
-    const shouldTrack = Boolean(options.track);
-    if (visitorCounterState.pending) {
-        return visitorCounterState.pending;
+function isValidVisitorStats(payload) {
+    return ['visits', 'uniqueVisitors', 'onSite'].every(key => typeof payload?.[key] === 'number');
+}
+
+function extractVisitorStats(payload) {
+    return {
+        visits: payload.visits,
+        uniqueVisitors: payload.uniqueVisitors,
+        onSite: payload.onSite
+    };
+}
+
+async function fetchVisitorStats() {
+    if (visitorCounterState.pendingStats) {
+        return visitorCounterState.pendingStats;
     }
 
-    const url = shouldTrack ? VISITOR_TRACK_API_URL : VISITOR_COUNT_API_URL;
-    const requestOptions = shouldTrack
-        ? {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                visitorId: getPersistentVisitorId()
-            })
-        }
-        : {
-            method: 'GET'
-        };
-
-    visitorCounterState.pending = fetch(url, {
-        ...requestOptions,
+    visitorCounterState.pendingStats = fetch(VISITOR_COUNT_API_URL, {
+        method: 'GET',
         cache: 'no-store'
     })
         .then(async response => {
             const payload = await response.json().catch(() => ({}));
-            if (!response.ok || typeof payload.totalVisitors !== 'number') {
+            if (!response.ok || !isValidVisitorStats(payload)) {
                 throw new Error(payload.error || `request failed with status ${response.status}`);
             }
-            visitorCounterState.currentTotal = payload.totalVisitors;
+            visitorCounterState.stats = extractVisitorStats(payload);
             renderVisitorCounter();
-            return payload.totalVisitors;
+            return visitorCounterState.stats;
         })
         .catch(error => {
             console.error('visitor counter failed', error);
@@ -605,19 +658,80 @@ async function fetchVisitorCounter(options = {}) {
             throw error;
         })
         .finally(() => {
-            visitorCounterState.pending = null;
+            visitorCounterState.pendingStats = null;
         });
 
-    return visitorCounterState.pending;
+    return visitorCounterState.pendingStats;
+}
+
+async function sendVisitorTrack(action = 'heartbeat') {
+    const response = await fetch(VISITOR_TRACK_API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            visitorId: getPersistentVisitorId(),
+            visitId: getCurrentVisitId(),
+            action
+        }),
+        cache: 'no-store'
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !isValidVisitorStats(payload)) {
+        throw new Error(payload.error || `request failed with status ${response.status}`);
+    }
+
+    visitorCounterState.stats = extractVisitorStats(payload);
+    renderVisitorCounter();
+    return visitorCounterState.stats;
+}
+
+function sendVisitorLeave() {
+    if (!visitorCounterState.initialized || visitorCounterState.leaveSent) {
+        return;
+    }
+
+    visitorCounterState.leaveSent = true;
+    const payload = JSON.stringify({
+        visitId: getCurrentVisitId()
+    });
+
+    try {
+        if (navigator.sendBeacon) {
+            const body = new Blob([payload], { type: 'application/json' });
+            navigator.sendBeacon(VISITOR_LEAVE_API_URL, body);
+            return;
+        }
+    } catch (error) {
+        console.warn('visitor leave beacon failed', error);
+    }
+
+    fetch(VISITOR_LEAVE_API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: payload,
+        keepalive: true
+    }).catch(() => null);
 }
 
 function initVisitorTracking() {
     if (!visitorCounterState.initialized) {
         visitorCounterState.initialized = true;
-        fetchVisitorCounter({ track: true }).catch(() => null);
-        visitorCounterState.pollingId = window.setInterval(() => {
-            fetchVisitorCounter().catch(() => null);
-        }, VISITOR_COUNTER_REFRESH_MS);
+        sendVisitorTrack('visit').catch(() => {
+            fetchVisitorStats().catch(() => null);
+        });
+        visitorCounterState.heartbeatId = window.setInterval(() => {
+            sendVisitorTrack('heartbeat').catch(() => {
+                fetchVisitorStats().catch(() => null);
+            });
+        }, VISITOR_HEARTBEAT_MS);
+
+        window.addEventListener('pagehide', sendVisitorLeave, { once: true });
+        window.addEventListener('beforeunload', sendVisitorLeave, { once: true });
     } else {
         renderVisitorCounter();
     }
@@ -626,10 +740,10 @@ function initVisitorTracking() {
 async function visitors_command() {
     try {
         initVisitorTracking();
-        const total = await fetchVisitorCounter();
-        return [`Visitors seen: ${total}`];
+        const stats = await fetchVisitorStats();
+        return [buildVisitorWidgetMarkup(stats)];
     } catch (error) {
-        return ['visitors: unable to retrieve the live visitor count right now'];
+        return ['visitors: unable to retrieve the live visitor stats right now'];
     }
 }
 
