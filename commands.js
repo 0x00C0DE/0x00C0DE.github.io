@@ -73,7 +73,23 @@
 };
 
 const ASTROLOGY_FORTUNE_URL = 'https://www.astrology.com/compatibility/fortune-cookie.html';
-const ASTROLOGY_FORTUNE_PROXY_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(ASTROLOGY_FORTUNE_URL)}`;
+const ASTROLOGY_FORTUNE_SOURCES = [
+    {
+        url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(ASTROLOGY_FORTUNE_URL)}`,
+        parseResponse: async response => response.text()
+    },
+    {
+        url: `https://api.allorigins.win/get?url=${encodeURIComponent(ASTROLOGY_FORTUNE_URL)}`,
+        parseResponse: async response => {
+            const payload = await response.json();
+            return payload.contents || '';
+        }
+    },
+    {
+        url: `https://api.allorigins.win/raw?url=${encodeURIComponent(ASTROLOGY_FORTUNE_URL)}`,
+        parseResponse: async response => response.text()
+    }
+];
 const TEXT_FILES = Object.freeze([
     'README.txt',
     'PROJECTS.txt',
@@ -214,7 +230,7 @@ function echo_command(args) {
 }
 
 function parseAstrologyFortunes(source) {
-    const match = source.match(/const\s+FORTUNE_COOKIE_RESP\s*=\s*(\[[\s\S]*?\]);/);
+    const match = source.match(/(?:const|let|var)\s+FORTUNE_COOKIE_RESP\s*=\s*(\[[\s\S]*?\]);/);
     if (!match) {
         throw new Error('fortune array not found');
     }
@@ -226,18 +242,21 @@ function parseAstrologyFortunes(source) {
 }
 
 async function fortune_command() {
-    try {
-        const response = await fetch(ASTROLOGY_FORTUNE_PROXY_URL, { cache: 'no-store' });
-        if (!response.ok) {
-            throw new Error(`request failed with status ${response.status}`);
+    for (const source of ASTROLOGY_FORTUNE_SOURCES) {
+        try {
+            const response = await fetch(source.url, { cache: 'no-store' });
+            if (!response.ok) {
+                throw new Error(`request failed with status ${response.status}`);
+            }
+            const html = await source.parseResponse(response);
+            const fortunes = parseAstrologyFortunes(html);
+            return [fortunes[Math.floor(Math.random() * fortunes.length)]];
+        } catch (error) {
+            console.error(`fortune fetch failed for ${source.url}`, error);
         }
-        const html = await response.text();
-        const fortunes = parseAstrologyFortunes(html);
-        return [fortunes[Math.floor(Math.random() * fortunes.length)]];
-    } catch (error) {
-        console.error('fortune fetch failed', error);
-        return ['fortune: unable to retrieve astrology.com fortune right now'];
     }
+
+    return ['fortune: unable to retrieve astrology.com fortune right now'];
 }
 
 function github_command() {
