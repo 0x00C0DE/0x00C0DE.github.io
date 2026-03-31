@@ -11,11 +11,12 @@
         const DEFAULT_COMMAND = "cat SMALLSH.txt";
     </script>
     <script src="pictures.js?v=20260331b"></script>
-    <script src="commands.js?v=20260331h"></script>
+    <script src="commands.js?v=20260331i"></script>
     <script src="term.js?v=20260331b"></script>
 </head>
 <body>
     <canvas id="canvas"></canvas>
+    <input id="user-image-input" type="file" accept="image/*" capture="environment" hidden>
     <div id="terminal" class="terminal-container"></div>
     <script>
         const urlParams = new URLSearchParams(window.location.search);

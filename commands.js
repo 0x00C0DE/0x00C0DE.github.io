@@ -185,10 +185,11 @@ function help_command() {
         '  linkedin    - Open LinkedIn in a new tab',
         '  ls          - List directory contents',
         '  movie w h   - Display your live camera footage as ASCII art at size w x h (press any key to stop)',
-        '  picture w h - Display an ASCII picture at size w x h',
+        '  picture w h - Display 0x00C0DE\'s picture as ASCII art at size w x h',
         '  post text   - Append a blog entry through the backend API (may take a short time to appear)',
         '  pwd         - Print working directory',
         '  resume      - Open my resume PDF in a new tab',
+        '  userpic w h - Upload or take your own picture and display it as ASCII art',
         '  whoami      - Print current username',
         '  instagram   - Open Instagram in a new tab',
         '  projects    - Open the projects terminal page',
@@ -223,6 +224,71 @@ function normalizeImgurImage(url) {
         return url;
     }
     return `https://i.imgur.com/${match[1]}.jpg`;
+}
+
+function getAsciiCanvasContext(width, height) {
+    const canvas = document.getElementById('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return canvas.getContext('2d', { willReadFrequently: true });
+}
+
+async function renderImageToAscii(imageSource, width, height) {
+    const context = getAsciiCanvasContext(width, height);
+    context.drawImage(imageSource, 0, 0, width, height);
+    return processImage(context, width, height);
+}
+
+async function selectUserImageFile() {
+    const input = document.getElementById('user-image-input');
+    if (!input) {
+        throw new Error('user image input not found');
+    }
+
+    input.value = '';
+
+    return new Promise(resolve => {
+        let settled = false;
+
+        const finish = file => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            input.removeEventListener('change', handleChange);
+            window.removeEventListener('focus', handleFocus);
+            resolve(file || null);
+        };
+
+        const handleChange = () => {
+            finish(input.files && input.files[0] ? input.files[0] : null);
+        };
+
+        const handleFocus = () => {
+            setTimeout(() => {
+                if (!settled) {
+                    finish(input.files && input.files[0] ? input.files[0] : null);
+                }
+            }, 400);
+        };
+
+        input.addEventListener('change', handleChange, { once: true });
+        window.addEventListener('focus', handleFocus, { once: true });
+        input.click();
+    });
+}
+
+async function decodeSelectedImage(file) {
+    const objectUrl = URL.createObjectURL(file);
+
+    try {
+        const image = new Image();
+        image.src = objectUrl;
+        await image.decode();
+        return image;
+    } finally {
+        URL.revokeObjectURL(objectUrl);
+    }
 }
 
 function date_command() {
@@ -300,16 +366,11 @@ async function movie_command(args) {
 async function picture_command(args) {
     const width = args[0] ? parseInt(args[0], 10) : 100;
     const height = args[1] ? parseInt(args[1], 10) : 90;
-    const canvas = document.getElementById('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext('2d', { willReadFrequently: true });
     const img = new Image();
     img.src = normalizeImgurImage('https://imgur.com/KHiJtUI');
     img.setAttribute('crossOrigin', 'anonymous');
     await img.decode();
-    context.drawImage(img, 0, 0, width, height);
-    return processImage(context, width, height);
+    return renderImageToAscii(img, width, height);
 }
 
 async function post_command(args) {
@@ -347,6 +408,24 @@ async function post_command(args) {
     } catch (error) {
         console.error('post failed', error);
         return ['post: backend unavailable right now'];
+    }
+}
+
+async function userpic_command(args) {
+    const width = args[0] ? parseInt(args[0], 10) : 100;
+    const height = args[1] ? parseInt(args[1], 10) : 90;
+
+    const file = await selectUserImageFile();
+    if (!file) {
+        return ['userpic: no image selected'];
+    }
+
+    try {
+        const image = await decodeSelectedImage(file);
+        return await renderImageToAscii(image, width, height);
+    } catch (error) {
+        console.error('userpic failed', error);
+        return ['userpic: unable to process selected image'];
     }
 }
 
