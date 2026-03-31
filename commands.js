@@ -186,7 +186,7 @@ function help_command() {
         '  ls          - List directory contents',
         '  movie w h   - Display your live camera footage as ASCII art at size w x h (press any key to stop)',
         '  picture w h - Display an ASCII picture at size w x h',
-        '  post text   - Append a blog entry through the backend API',
+        '  post text   - Append a blog entry through the backend API (may take a short time to appear)',
         '  pwd         - Print working directory',
         '  resume      - Open my resume PDF in a new tab',
         '  whoami      - Print current username',
