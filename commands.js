@@ -510,7 +510,7 @@ function resume_command() {
 }
 
 function pwd_command() {
-    return ['/home/0x00C0DE/Unk0wn'];
+    return ['/home/0x00C0DE/Unkn0wn'];
 }
 
 function whoami_command() {
