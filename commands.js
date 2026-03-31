@@ -743,7 +743,10 @@ async function visitors_command() {
         const stats = await fetchVisitorStats();
         return [buildVisitorWidgetMarkup(stats)];
     } catch (error) {
-        return ['visitors: unable to retrieve the live visitor stats right now'];
+        return [
+            buildVisitorWidgetMarkup(),
+            'visitors: unable to retrieve the live visitor stats right now'
+        ];
     }
 }
 

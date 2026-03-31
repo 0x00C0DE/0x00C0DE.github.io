@@ -153,9 +153,12 @@ A {
     min-width: min(100%, 18rem);
     margin: 0.35rem 0 0.8rem;
     padding: 0.55rem 0.7rem 0.45rem;
-    border: 1px solid rgba(222, 222, 222, 0.55);
-    background: rgba(0, 0, 0, 0.92);
-    box-shadow: inset 0 0 0 1px rgba(18, 18, 18, 0.9);
+    border: 1px solid rgba(255, 143, 153, 0.65);
+    background:
+        linear-gradient(180deg, rgba(33, 0, 4, 0.96), rgba(10, 0, 1, 0.94));
+    box-shadow:
+        inset 0 0 0 1px rgba(103, 13, 26, 0.95),
+        0 0 0.7rem rgba(120, 15, 31, 0.18);
 }
 
 .visitor-widget-row {
@@ -167,9 +170,9 @@ A {
 }
 
 .visitor-label {
-    color: #7fff7a;
+    color: #ffb3bb;
     font-weight: 700;
-    text-shadow: 0 0 0.22rem rgba(122, 255, 122, 0.45);
+    text-shadow: 0 0 0.22rem rgba(255, 95, 109, 0.35);
 }
 
 .visitor-value {
@@ -178,8 +181,8 @@ A {
     min-width: 7ch;
     justify-content: flex-end;
     font-weight: 700;
-    color: #4dff63;
-    text-shadow: 0 0 0.35rem rgba(77, 255, 99, 0.55);
+    color: #ff5f6d;
+    text-shadow: 0 0 0.35rem rgba(255, 95, 109, 0.45);
 }
 
 .visitor-digit {
@@ -188,7 +191,7 @@ A {
 }
 
 .visitor-digit-dim {
-    color: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 179, 187, 0.16);
     text-shadow: none;
 }
 
