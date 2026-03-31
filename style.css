@@ -1,0 +1,141 @@
+﻿* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background-color: black;
+    background-image: radial-gradient(rgba(85, 10, 16, 0.82), black 120%);
+    overflow: hidden;
+    height: 100vh;
+}
+
+body::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: repeating-linear-gradient(
+        0deg,
+        rgba(0, 0, 0, 0.15),
+        rgba(0, 0, 0, 0.15) 1px,
+        transparent 1px,
+        transparent 2px
+    );
+    pointer-events: none;
+}
+
+.terminal-container {
+    font-family: "Courier New", monospace;
+    font-size: clamp(15px, 1vw, 19px);
+    text-shadow: 0 0 0.4vw #c8c8c8;
+    line-height: clamp(17px, 1vw, 21px);
+    width: 100vw;
+    height: 100vh;
+    color: #ff5f6d;
+    padding: 1vw;
+    overflow-y: auto;
+    white-space: pre-wrap;
+}
+
+.terminal-line {
+    margin-bottom: 0;
+    white-space: pre-wrap;
+}
+
+.banner-art {
+    display: block;
+    margin: 0.4vw 0 0.9vw;
+    font-size: clamp(72px, 7.2vw, 144px);
+    line-height: 0.88;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: #ff6b78;
+    text-shadow:
+        0 0 0.25vw #fff2f3,
+        0 0 0.7vw #ff6b78,
+        0.12vw 0.12vw 0 #6a101c,
+        0.24vw 0.24vw 0 #9a1c2d;
+}
+
+A {
+    color: #ff8f99;
+}
+
+.prompt {
+    color: #ff5f6d;
+    font-weight: bold;
+}
+
+.prompt-user {
+    color: #ff5f6d;
+}
+
+.prompt-host {
+    color: #ffb3bb;
+}
+
+.prompt-path {
+    color: #ffd166;
+}
+
+.input-line {
+    display: flex;
+    align-items: flex-start;
+    margin-top: 0;
+}
+
+.terminal-input {
+    font-family: "Courier New", monospace;
+    font-size: clamp(15px, 1vw, 19px);
+    line-height: clamp(17px, 1vw, 21px);
+    text-shadow: 0 0 0.4vw #c8c8c8;
+    background: transparent;
+    border: none;
+    color: #ff5f6d;
+    outline: none;
+    flex: 1;
+    margin-left: 0;
+    caret-color: #ff5f6d;
+}
+
+.error {
+    color: #ff5555;
+}
+
+.header {
+    color: #ffffff;
+}
+
+.terminal-container::-webkit-scrollbar {
+    width: 1vw;
+    background: #000;
+}
+
+.terminal-container::-webkit-scrollbar-thumb {
+    background: #333;
+    border: 0.1vw solid #000;
+}
+
+.terminal-container::-webkit-scrollbar-track {
+    background: #000;
+}
+
+#videoFeed {
+    display: none;
+}
+
+#canvas {
+    display: none;
+}
+
+#asciiArt {
+    font-family: "Courier New", monospace;
+    font-size: clamp(7px, 0.62vw, 12px);
+    line-height: clamp(7px, 0.62vw, 12px);
+    white-space: pre;
+    color: #ff5f6d;
+}

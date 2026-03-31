@@ -1,0 +1,27 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Bloom filter password screening project page.">
+    <meta http-equiv="Cache-Control" content="no-cache">
+    <title>Bloom Filters | 0x00C0DE</title>
+    <link rel="stylesheet" href="style.css">
+    <script>
+        const DEFAULT_COMMAND = "cat BLOOM.txt";
+    </script>
+    <script src="pictures.js"></script>
+    <script src="commands.js"></script>
+    <script src="term.js"></script>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="terminal" class="terminal-container"></div>
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const command = urlParams.get('command');
+        setupTerminal();
+        executeCommand(command ? command : DEFAULT_COMMAND);
+    </script>
+</body>
+</html>
