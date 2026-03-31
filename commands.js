@@ -90,7 +90,7 @@ const ASTROLOGY_FORTUNE_SOURCES = [
         parseResponse: async response => response.text()
     }
 ];
-const BLOG_POST_API_URL = window.BLOG_POST_API_URL || 'https://your-worker-subdomain.workers.dev/api/blog/append';
+const BLOG_POST_API_URL = window.BLOG_POST_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/append';
 const BLOG_MAX_POST_LENGTH = 500;
 const TEXT_FILES = Object.freeze([
     'BLOG.txt',

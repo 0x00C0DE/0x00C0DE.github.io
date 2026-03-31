@@ -53,3 +53,7 @@ Before `commands.js` loads, set:
   window.BLOG_POST_API_URL = "https://your-worker-subdomain.workers.dev/api/blog/append";
 </script>
 ```
+
+Current deployed endpoint:
+
+`https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/append`
