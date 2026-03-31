@@ -281,7 +281,8 @@ function instagram_command() {
 }
 
 function linkedin_command() {
-    return ['linkedin: profile not configured'];
+    window.open('https://www.linkedin.com/in/braden-lee-7074491b0/', '_blank');
+    return [];
 }
 
 function ls_command() {
