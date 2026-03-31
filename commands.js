@@ -233,28 +233,37 @@ function getAsciiCanvasContext(width, height) {
     return canvas.getContext('2d', { willReadFrequently: true });
 }
 
-function drawImageContained(context, imageSource, width, height) {
+function drawImageCover(context, imageSource, width, height) {
     const sourceWidth = imageSource.naturalWidth || imageSource.videoWidth || imageSource.width;
     const sourceHeight = imageSource.naturalHeight || imageSource.videoHeight || imageSource.height;
-    const scale = Math.min(width / sourceWidth, height / sourceHeight);
-    const drawWidth = Math.max(1, Math.round(sourceWidth * scale));
-    const drawHeight = Math.max(1, Math.round(sourceHeight * scale));
-    const offsetX = Math.floor((width - drawWidth) / 2);
-    const offsetY = Math.floor((height - drawHeight) / 2);
+    const sourceAspect = sourceWidth / sourceHeight;
+    const targetAspect = width / height;
+    let cropWidth = sourceWidth;
+    let cropHeight = sourceHeight;
+    let cropX = 0;
+    let cropY = 0;
+
+    if (sourceAspect > targetAspect) {
+        cropWidth = Math.round(sourceHeight * targetAspect);
+        cropX = Math.floor((sourceWidth - cropWidth) / 2);
+    } else if (sourceAspect < targetAspect) {
+        cropHeight = Math.round(sourceWidth / targetAspect);
+        cropY = Math.floor((sourceHeight - cropHeight) / 2);
+    }
 
     context.fillStyle = '#000000';
     context.fillRect(0, 0, width, height);
-    context.drawImage(imageSource, offsetX, offsetY, drawWidth, drawHeight);
+    context.drawImage(imageSource, cropX, cropY, cropWidth, cropHeight, 0, 0, width, height);
 }
 
 async function renderImageToAscii(imageSource, width, height, options = {}) {
-    const { preserveAspectRatio = false } = options;
+    const { fit = 'stretch' } = options;
     const context = getAsciiCanvasContext(width, height);
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = 'high';
 
-    if (preserveAspectRatio) {
-        drawImageContained(context, imageSource, width, height);
+    if (fit === 'cover') {
+        drawImageCover(context, imageSource, width, height);
     } else {
         context.drawImage(imageSource, 0, 0, width, height);
     }
@@ -262,14 +271,14 @@ async function renderImageToAscii(imageSource, width, height, options = {}) {
     return processImage(context, width, height);
 }
 
-function formatAsciiOutput(lines) {
-    return [`<div class="ascii-output">${lines.join('<br>')}</div>`];
-}
-
 async function selectUserImageFile() {
     const input = document.getElementById('user-image-input');
     if (!input) {
         throw new Error('user image input not found');
+    }
+
+    if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
     }
 
     input.value = '';
@@ -469,8 +478,9 @@ async function userpic_command(args) {
 
     try {
         const image = await decodeSelectedImage(file);
-        const asciiLines = await renderImageToAscii(image, width, height, { preserveAspectRatio: true });
-        return formatAsciiOutput(asciiLines);
+        const asciiLines = await renderImageToAscii(image, width, height, { fit: 'cover' });
+        showAsciiStill(asciiLines);
+        return [];
     } catch (error) {
         console.error('userpic failed', error);
         return ['userpic: unable to process selected image'];

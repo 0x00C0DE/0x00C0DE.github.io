@@ -66,6 +66,19 @@ async function showMovie(args) {
     }, { once: true });
 }
 
+function showAsciiStill(asciiLines) {
+    document.getElementById("terminal").innerHTML = `<div id="asciiArt"></div>`;
+    document.getElementById("asciiArt").innerHTML = asciiLines.join("<br>");
+
+    const restoreTerminal = () => {
+        setupTerminal();
+    };
+
+    document.addEventListener("keydown", restoreTerminal, { once: true });
+    document.addEventListener("click", restoreTerminal, { once: true });
+    document.addEventListener("touchend", restoreTerminal, { once: true });
+}
+
 async function handleKeyDown(e) {
     const input = e.target;
     if (e.key === "Enter") {
@@ -160,3 +173,4 @@ window.executeCommand = executeCommand;
 window.getPromptPath = () => PROMPT_PATH;
 window.getPromptUser = () => PROMPT_USER;
 window.getPromptHost = () => PROMPT_HOST;
+window.showAsciiStill = showAsciiStill;
