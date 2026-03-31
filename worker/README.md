@@ -26,6 +26,7 @@ wrangler secret put TURNSTILE_SECRET_KEY
 ## Visitor counter binding
 
 The visitor counter uses a Durable Object named `VisitorCounter`, defined in `wrangler.jsonc`.
+This config uses `new_sqlite_classes`, which is required for Durable Objects on Cloudflare's free plan.
 
 After deploying this branch, the Worker exposes:
 
