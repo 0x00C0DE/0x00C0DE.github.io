@@ -91,7 +91,10 @@ const ASTROLOGY_FORTUNE_SOURCES = [
     }
 ];
 const BLOG_POST_API_URL = window.BLOG_POST_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/append';
+const VISITOR_COUNT_API_URL = window.VISITOR_COUNT_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors';
+const VISITOR_TRACK_API_URL = window.VISITOR_TRACK_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/track';
 const BLOG_MAX_POST_LENGTH = 500;
+const VISITOR_COUNTER_REFRESH_MS = 30000;
 const TEXT_FILES = Object.freeze([
     'BLOG.txt',
     'README.txt',
@@ -106,6 +109,13 @@ const TEXT_FILES = Object.freeze([
 ]);
 
 const TEXT_FILE_LOOKUP = new Map(TEXT_FILES.map(filename => [filename.toUpperCase(), filename]));
+const visitorCounterState = {
+    visitorId: null,
+    currentTotal: null,
+    initialized: false,
+    pollingId: null,
+    pending: null
+};
 
 function escapeHtml(text) {
     return text
@@ -163,9 +173,14 @@ async function readTextFile(filename) {
 }
 
 function banner_command() {
+    setTimeout(() => {
+        initVisitorTracking();
+        renderVisitorCounter();
+    }, 0);
     return [
         ' ',
         '<div class="banner-art">0x00C0DE</div>',
+        '<div id="visitor-counter-line" data-visitor-counter>Visitors seen: loading...</div>',
         'Type "help" for a list of commands.',
         ' '
     ];
@@ -190,6 +205,7 @@ function help_command() {
         '  pwd         - Print working directory',
         '  resume      - Open my resume PDF in a new tab',
         '  userpic w h - Upload or take your own picture and display it as ASCII art',
+        '  visitors    - Display the live total visitor count',
         '  whoami      - Print current username',
         '  instagram   - Open Instagram in a new tab',
         '  projects    - Open the projects terminal page',
@@ -496,6 +512,124 @@ async function userpic_command(args) {
     } catch (error) {
         console.error('userpic failed', error);
         return ['userpic: unable to process selected image'];
+    }
+}
+
+function generateVisitorId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID();
+    }
+    const randomChunk = Math.random().toString(36).slice(2);
+    return `visitor-${Date.now().toString(36)}-${randomChunk}`;
+}
+
+function getPersistentVisitorId() {
+    if (visitorCounterState.visitorId) {
+        return visitorCounterState.visitorId;
+    }
+
+    try {
+        const stored = window.localStorage.getItem('siteVisitorId');
+        if (stored) {
+            visitorCounterState.visitorId = stored;
+            return stored;
+        }
+    } catch (error) {
+        console.warn('visitor id storage unavailable', error);
+    }
+
+    const nextId = generateVisitorId();
+    visitorCounterState.visitorId = nextId;
+
+    try {
+        window.localStorage.setItem('siteVisitorId', nextId);
+    } catch (error) {
+        console.warn('unable to persist visitor id', error);
+    }
+
+    return nextId;
+}
+
+function renderVisitorCounter() {
+    const elements = document.querySelectorAll('[data-visitor-counter]');
+    if (!elements.length) {
+        return;
+    }
+
+    const content = Number.isFinite(visitorCounterState.currentTotal)
+        ? `Visitors seen: ${visitorCounterState.currentTotal}`
+        : 'Visitors seen: loading...';
+
+    elements.forEach(element => {
+        element.textContent = content;
+    });
+}
+
+async function fetchVisitorCounter(options = {}) {
+    const shouldTrack = Boolean(options.track);
+    if (visitorCounterState.pending) {
+        return visitorCounterState.pending;
+    }
+
+    const url = shouldTrack ? VISITOR_TRACK_API_URL : VISITOR_COUNT_API_URL;
+    const requestOptions = shouldTrack
+        ? {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                visitorId: getPersistentVisitorId()
+            })
+        }
+        : {
+            method: 'GET'
+        };
+
+    visitorCounterState.pending = fetch(url, {
+        ...requestOptions,
+        cache: 'no-store'
+    })
+        .then(async response => {
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || typeof payload.totalVisitors !== 'number') {
+                throw new Error(payload.error || `request failed with status ${response.status}`);
+            }
+            visitorCounterState.currentTotal = payload.totalVisitors;
+            renderVisitorCounter();
+            return payload.totalVisitors;
+        })
+        .catch(error => {
+            console.error('visitor counter failed', error);
+            renderVisitorCounter();
+            throw error;
+        })
+        .finally(() => {
+            visitorCounterState.pending = null;
+        });
+
+    return visitorCounterState.pending;
+}
+
+function initVisitorTracking() {
+    if (!visitorCounterState.initialized) {
+        visitorCounterState.initialized = true;
+        fetchVisitorCounter({ track: true }).catch(() => null);
+        visitorCounterState.pollingId = window.setInterval(() => {
+            fetchVisitorCounter().catch(() => null);
+        }, VISITOR_COUNTER_REFRESH_MS);
+    } else {
+        renderVisitorCounter();
+    }
+}
+
+async function visitors_command() {
+    try {
+        initVisitorTracking();
+        const total = await fetchVisitorCounter();
+        return [`Visitors seen: ${total}`];
+    } catch (error) {
+        return ['visitors: unable to retrieve the live visitor count right now'];
     }
 }
 

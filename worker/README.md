@@ -1,6 +1,6 @@
 # Cloudflare Worker Blog Append API
 
-This Worker provides the append-only blog endpoint used by the terminal `post` command.
+This Worker provides the append-only blog endpoint used by the terminal `post` command and the live visitor counter used by the terminal site.
 
 ## Why this setup
 
@@ -8,6 +8,7 @@ This Worker provides the append-only blog endpoint used by the terminal `post` c
 - Secrets stay out of the public repo
 - GitHub remains the append-only data store
 - No local server needed for public use
+- Durable Object storage keeps the visitor count exact across requests
 
 ## Required secrets
 
@@ -21,6 +22,17 @@ wrangler secret put TURNSTILE_SECRET_KEY
 ```
 
 `TURNSTILE_SECRET_KEY` is optional. If omitted, Turnstile verification is skipped.
+
+## Visitor counter binding
+
+The visitor counter uses a Durable Object named `VisitorCounter`, defined in `wrangler.jsonc`.
+
+After deploying this branch, the Worker exposes:
+
+- `GET /api/visitors`
+- `POST /api/visitors/track`
+
+The frontend creates a stable browser visitor ID in `localStorage` and sends it to the Worker so the count reflects unique browsers/devices rather than raw page reloads.
 
 ## Local development
 
@@ -57,3 +69,8 @@ Before `commands.js` loads, set:
 Current deployed endpoint:
 
 `https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/append`
+
+Visitor counter endpoints after redeploying this Worker:
+
+- `https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors`
+- `https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/track`

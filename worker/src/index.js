@@ -13,6 +13,14 @@ export default {
             return jsonResponse({ ok: true }, 200, env.ALLOWED_ORIGIN);
         }
 
+        if (request.method === 'GET' && url.pathname === '/api/visitors') {
+            return handleVisitorCount(env);
+        }
+
+        if (request.method === 'POST' && url.pathname === '/api/visitors/track') {
+            return handleVisitorTrack(request, env);
+        }
+
         if (request.method === 'POST' && url.pathname === '/api/blog/append') {
             return handleAppend(request, env);
         }
@@ -20,6 +28,105 @@ export default {
         return jsonResponse({ error: 'not found' }, 404, env.ALLOWED_ORIGIN);
     }
 };
+
+export class VisitorCounter {
+    constructor(state) {
+        this.state = state;
+    }
+
+    async fetch(request) {
+        const url = new URL(request.url);
+
+        if (request.method === 'GET' && url.pathname === '/count') {
+            return this.getCountResponse();
+        }
+
+        if (request.method === 'POST' && url.pathname === '/track') {
+            const body = await request.json().catch(() => null);
+            const visitorId = sanitizeVisitorId(body?.visitorId);
+            if (!visitorId) {
+                return new Response(JSON.stringify({ error: 'visitorId is required' }), {
+                    status: 400,
+                    headers: {
+                        'Content-Type': 'application/json; charset=utf-8'
+                    }
+                });
+            }
+
+            const totalVisitors = await this.trackVisitor(visitorId);
+            return new Response(JSON.stringify({
+                ok: true,
+                totalVisitors
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        return new Response(JSON.stringify({ error: 'not found' }), {
+            status: 404,
+            headers: {
+                'Content-Type': 'application/json; charset=utf-8'
+            }
+        });
+    }
+
+    async getCountResponse() {
+        const totalVisitors = Number(await this.state.storage.get('totalVisitors') || 0);
+        return new Response(JSON.stringify({
+            ok: true,
+            totalVisitors
+        }), {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/json; charset=utf-8'
+            }
+        });
+    }
+
+    async trackVisitor(visitorId) {
+        const visitorKey = `visitor:${visitorId}`;
+        const alreadySeen = await this.state.storage.get(visitorKey);
+        let totalVisitors = Number(await this.state.storage.get('totalVisitors') || 0);
+
+        if (!alreadySeen) {
+            totalVisitors += 1;
+            await this.state.storage.put(visitorKey, Date.now());
+            await this.state.storage.put('totalVisitors', totalVisitors);
+        }
+
+        return totalVisitors;
+    }
+}
+
+async function handleVisitorCount(env) {
+    if (!env.VISITOR_COUNTER) {
+        return jsonResponse({ error: 'visitor counter binding not configured' }, 500, env.ALLOWED_ORIGIN);
+    }
+
+    const stub = getVisitorCounterStub(env);
+    const response = await stub.fetch('https://visitor-counter/count');
+    return proxyJsonResponse(response, env.ALLOWED_ORIGIN);
+}
+
+async function handleVisitorTrack(request, env) {
+    if (!env.VISITOR_COUNTER) {
+        return jsonResponse({ error: 'visitor counter binding not configured' }, 500, env.ALLOWED_ORIGIN);
+    }
+
+    const body = await request.text();
+    const stub = getVisitorCounterStub(env);
+    const response = await stub.fetch('https://visitor-counter/track', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body
+    });
+    return proxyJsonResponse(response, env.ALLOWED_ORIGIN);
+}
 
 async function handleAppend(request, env) {
     try {
@@ -68,6 +175,19 @@ async function handleAppend(request, env) {
 
 function containsControlCharacters(value) {
     return /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(value);
+}
+
+function sanitizeVisitorId(value) {
+    if (typeof value !== 'string') {
+        return '';
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed || trimmed.length > 128) {
+        return '';
+    }
+
+    return trimmed.replace(/[^a-zA-Z0-9:_-]/g, '');
 }
 
 async function verifyTurnstile(secret, token, ip) {
@@ -196,6 +316,11 @@ function githubHeaders(env) {
     };
 }
 
+function getVisitorCounterStub(env) {
+    const id = env.VISITOR_COUNTER.idFromName('0x00c0de-total-visitors');
+    return env.VISITOR_COUNTER.get(id);
+}
+
 function jsonResponse(payload, status, origin, extraHeaders = {}) {
     return new Response(JSON.stringify(payload), {
         status,
@@ -203,6 +328,17 @@ function jsonResponse(payload, status, origin, extraHeaders = {}) {
             'Content-Type': 'application/json; charset=utf-8',
             ...corsHeaders(origin),
             ...extraHeaders
+        }
+    });
+}
+
+async function proxyJsonResponse(response, origin) {
+    const payload = await response.text();
+    return new Response(payload, {
+        status: response.status,
+        headers: {
+            'Content-Type': response.headers.get('Content-Type') || 'application/json; charset=utf-8',
+            ...corsHeaders(origin)
         }
     });
 }

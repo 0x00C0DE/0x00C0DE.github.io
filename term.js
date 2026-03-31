@@ -25,6 +25,7 @@ const commands = {
     pwd: pwd_command,
     resume: resume_command,
     userpic: userpic_command,
+    visitors: visitors_command,
     whoami: whoami_command,
     youtube: youtube_command
 };

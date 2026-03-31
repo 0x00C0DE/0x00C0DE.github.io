@@ -11,8 +11,8 @@
         const DEFAULT_COMMAND = "cat BLOOM.txt";
     </script>
     <script src="pictures.js?v=20260331b"></script>
-    <script src="commands.js?v=20260331m"></script>
-    <script src="term.js?v=20260331d"></script>
+    <script src="commands.js?v=20260331n"></script>
+    <script src="term.js?v=20260331e"></script>
 </head>
 <body>
     <canvas id="canvas"></canvas>
@@ -22,6 +22,7 @@
         const urlParams = new URLSearchParams(window.location.search);
         const command = urlParams.get('command');
         setupTerminal();
+        initVisitorTracking();
         executeCommand(command ? command : DEFAULT_COMMAND);
     </script>
 </body>
