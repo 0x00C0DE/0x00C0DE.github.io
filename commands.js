@@ -233,9 +233,32 @@ function getAsciiCanvasContext(width, height) {
     return canvas.getContext('2d', { willReadFrequently: true });
 }
 
-async function renderImageToAscii(imageSource, width, height) {
+function drawImageContained(context, imageSource, width, height) {
+    const sourceWidth = imageSource.naturalWidth || imageSource.videoWidth || imageSource.width;
+    const sourceHeight = imageSource.naturalHeight || imageSource.videoHeight || imageSource.height;
+    const scale = Math.min(width / sourceWidth, height / sourceHeight);
+    const drawWidth = Math.max(1, Math.round(sourceWidth * scale));
+    const drawHeight = Math.max(1, Math.round(sourceHeight * scale));
+    const offsetX = Math.floor((width - drawWidth) / 2);
+    const offsetY = Math.floor((height - drawHeight) / 2);
+
+    context.fillStyle = '#000000';
+    context.fillRect(0, 0, width, height);
+    context.drawImage(imageSource, offsetX, offsetY, drawWidth, drawHeight);
+}
+
+async function renderImageToAscii(imageSource, width, height, options = {}) {
+    const { preserveAspectRatio = false } = options;
     const context = getAsciiCanvasContext(width, height);
-    context.drawImage(imageSource, 0, 0, width, height);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+
+    if (preserveAspectRatio) {
+        drawImageContained(context, imageSource, width, height);
+    } else {
+        context.drawImage(imageSource, 0, 0, width, height);
+    }
+
     return processImage(context, width, height);
 }
 
@@ -442,7 +465,7 @@ async function userpic_command(args) {
 
     try {
         const image = await decodeSelectedImage(file);
-        return await renderImageToAscii(image, width, height);
+        return await renderImageToAscii(image, width, height, { preserveAspectRatio: true });
     } catch (error) {
         console.error('userpic failed', error);
         return ['userpic: unable to process selected image'];
