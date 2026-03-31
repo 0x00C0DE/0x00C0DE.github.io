@@ -74,6 +74,74 @@
 
 const ASTROLOGY_FORTUNE_URL = 'https://www.astrology.com/compatibility/fortune-cookie.html';
 const ASTROLOGY_FORTUNE_PROXY_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(ASTROLOGY_FORTUNE_URL)}`;
+const TEXT_FILES = Object.freeze([
+    'README.txt',
+    'PROJECTS.txt',
+    'LINKS.txt',
+    'QR-TOTP.txt',
+    'PROPRTS.txt',
+    'AMR.txt',
+    'SHELLCODE.txt',
+    'SMALLSH.txt',
+    'BLOOM.txt'
+]);
+
+const TEXT_FILE_LOOKUP = new Map(TEXT_FILES.map(filename => [filename.toUpperCase(), filename]));
+
+function escapeHtml(text) {
+    return text
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+}
+
+function normalizeTextFilename(input) {
+    const trimmed = input.trim();
+    if (!trimmed) {
+        return null;
+    }
+    const candidate = trimmed.toUpperCase().endsWith('.TXT') ? trimmed : `${trimmed}.txt`;
+    return TEXT_FILE_LOOKUP.get(candidate.toUpperCase()) || null;
+}
+
+function linkifyTextLine(line) {
+    if (!line) {
+        return '&nbsp;';
+    }
+
+    let html = escapeHtml(line);
+
+    html = html.replace(/\bhttps?:\/\/[^\s<]+/g, url => `<a href="${url}" target="_blank" rel="noreferrer">${url}</a>`);
+    html = html.replace(/\b(project-[a-z0-9-]+\.html|projects\.html|resume\.pdf)\b/gi, match => {
+        const attributes = match.toLowerCase().endsWith('.pdf') ? ' target="_blank" rel="noreferrer"' : '';
+        return `<a href="${match}"${attributes}>${match}</a>`;
+    });
+    html = html.replace(/\b([A-Z0-9-]+\.txt)\b/g, match => {
+        const normalized = TEXT_FILE_LOOKUP.get(match.toUpperCase());
+        if (!normalized) {
+            return match;
+        }
+        return `<a href="?command=${encodeURIComponent(`cat ${normalized}`)}">${normalized}</a>`;
+    });
+
+    return html;
+}
+
+async function readTextFile(filename) {
+    const response = await fetch(filename, { cache: 'no-store' });
+    if (!response.ok) {
+        throw new Error(`request failed with status ${response.status}`);
+    }
+
+    const text = await response.text();
+    const lines = text.replace(/\r\n/g, '\n').split('\n');
+    if (lines.length > 0 && lines[lines.length - 1] === '') {
+        lines.pop();
+    }
+    return lines.map(linkifyTextLine);
+}
 
 function banner_command() {
     return [
@@ -108,15 +176,22 @@ function help_command() {
     ];
 }
 
-function cat_command(args) {
+async function cat_command(args) {
     if (!args[0]) {
         return ['cat: Missing file operand'];
     }
-    const filename = args[0].toUpperCase();
-    if (fileContents[filename]) {
-        return fileContents[filename];
+
+    const filename = normalizeTextFilename(args[0]);
+    if (!filename) {
+        return [`cat: ${args[0]}: No such file or directory`];
     }
-    return [`cat: ${args[0]}: No such file or directory`];
+
+    try {
+        return await readTextFile(filename);
+    } catch (error) {
+        console.error('cat failed', error);
+        return [`cat: ${filename}: unable to read file`];
+    }
 }
 
 function normalizeImgurImage(url) {
@@ -191,7 +266,7 @@ function linkedin_command() {
 }
 
 function ls_command() {
-    return ['README.txt  PROJECTS.txt  LINKS.txt  QR-TOTP.txt  PROPRTS.txt  AMR.txt  SHELLCODE.txt  SMALLSH.txt  BLOOM.txt'];
+    return [TEXT_FILES.join('  ')];
 }
 
 async function movie_command(args) {

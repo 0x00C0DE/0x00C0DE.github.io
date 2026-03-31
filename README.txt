@@ -6,7 +6,7 @@ Architecture
 ------------
 Entry points  : index.html, projects.html, project-*.html
 Terminal loop : term.js renders the prompt, command history, and output stream
-Command layer : commands-v2.js implements shell verbs plus async integrations such as fortune
+Command layer : commands.js implements shell verbs plus async integrations such as fortune
 ASCII media   : pictures.js converts images and webcam frames into terminal glyph output
 Theme         : style.css supplies the dark-red CRT palette and prompt styling
 
