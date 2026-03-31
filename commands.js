@@ -233,12 +233,38 @@ function getAsciiCanvasContext(width, height) {
     return canvas.getContext('2d', { willReadFrequently: true });
 }
 
+const ASCII_CHARACTER_WIDTH_RATIO = 0.5;
+
+function getAsciiSourceDimensions(imageSource) {
+    const sourceWidth = imageSource.naturalWidth || imageSource.videoWidth || imageSource.width;
+    const sourceHeight = imageSource.naturalHeight || imageSource.videoHeight || imageSource.height;
+    if (!sourceWidth || !sourceHeight) {
+        throw new Error('invalid image dimensions');
+    }
+    return { sourceWidth, sourceHeight };
+}
+
+function resolveAsciiDimensions(imageSource, requestedWidth, requestedHeight) {
+    const width = Number.isFinite(requestedWidth) && requestedWidth > 0 ? Math.round(requestedWidth) : 160;
+    if (Number.isFinite(requestedHeight) && requestedHeight > 0) {
+        return { width, height: Math.round(requestedHeight) };
+    }
+
+    const { sourceWidth, sourceHeight } = getAsciiSourceDimensions(imageSource);
+    const derivedHeight = Math.round((sourceHeight / sourceWidth) * width * ASCII_CHARACTER_WIDTH_RATIO);
+    return {
+        width,
+        height: Math.max(1, derivedHeight)
+    };
+}
+
 async function renderImageToAscii(imageSource, width, height, options = {}) {
-    const context = getAsciiCanvasContext(width, height);
+    const dimensions = resolveAsciiDimensions(imageSource, width, height);
+    const context = getAsciiCanvasContext(dimensions.width, dimensions.height);
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = 'high';
-    context.drawImage(imageSource, 0, 0, width, height);
-    return processImage(context, width, height);
+    context.drawImage(imageSource, 0, 0, dimensions.width, dimensions.height);
+    return processImage(context, dimensions.width, dimensions.height);
 }
 
 async function selectUserImageFile() {
@@ -436,7 +462,7 @@ async function post_command(args) {
 
 async function userpic_command(args) {
     const width = args[0] ? parseInt(args[0], 10) : 160;
-    const height = args[1] ? parseInt(args[1], 10) : 80;
+    const height = args[1] ? parseInt(args[1], 10) : null;
 
     const file = await selectUserImageFile();
     if (!file) {
@@ -449,7 +475,10 @@ async function userpic_command(args) {
     try {
         const image = await decodeSelectedImage(file);
         const asciiLines = await renderImageToAscii(image, width, height);
-        showAsciiStill(asciiLines);
+        showAsciiStill(asciiLines, {
+            title: 'userpic',
+            hint: 'drag to pan, pinch to zoom, tap close to return'
+        });
         return [];
     } catch (error) {
         console.error('userpic failed', error);

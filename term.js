@@ -34,7 +34,9 @@ function promptMarkup() {
 }
 
 function setupTerminal() {
-    document.getElementById("terminal").innerHTML = `<div class="input-line">${promptMarkup()}<input type="text" class="terminal-input" id="command-input" autocomplete="off"></div>`;
+    const terminal = document.getElementById("terminal");
+    terminal.classList.remove("viewer-mode");
+    terminal.innerHTML = `<div class="input-line">${promptMarkup()}<input type="text" class="terminal-input" id="command-input" autocomplete="off"></div>`;
     const input = document.getElementById("command-input");
     input.addEventListener("keydown", handleKeyDown);
     input.focus();
@@ -66,17 +68,40 @@ async function showMovie(args) {
     }, { once: true });
 }
 
-function showAsciiStill(asciiLines) {
-    document.getElementById("terminal").innerHTML = `<div id="asciiArt"></div>`;
+function showAsciiStill(asciiLines, options = {}) {
+    const terminal = document.getElementById("terminal");
+    terminal.classList.add("viewer-mode");
+    terminal.innerHTML = `
+        <div class="ascii-viewer">
+            <div class="ascii-toolbar">
+                <span class="ascii-title">${options.title || "ascii viewer"}</span>
+                <button type="button" class="ascii-close" id="ascii-close-button">close</button>
+            </div>
+            <div class="ascii-hint">${options.hint || "drag to pan, pinch to zoom"}</div>
+            <div class="ascii-scroll" id="ascii-scroll-region">
+                <div id="asciiArt"></div>
+            </div>
+        </div>
+    `;
     document.getElementById("asciiArt").innerHTML = asciiLines.join("<br>");
 
     const restoreTerminal = () => {
+        document.removeEventListener("keydown", handleAsciiKeyDown);
+        const closeButton = document.getElementById("ascii-close-button");
+        if (closeButton) {
+            closeButton.removeEventListener("click", restoreTerminal);
+        }
         setupTerminal();
     };
 
-    document.addEventListener("keydown", restoreTerminal, { once: true });
-    document.addEventListener("click", restoreTerminal, { once: true });
-    document.addEventListener("touchend", restoreTerminal, { once: true });
+    const handleAsciiKeyDown = event => {
+        if (event.key === "Escape") {
+            restoreTerminal();
+        }
+    };
+
+    document.addEventListener("keydown", handleAsciiKeyDown);
+    document.getElementById("ascii-close-button").addEventListener("click", restoreTerminal);
 }
 
 async function handleKeyDown(e) {

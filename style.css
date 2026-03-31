@@ -41,6 +41,11 @@ body::after {
     white-space: pre-wrap;
 }
 
+.terminal-container.viewer-mode {
+    padding: 0;
+    overflow: hidden;
+}
+
 .terminal-line {
     margin-bottom: 0;
     white-space: pre-wrap;
@@ -139,4 +144,51 @@ A {
     line-height: clamp(7px, 0.62vw, 12px);
     white-space: pre;
     color: #ff5f6d;
+}
+
+.ascii-viewer {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    padding: 1rem;
+    gap: 0.55rem;
+}
+
+.ascii-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.ascii-title {
+    color: #ffd166;
+    text-transform: lowercase;
+}
+
+.ascii-close {
+    font-family: "Courier New", monospace;
+    font-size: clamp(12px, 0.95vw, 16px);
+    background: transparent;
+    border: 1px solid #ff8f99;
+    color: #ff8f99;
+    padding: 0.35rem 0.75rem;
+    cursor: pointer;
+}
+
+.ascii-hint {
+    color: #ffb3bb;
+    font-size: clamp(11px, 0.9vw, 15px);
+}
+
+.ascii-scroll {
+    flex: 1;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    touch-action: pan-x pan-y pinch-zoom;
+    border: 1px solid rgba(255, 143, 153, 0.35);
+    padding: 0.35rem;
+    background: rgba(0, 0, 0, 0.18);
 }
