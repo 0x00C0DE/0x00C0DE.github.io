@@ -37,6 +37,8 @@ function setupTerminal() {
     const terminal = document.getElementById("terminal");
     terminal.classList.remove("viewer-mode");
     terminal.innerHTML = `<div class="input-line">${promptMarkup()}<input type="text" class="terminal-input" id="command-input" autocomplete="off"></div>`;
+    terminal.scrollTop = 0;
+    terminal.scrollLeft = 0;
     const input = document.getElementById("command-input");
     input.addEventListener("keydown", handleKeyDown);
     input.focus();
@@ -161,6 +163,8 @@ async function downloadAsciiArtImage(asciiLines, options = {}) {
 function showAsciiStill(asciiLines, options = {}) {
     const terminal = document.getElementById("terminal");
     terminal.classList.add("viewer-mode");
+    terminal.scrollTop = 0;
+    terminal.scrollLeft = 0;
     terminal.innerHTML = `
         <div class="ascii-viewer">
             <div class="ascii-toolbar">
@@ -177,6 +181,9 @@ function showAsciiStill(asciiLines, options = {}) {
         </div>
     `;
     document.getElementById("asciiArt").innerHTML = asciiLines.join("<br>");
+    const scrollRegion = document.getElementById("ascii-scroll-region");
+    scrollRegion.scrollTop = 0;
+    scrollRegion.scrollLeft = 0;
 
     const restoreTerminal = () => {
         document.removeEventListener("keydown", handleAsciiKeyDown);
