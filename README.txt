@@ -17,7 +17,9 @@ That keeps terminal-readable documentation versioned as standalone assets and le
 
 Suggested entry points
 ----------------------
+cat BLOG.txt
 cat PROJECTS.txt
 cat LINKS.txt
+post Your blog entry goes here
 resume
 fortune

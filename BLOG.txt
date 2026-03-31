@@ -1,0 +1,14 @@
+0x00C0DE Blog
+=============
+This file is append-only and is intended to be updated through the backend blog append API.
+
+Posting workflow
+----------------
+Use the terminal command:
+post Your blog entry goes here
+
+Notes
+-----
+Entries are timestamped by the backend before being committed through the GitHub Contents API.
+The static site can display this file with:
+cat BLOG.txt

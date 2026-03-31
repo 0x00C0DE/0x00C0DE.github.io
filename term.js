@@ -20,6 +20,7 @@ const commands = {
     ls: ls_command,
     movie: movie_command,
     picture: picture_command,
+    post: post_command,
     projects: projects_command,
     pwd: pwd_command,
     resume: resume_command,

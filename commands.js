@@ -90,7 +90,10 @@ const ASTROLOGY_FORTUNE_SOURCES = [
         parseResponse: async response => response.text()
     }
 ];
+const BLOG_POST_API_URL = window.BLOG_POST_API_URL || 'http://localhost:8787/api/blog/append';
+const BLOG_MAX_POST_LENGTH = 500;
 const TEXT_FILES = Object.freeze([
+    'BLOG.txt',
     'README.txt',
     'PROJECTS.txt',
     'LINKS.txt',
@@ -183,6 +186,7 @@ function help_command() {
         '  ls          - List directory contents',
         '  movie w h   - Display your live camera footage as ASCII art at size w x h (press any key to stop)',
         '  picture w h - Display an ASCII picture at size w x h',
+        '  post text   - Append a blog entry through the backend API',
         '  pwd         - Print working directory',
         '  resume      - Open my resume PDF in a new tab',
         '  whoami      - Print current username',
@@ -306,6 +310,44 @@ async function picture_command(args) {
     await img.decode();
     context.drawImage(img, 0, 0, width, height);
     return processImage(context, width, height);
+}
+
+async function post_command(args) {
+    const text = args.join(' ').trim();
+    if (!text) {
+        return [
+            'post: missing blog text',
+            'usage: post Your blog entry goes here'
+        ];
+    }
+
+    if (text.length > BLOG_MAX_POST_LENGTH) {
+        return [`post: message exceeds ${BLOG_MAX_POST_LENGTH} characters`];
+    }
+
+    try {
+        const response = await fetch(BLOG_POST_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ text })
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            return [`post: ${payload.error || 'unable to append entry right now'}`];
+        }
+
+        const output = ['post: blog entry appended successfully'];
+        if (payload.commitUrl) {
+            output.push(`post: <a href="${payload.commitUrl}" target="_blank" rel="noreferrer">view commit</a>`);
+        }
+        return output;
+    } catch (error) {
+        console.error('post failed', error);
+        return ['post: backend unavailable right now'];
+    }
 }
 
 function projects_command() {
