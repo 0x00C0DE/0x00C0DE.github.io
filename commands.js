@@ -9,7 +9,7 @@
         "------------------",
         "This website mimics an old unix terminal, following the interaction style of yangeorget.net.",
         "Use cat PROJECTS.txt to browse pinned work, or type help for the full command list.",
-        "The fortune command pulls live fortune-cookie messages from astrology.com."
+        "The fortune command pulls live fortune-cookie messages."
     ],
     "PROJECTS.txt": [
         "Pinned projects",
@@ -175,7 +175,7 @@ function help_command() {
         '  clear       - Clear the terminal screen',
         '  date        - Display current date and time',
         '  echo        - Display text',
-        '  fortune     - Display a live fortune from astrology.com',
+        '  fortune     - Display a live fortune',
         '  github      - Open GitHub in a new tab',
         '  help        - Show this help message',
         '  history     - Show command history',
@@ -256,7 +256,7 @@ async function fortune_command() {
         }
     }
 
-    return ['fortune: unable to retrieve astrology.com fortune right now'];
+    return ['fortune: unable to retrieve a live fortune right now'];
 }
 
 function github_command() {
