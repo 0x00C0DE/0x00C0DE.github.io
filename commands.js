@@ -246,6 +246,7 @@ async function selectUserImageFile() {
     }
 
     input.value = '';
+    input.removeAttribute('capture');
 
     return new Promise(resolve => {
         let settled = false;
@@ -257,6 +258,7 @@ async function selectUserImageFile() {
             settled = true;
             input.removeEventListener('change', handleChange);
             window.removeEventListener('focus', handleFocus);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
             resolve(file || null);
         };
 
@@ -272,23 +274,38 @@ async function selectUserImageFile() {
             }, 400);
         };
 
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                setTimeout(() => {
+                    if (!settled) {
+                        finish(input.files && input.files[0] ? input.files[0] : null);
+                    }
+                }, 400);
+            }
+        };
+
         input.addEventListener('change', handleChange, { once: true });
         window.addEventListener('focus', handleFocus, { once: true });
+        document.addEventListener('visibilitychange', handleVisibilityChange);
         input.click();
     });
 }
 
 async function decodeSelectedImage(file) {
-    const objectUrl = URL.createObjectURL(file);
+    const dataUrl = await readFileAsDataUrl(file);
+    const image = new Image();
+    image.src = dataUrl;
+    await image.decode();
+    return image;
+}
 
-    try {
-        const image = new Image();
-        image.src = objectUrl;
-        await image.decode();
-        return image;
-    } finally {
-        URL.revokeObjectURL(objectUrl);
-    }
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error || new Error('unable to read selected file'));
+        reader.readAsDataURL(file);
+    });
 }
 
 function date_command() {
@@ -418,6 +435,9 @@ async function userpic_command(args) {
     const file = await selectUserImageFile();
     if (!file) {
         return ['userpic: no image selected'];
+    }
+    if (!file.type.startsWith('image/')) {
+        return ['userpic: selected file is not an image'];
     }
 
     try {
