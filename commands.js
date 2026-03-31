@@ -94,7 +94,7 @@ function help_command() {
         '  linkedin    - Open LinkedIn in a new tab',
         '  ls          - List directory contents',
         '  movie w h   - Show a movie of size w x h (press any key to stop)',
-        '  picture     - Display the bundled ASCII picture',
+        '  picture w h - Display an ASCII picture at size w x h',
         '  pwd         - Print working directory',
         '  resume      - Open my resume PDF in a new tab',
         '  whoami      - Print current username',
@@ -115,23 +115,15 @@ function cat_command(args) {
     return [`cat: ${args[0]}: No such file or directory`];
 }
 
-function escapeHtml(text) {
-    return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-}
-
-function resizeAsciiArt(lines, stepX = 4, stepY = 4) {
-    const resized = [];
-    for (let y = 0; y < lines.length; y += stepY) {
-        let nextLine = '';
-        for (let x = 0; x < lines[y].length; x += stepX) {
-            nextLine += lines[y][x];
-        }
-        resized.push(nextLine);
+function normalizeImgurImage(url) {
+    if (url.includes('i.imgur.com/')) {
+        return url;
     }
-    return resized;
+    const match = url.match(/imgur\.com\/([^./?#]+)/i);
+    if (!match) {
+        return url;
+    }
+    return `https://i.imgur.com/${match[1]}.jpg`;
 }
 
 function date_command() {
@@ -188,17 +180,18 @@ async function movie_command(args) {
 }
 
 async function picture_command(args) {
-    const response = await fetch('convertcase-net.txt', { cache: 'no-store' });
-    if (!response.ok) {
-        return ['picture: unable to load convertcase-net.txt'];
-    }
-    const text = await response.text();
-    const lines = text
-        .replace(/\r/g, '')
-        .split('\n')
-        .filter(line => line.length > 0);
-    return resizeAsciiArt(lines)
-        .map(line => escapeHtml(line));
+    const width = args[0] ? parseInt(args[0], 10) : 25;
+    const height = args[1] ? parseInt(args[1], 10) : 23;
+    const canvas = document.getElementById('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    const img = new Image();
+    img.src = normalizeImgurImage('https://imgur.com/KHiJtUI');
+    img.setAttribute('crossOrigin', 'anonymous');
+    await img.decode();
+    context.drawImage(img, 0, 0, width, height);
+    return processImage(context, width, height);
 }
 
 function projects_command() {
