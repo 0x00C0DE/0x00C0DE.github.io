@@ -181,7 +181,7 @@ function help_command() {
         '  history     - Show command history',
         '  linkedin    - Open LinkedIn in a new tab',
         '  ls          - List directory contents',
-        '  movie w h   - Show a movie of size w x h (press any key to stop)',
+        '  movie w h   - Display your live camera footage as ASCII art at size w x h (press any key to stop)',
         '  picture w h - Display an ASCII picture at size w x h',
         '  pwd         - Print working directory',
         '  resume      - Open my resume PDF in a new tab',
