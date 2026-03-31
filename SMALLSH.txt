@@ -1,0 +1,8 @@
+Unix Small Shell Implementation
+===============================
+Domain         : systems programming and command interpreter design
+Primary stack  : C, POSIX process primitives, signal handling, and file-descriptor redirection
+Core behavior  : tokenizes shell input, launches foreground and background jobs, and tracks process lifecycle events
+Engineering    : exercises fork, exec, waitpid, and signal coordination to reproduce core Unix shell semantics in a compact codebase
+Project page   : project-smallsh.html
+Repository     : https://github.com/0x00C0DE/CS344-assign3

@@ -1,0 +1,8 @@
+Secure QR-TOTP Authenticator
+============================
+Domain         : multi-factor authentication and time-based one-time-password validation
+Primary stack  : Python, QR provisioning, shared-secret encoding, RFC 6238 token generation
+Core behavior  : provisions a secret into a QR payload, then validates rotating TOTP codes against the same seed
+Engineering    : separates secret enrollment, QR rendering, and verification logic so the auth flow can be tested module by module
+Project page   : project-qr-totp.html
+Repository     : https://github.com/0x00C0DE/cs370-proj4-qr-totp

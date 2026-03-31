@@ -1,0 +1,18 @@
+Project Index
+=============
+PROPRTS.txt  : algorithmic trading prototype with modular Python orchestration and ML-assisted signal generation
+QR-TOTP.txt  : QR enrollment and RFC 6238 one-time-password verification workflow
+AMR.txt      : autonomous mobile robot collision-avoidance stack driven by perception data
+SHELLCODE.txt: low-level shellcode development scaffold for payload testing and memory experimentation
+SMALLSH.txt  : Unix shell implementation covering process control, signals, and redirection
+BLOOM.txt    : probabilistic password screening using Bloom filters and compact bit arrays
+
+Terminal pages
+--------------
+projects.html
+project-proprts.html
+project-qr-totp.html
+project-collision-avoidance.html
+project-shellcode-template.html
+project-smallsh.html
+project-bloom-filters.html

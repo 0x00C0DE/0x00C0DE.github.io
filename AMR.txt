@@ -1,0 +1,8 @@
+Autonomous Mobile Robot Collision Avoidance
+===========================================
+Domain         : robotics safety, autonomous navigation, and obstacle avoidance
+Primary stack  : Python, perception pipelines, sensor processing, and movement-control logic
+Core behavior  : analyzes local environment data to identify hazards and steer a mobile platform away from collisions
+Engineering    : combines perception and control layers so navigation decisions can react to changing obstacle geometry in real time
+Project page   : project-collision-avoidance.html
+Repository     : https://github.com/jwright303/Collision-Avoidance-For-Autonomous-Mobile-Robots

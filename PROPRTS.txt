@@ -1,0 +1,8 @@
+PROPR Nearest Neighbor Crypto Trading System
+============================================
+Domain         : algorithmic crypto trading research and automated execution
+Primary stack  : Python, feature engineering, model evaluation, exchange-facing automation modules
+Core behavior  : processes market data, computes strategy signals, and routes trade decisions through a modular runtime
+Engineering    : decomposes data ingestion, signal generation, execution, and reporting so individual subsystems can evolve independently
+Project page   : project-proprts.html
+Repository     : https://github.com/0x00C0DE/PROPR-nn-crypto-trading-system

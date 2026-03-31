@@ -1,0 +1,8 @@
+Shellcode Development Template
+==============================
+Domain         : offensive-security lab work and low-level payload experimentation
+Primary stack  : C, assembly-adjacent debugging, memory layout inspection, and controlled test harnesses
+Core behavior  : provides a repeatable template for crafting, loading, and validating shellcode in an isolated development workflow
+Engineering    : emphasizes deterministic setup so payload iteration, byte-level inspection, and execution testing stay reproducible
+Project page   : project-shellcode-template.html
+Repository     : https://github.com/0x00C0DE/shellcode-template

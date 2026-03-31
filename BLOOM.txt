@@ -1,0 +1,8 @@
+Bloom Filter Password Screening
+===============================
+Domain         : probabilistic data structures and high-volume password screening
+Primary stack  : Python, hash functions, compact bit arrays, and membership-query analysis
+Core behavior  : hashes candidate inputs into a Bloom filter to flag likely membership while trading exactness for speed and memory efficiency
+Engineering    : explores false-positive behavior and throughput characteristics for security-oriented screening workloads
+Project page   : project-bloom-filters.html
+Repository     : https://github.com/0x00C0DE/cs370_bloom_filters
