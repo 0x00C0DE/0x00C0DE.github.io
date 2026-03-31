@@ -180,8 +180,8 @@ async function movie_command(args) {
 }
 
 async function picture_command(args) {
-    const width = args[0] ? parseInt(args[0], 10) : 25;
-    const height = args[1] ? parseInt(args[1], 10) : 23;
+    const width = args[0] ? parseInt(args[0], 10) : 100;
+    const height = args[1] ? parseInt(args[1], 10) : 90;
     const canvas = document.getElementById('canvas');
     canvas.width = width;
     canvas.height = height;
