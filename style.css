@@ -176,8 +176,10 @@ A {
 }
 
 .visitor-label-note {
-    font-size: 0.72em;
+    font-size: 0.48em;
     font-weight: 400;
+    line-height: 1;
+    vertical-align: baseline;
     color: rgba(255, 179, 187, 0.82);
 }
 
