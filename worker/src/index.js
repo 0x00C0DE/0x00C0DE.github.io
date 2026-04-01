@@ -154,10 +154,18 @@ export class VisitorCounter {
 
     async readSnapshot() {
         const stored = await this.state.storage.get(['totalVisits', 'totalUniqueVisitors', 'totalVisitors', 'activeSessions']);
-        const legacyTotal = Number(stored.totalVisitors || 0);
+        const legacyTotal = Number(stored.totalVisitors ?? 0);
+        let uniqueVisitors = Number(stored.totalUniqueVisitors ?? legacyTotal);
+
+        if (stored.totalUniqueVisitors === undefined && typeof this.state.storage.list === 'function') {
+            const knownVisitors = await this.state.storage.list({ prefix: 'visitor:' });
+            uniqueVisitors = knownVisitors.size;
+            await this.state.storage.put('totalUniqueVisitors', uniqueVisitors);
+        }
+
         return {
-            visits: Number(stored.totalVisits || legacyTotal),
-            uniqueVisitors: Number(stored.totalUniqueVisitors || legacyTotal),
+            visits: Number(stored.totalVisits ?? legacyTotal),
+            uniqueVisitors,
             activeSessions: stored.activeSessions || {}
         };
     }
