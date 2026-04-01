@@ -48,7 +48,25 @@ function setupTerminal() {
 async function showMovie(args) {
     const width = args[0] ? args[0] : 160;
     const height = args[1] ? args[1] : 80;
-    document.getElementById("terminal").innerHTML = `<video id="videoFeed" autoplay playsinline></video><div id="asciiArt"></div>`;
+    const terminal = document.getElementById("terminal");
+    terminal.classList.add("viewer-mode");
+    terminal.scrollTop = 0;
+    terminal.scrollLeft = 0;
+    terminal.innerHTML = `
+        <div class="ascii-viewer">
+            <div class="ascii-toolbar">
+                <span class="ascii-title">movie</span>
+                <div class="ascii-actions">
+                    <button type="button" class="ascii-close" id="ascii-close-button">close</button>
+                </div>
+            </div>
+            <div class="ascii-hint">live camera ascii art, drag to pan, pinch to zoom</div>
+            <div class="ascii-scroll" id="ascii-scroll-region">
+                <div id="asciiArt"></div>
+            </div>
+            <video id="videoFeed" autoplay playsinline style="display:none"></video>
+        </div>
+    `;
     const videoFeed = document.getElementById("videoFeed");
     const canvas = document.getElementById("canvas");
     canvas.width = width;
@@ -64,11 +82,26 @@ async function showMovie(args) {
             asciiArtDiv.innerHTML = asciiArt.join("<br>");
         }
     }, 200);
-    document.addEventListener("keydown", function () {
+
+    const restoreTerminal = () => {
         stream.getTracks().forEach(track => track.stop());
         clearInterval(intervalId);
+        document.removeEventListener("keydown", handleMovieKeyDown);
+        const closeButton = document.getElementById("ascii-close-button");
+        if (closeButton) {
+            closeButton.removeEventListener("click", restoreTerminal);
+        }
         setupTerminal();
-    }, { once: true });
+    };
+
+    const handleMovieKeyDown = event => {
+        if (event.key === "Escape") {
+            restoreTerminal();
+        }
+    };
+
+    document.addEventListener("keydown", handleMovieKeyDown);
+    document.getElementById("ascii-close-button").addEventListener("click", restoreTerminal);
 }
 
 function renderAsciiArtToCanvas(asciiLines, options = {}) {
