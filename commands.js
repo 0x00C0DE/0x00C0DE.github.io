@@ -602,7 +602,7 @@ function buildVisitorWidgetMarkup(stats = null) {
                 <span class="visitor-value" data-visitor-field="uniqueVisitors">${formatVisitorDigits(currentStats.uniqueVisitors)}</span>
             </div>
             <div class="visitor-widget-row">
-                <span class="visitor-label">On-site <span class="visitor-label-note">(approximately 10 sec behind when people leave)</span>:</span>
+                <span class="visitor-label">On-site:</span>
                 <span class="visitor-value" data-visitor-field="onSite">${formatVisitorDigits(currentStats.onSite)}</span>
             </div>
         </div>
@@ -720,6 +720,30 @@ function sendVisitorLeave() {
     }).catch(() => null);
 }
 
+function resumeVisitorTracking() {
+    if (!visitorCounterState.initialized) {
+        return;
+    }
+
+    if (document.visibilityState === 'hidden') {
+        return;
+    }
+
+    visitorCounterState.leaveSent = false;
+    sendVisitorTrack('heartbeat').catch(() => {
+        fetchVisitorStats().catch(() => null);
+    });
+}
+
+function handleVisitorVisibilityChange() {
+    if (document.visibilityState === 'hidden') {
+        sendVisitorLeave();
+        return;
+    }
+
+    resumeVisitorTracking();
+}
+
 function initVisitorTracking() {
     if (!visitorCounterState.initialized) {
         visitorCounterState.initialized = true;
@@ -736,8 +760,11 @@ function initVisitorTracking() {
         }, VISITOR_STATS_POLL_MS);
         fetchVisitorStats().catch(() => null);
 
-        window.addEventListener('pagehide', sendVisitorLeave, { once: true });
-        window.addEventListener('beforeunload', sendVisitorLeave, { once: true });
+        document.addEventListener('visibilitychange', handleVisitorVisibilityChange);
+        window.addEventListener('pageshow', resumeVisitorTracking);
+        window.addEventListener('focus', resumeVisitorTracking);
+        window.addEventListener('pagehide', sendVisitorLeave);
+        window.addEventListener('beforeunload', sendVisitorLeave);
     } else {
         renderVisitorCounter();
     }
