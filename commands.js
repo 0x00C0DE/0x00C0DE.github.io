@@ -95,8 +95,8 @@ const VISITOR_COUNT_API_URL = window.VISITOR_COUNT_API_URL || 'https://0x00c0de-
 const VISITOR_TRACK_API_URL = window.VISITOR_TRACK_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/track';
 const VISITOR_LEAVE_API_URL = window.VISITOR_LEAVE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/leave';
 const BLOG_MAX_POST_LENGTH = 500;
-const VISITOR_HEARTBEAT_MS = 5000;
-const VISITOR_STATS_POLL_MS = 1000;
+const VISITOR_HEARTBEAT_MS = 1000;
+const VISITOR_STATS_POLL_MS = 500;
 const TEXT_FILES = Object.freeze([
     'BLOG.txt',
     'README.txt',
@@ -696,15 +696,22 @@ function sendVisitorLeave() {
     }
 
     visitorCounterState.leaveSent = true;
+    if (visitorCounterState.stats && visitorCounterState.stats.onSite > 0) {
+        visitorCounterState.stats = {
+            ...visitorCounterState.stats,
+            onSite: Math.max(0, visitorCounterState.stats.onSite - 1)
+        };
+        renderVisitorCounter();
+    }
     const payload = JSON.stringify({
         visitId: getCurrentVisitId()
     });
+    let beaconSent = false;
 
     try {
         if (navigator.sendBeacon) {
             const body = new Blob([payload], { type: 'application/json' });
-            navigator.sendBeacon(VISITOR_LEAVE_API_URL, body);
-            return;
+            beaconSent = navigator.sendBeacon(VISITOR_LEAVE_API_URL, body);
         }
     } catch (error) {
         console.warn('visitor leave beacon failed', error);
@@ -718,6 +725,10 @@ function sendVisitorLeave() {
         body: payload,
         keepalive: true
     }).catch(() => null);
+
+    if (!beaconSent && document.visibilityState !== 'hidden') {
+        fetchVisitorStats().catch(() => null);
+    }
 }
 
 function resumeVisitorTracking() {
