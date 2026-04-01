@@ -184,7 +184,7 @@ function banner_command() {
     }, 0);
     return [
         ' ',
-        '<div class="banner-art">0x00C0DE</div>',
+        '<div class="banner-art">0x00C0DE</div><div class="banner-subtitle">Fléctere si néqueo súperos Acheronta movebo</div>',
         buildVisitorWidgetMarkup(),
         'Type "help" for a list of commands.',
         ' '

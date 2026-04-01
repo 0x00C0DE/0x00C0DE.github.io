@@ -53,7 +53,7 @@ body::after {
 
 .banner-art {
     display: block;
-    margin: 0.4vw 0 0.9vw;
+    margin: 0.4vw 0 0.15vw;
     font-size: clamp(72px, 7.2vw, 144px);
     line-height: 0.88;
     font-weight: 700;
@@ -64,6 +64,21 @@ body::after {
         0 0 0.7vw #ff6b78,
         0.12vw 0.12vw 0 #6a101c,
         0.24vw 0.24vw 0 #9a1c2d;
+}
+
+.banner-subtitle {
+    display: block;
+    margin: 0 0 0.95vw 0.2vw;
+    font-size: clamp(18px, 1.65vw, 34px);
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #ff6b78;
+    text-shadow:
+        0 0 0.16vw #fff2f3,
+        0 0 0.45vw #ff6b78,
+        0.08vw 0.08vw 0 #6a101c,
+        0.16vw 0.16vw 0 #9a1c2d;
 }
 
 A {
