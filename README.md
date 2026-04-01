@@ -52,24 +52,37 @@ The design philosophy is **file-system-first**: documentation lives as real `.tx
 ## Architecture
 
 ```
-BROWSER
-
-  index.html
-      |
-      v
-    term.js  <------------------------------+
-      |                                     |
-      +--> style.css                        |
-      |                                     |
-      +--> commands.js ---------------------+
-              |
-              +--> pictures.js --> <canvas id="canvas">
-              |
-              +--> fetch() --> .txt files
-              |                (blog.txt, projects.txt, links.txt, etc.)
-              |
-              +--> fetch() --> Cloudflare Worker
-                               (blog POST -> GitHub API -> blog.txt)
+┌─────────────────────────────────────────────────────────────┐
+│                        BROWSER                              │
+│                                                             │
+│  ┌──────────────┐     ┌──────────────┐   ┌──────────────┐   │
+│  │  index.html  │────▶│   term.js    │──▶│  commands.js │   │
+│  │  (entry pt)  │     │  (loop/REPL) │   │ (shell verbs)│   │
+│  └──────────────┘     └──────┬───────┘   └──────┬───────┘   │
+│                              │                  │           │
+│                    ┌─────────▼─────┐   ┌────────▼────────┐  │
+│                    │  style.css    │   │  pictures.js    │  │
+│                    │ (CRT palette) │   │ (ASCII / webcam)│  │
+│                    └───────────────┘   └────────┬────────┘  │
+│                                                 │           │
+│                              ┌──────────────────▼────────┐  │
+│                              │  <canvas id="canvas">     │  │
+│                              │  (pixel→glyph rendering)  │  │
+│                              └───────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+          │ fetch()                          │ fetch()
+          ▼                                  ▼
+  ┌───────────────┐              ┌──────────────────────┐
+  │  .txt files   │              │  Cloudflare Worker   │
+  │  (content DB) │              │  (blog POST → GitHub │
+  │  blog.txt     │              │   API → blog.txt)    │
+  │  projects.txt │              └──────────────────────┘
+  │  links.txt    │
+  │  bloom.txt    │
+  │  smallsh.txt  │
+  │  shellcode.txt│
+  │  etc.         │
+  └───────────────┘
 ```
 
 **Request flow for `cat blog.txt`:**
@@ -235,18 +248,22 @@ Terminal container uses `overflow-y: scroll` with a hidden scrollbar, `white-spa
 
 The site has **no database**. All persistent state lives in versioned `.txt` files in the repo root:
 
-| File | Contents |
-|---|---|
-| `blog.txt` | Chronological blog entries appended by the Worker |
-| `projects.txt` | Project index: name, one-liner, link |
-| `links.txt` | Curated URL list with descriptions |
-| `bloom.txt` | Full Bloom filter project write-up |
-| `smallsh.txt` | Unix shell (C) project documentation |
-| `shellcode.txt` | x86/x64 shellcode template notes |
-| `qr-totp.txt` | QR + TOTP implementation notes |
-| `proprts.txt` | Property system project notes |
-| `amr.txt` | AMR-related project documentation |
-| `readme.txt` | In-terminal help / orientation file |
+```
+┌──────────────┬───────────────────────────────────────────────┐
+│ File         │ Contents                                      │
+├──────────────┼───────────────────────────────────────────────┤
+│ blog.txt     │ Chronological blog entries appended by Worker │
+│ projects.txt │ Project index: name, one-liner, link         │
+│ links.txt    │ Curated URL list with descriptions           │
+│ bloom.txt    │ Full Bloom filter project write-up           │
+│ smallsh.txt  │ Unix shell (C) project documentation         │
+│ shellcode.txt│ x86/x64 shellcode template notes             │
+│ qr-totp.txt  │ QR + TOTP implementation notes               │
+│ proprts.txt  │ Property system project notes                │
+│ amr.txt      │ AMR-related project documentation            │
+│ readme.txt   │ In-terminal help / orientation file          │
+└──────────────┴───────────────────────────────────────────────┘
+```
 
 Because `cat` fetches files at runtime over HTTP (with `Cache-Control: no-cache` set in `index.html`), content updates are live as soon as a commit lands on `main` — no build pipeline required.
 
