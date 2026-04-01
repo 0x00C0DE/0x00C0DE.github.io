@@ -433,7 +433,7 @@ function appendBlogEntry(currentContent, text) {
 function githubContentsUrl(env) {
     const owner = env.GITHUB_OWNER;
     const repo = env.GITHUB_REPO;
-    const path = env.GITHUB_BLOG_PATH || 'BLOG.txt';
+    const path = env.GITHUB_BLOG_PATH || 'blog.txt';
     const branch = env.GITHUB_BRANCH || 'main';
     return `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(branch)}`;
 }

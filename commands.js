@@ -1,5 +1,5 @@
 ﻿const fileContents = {
-    "README.txt": [
+    "readme.txt": [
         "About me",
         "--------",
         "I am Braden, a software developer and Oregon State University Computer Science graduate.",
@@ -8,10 +8,10 @@
         "About this website",
         "------------------",
         "This website mimics an old unix terminal, following the interaction style of yangeorget.net.",
-        "Use cat PROJECTS.txt to browse pinned work, or type help for the full command list.",
+        "Use cat projects.txt to browse pinned work, or type help for the full command list.",
         "The fortune command pulls live fortune-cookie messages."
     ],
-    "PROJECTS.txt": [
+    "projects.txt": [
         "Pinned projects",
         "---------------",
         '<a href="project-proprts.html">PROPR Nearest Neighbor Crypto Trading System</a>  - Python, trading automation, neural-network workflows',
@@ -21,49 +21,49 @@
         '<a href="project-smallsh.html">Unix Small Shell Implementation</a>            - C, Unix process management',
         '<a href="project-bloom-filters.html">Bloom Filter Password Screening</a>          - Python, algorithms, membership testing'
     ],
-    "LINKS.txt": [
+    "links.txt": [
         "External links",
         "--------------",
         'GitHub    : <a href="https://github.com/0x00C0DE" target="_blank">https://github.com/0x00C0DE</a>',
         'Instagram : <a href="https://www.instagram.com/smallmediumpizza/" target="_blank">https://www.instagram.com/smallmediumpizza/</a>',
         'YouTube   : <a href="https://www.youtube.com/channel/UCYOKNvGyqvRPnDnvmbE-1Xw" target="_blank">https://www.youtube.com/channel/UCYOKNvGyqvRPnDnvmbE-1Xw</a>'
     ],
-    "QR-TOTP.txt": [
+    "qr-totp.txt": [
         "Secure QR-TOTP Authenticator",
         "-----------------------------",
         "Python QR provisioning and time-based one-time password validation.",
         'Project page : <a href="project-qr-totp.html">project-qr-totp.html</a>',
         'Repository   : <a href="https://github.com/0x00C0DE/cs370-proj4-qr-totp" target="_blank">github.com/0x00C0DE/cs370-proj4-qr-totp</a>'
     ],
-    "PROPRTS.txt": [
+    "proprts.txt": [
         "PROPR Nearest Neighbor Crypto Trading System",
         "--------------------------------------------",
         "Neural-network-powered crypto trading system focused on automation, execution workflows, and modular Python architecture.",
         'Project page : <a href="project-proprts.html">project-proprts.html</a>',
         'Repository   : <a href="https://github.com/0x00C0DE/PROPR-nn-crypto-trading-system" target="_blank">github.com/0x00C0DE/PROPR-nn-crypto-trading-system</a>'
     ],
-    "AMR.txt": [
+    "amr.txt": [
         "Autonomous Mobile Robot Collision Avoidance",
         "-------------------------------------------",
         "Vision and obstacle-detection tooling for safer robot navigation.",
         'Project page : <a href="project-collision-avoidance.html">project-collision-avoidance.html</a>',
         'Repository   : <a href="https://github.com/jwright303/Collision-Avoidance-For-Autonomous-Mobile-Robots" target="_blank">github.com/jwright303/Collision-Avoidance-For-Autonomous-Mobile-Robots</a>'
     ],
-    "SHELLCODE.txt": [
+    "shellcode.txt": [
         "Shellcode Development Template",
         "------------------------------",
         "Security-oriented starter framework for shellcode experimentation and low-level testing.",
         'Project page : <a href="project-shellcode-template.html">project-shellcode-template.html</a>',
         'Repository   : <a href="https://github.com/0x00C0DE/shellcode-template" target="_blank">github.com/0x00C0DE/shellcode-template</a>'
     ],
-    "SMALLSH.txt": [
+    "smallsh.txt": [
         "Unix Small Shell Implementation",
         "-------------------------------",
         "Compact Unix shell demonstrating process control and systems programming fundamentals.",
         'Project page : <a href="project-smallsh.html">project-smallsh.html</a>',
         'Repository   : <a href="https://github.com/0x00C0DE/CS344-assign3" target="_blank">github.com/0x00C0DE/CS344-assign3</a>'
     ],
-    "BLOOM.txt": [
+    "bloom.txt": [
         "Bloom Filter Password Screening",
         "-------------------------------",
         "Probabilistic membership testing for password workflows using Bloom filters.",
@@ -98,16 +98,16 @@ const BLOG_MAX_POST_LENGTH = 500;
 const VISITOR_HEARTBEAT_MS = 1000;
 const VISITOR_STATS_POLL_MS = 500;
 const TEXT_FILES = Object.freeze([
-    'BLOG.txt',
-    'README.txt',
-    'PROJECTS.txt',
-    'LINKS.txt',
-    'QR-TOTP.txt',
-    'PROPRTS.txt',
-    'AMR.txt',
-    'SHELLCODE.txt',
-    'SMALLSH.txt',
-    'BLOOM.txt'
+    'blog.txt',
+    'readme.txt',
+    'projects.txt',
+    'links.txt',
+    'qr-totp.txt',
+    'proprts.txt',
+    'amr.txt',
+    'shellcode.txt',
+    'smallsh.txt',
+    'bloom.txt'
 ]);
 
 const TEXT_FILE_LOOKUP = new Map(TEXT_FILES.map(filename => [filename.toUpperCase(), filename]));
@@ -152,7 +152,7 @@ function linkifyTextLine(line) {
         const attributes = match.toLowerCase().endsWith('.pdf') ? ' target="_blank" rel="noreferrer"' : '';
         return `<a href="${match}"${attributes}>${match}</a>`;
     });
-    html = html.replace(/\b([A-Z0-9-]+\.txt)\b/g, match => {
+    html = html.replace(/\b([A-Za-z0-9-]+\.txt)\b/g, match => {
         const normalized = TEXT_FILE_LOOKUP.get(match.toUpperCase());
         if (!normalized) {
             return match;
@@ -184,7 +184,7 @@ function banner_command() {
     }, 0);
     return [
         ' ',
-        '<div class="banner-art">0x00C0DE</div><div class="banner-subtitle">Fléctere si néqueo súperos Acheronta movebo</div>',
+        '<div class="banner-art">0x00C0DE</div><div class="banner-subtitle">Fléctere si néqueo súperos, Acheronta movebo</div>',
         buildVisitorWidgetMarkup(),
         'Type "help" for a list of commands.',
         ' '

@@ -17,13 +17,13 @@ That keeps terminal-readable documentation versioned as standalone assets and le
 
 Suggested entry points
 ----------------------
-cat BLOG.txt
-cat PROJECTS.txt
-cat LINKS.txt
+cat blog.txt
+cat projects.txt
+cat links.txt
 post Your blog entry goes here
 resume
 fortune
 
 Blog backend
 ------------
-The recommended public deployment path is a Cloudflare Worker backend that appends to BLOG.txt through the GitHub API.
+The recommended public deployment path is a Cloudflare Worker backend that appends to blog.txt through the GitHub API.
