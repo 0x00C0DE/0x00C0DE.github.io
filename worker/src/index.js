@@ -157,10 +157,12 @@ export class VisitorCounter {
         const legacyTotal = Number(readStoredValue(stored, 'totalVisitors') || 0);
         let uniqueVisitors = Number(readStoredValue(stored, 'totalUniqueVisitors') || legacyTotal);
 
-        if (readStoredValue(stored, 'totalUniqueVisitors') === undefined && typeof this.state.storage.list === 'function') {
+        if (typeof this.state.storage.list === 'function') {
             const knownVisitors = await this.state.storage.list({ prefix: 'visitor:' });
-            uniqueVisitors = knownVisitors.size;
-            await this.state.storage.put('totalUniqueVisitors', uniqueVisitors);
+            if (knownVisitors.size > uniqueVisitors || readStoredValue(stored, 'totalUniqueVisitors') === undefined) {
+                uniqueVisitors = knownVisitors.size;
+                await this.state.storage.put('totalUniqueVisitors', uniqueVisitors);
+            }
         }
 
         return {

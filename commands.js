@@ -740,7 +740,10 @@ function initVisitorTracking() {
 async function visitors_command() {
     try {
         initVisitorTracking();
-        const stats = await fetchVisitorStats();
+        const stats = visitorCounterState.stats || await fetchVisitorStats();
+        sendVisitorTrack('heartbeat').catch(() => {
+            fetchVisitorStats().catch(() => null);
+        });
         return [buildVisitorWidgetMarkup(stats)];
     } catch (error) {
         return [
