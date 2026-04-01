@@ -124,11 +124,11 @@ export class VisitorCounter {
 
         activeSessions[visitId] = Date.now();
 
-        await this.state.storage.put({
-            totalVisits: visits,
-            totalUniqueVisitors: uniqueVisitors,
-            activeSessions
-        });
+        await Promise.all([
+            this.state.storage.put('totalVisits', visits),
+            this.state.storage.put('totalUniqueVisitors', uniqueVisitors),
+            this.state.storage.put('activeSessions', activeSessions)
+        ]);
 
         return {
             visits,
@@ -154,19 +154,19 @@ export class VisitorCounter {
 
     async readSnapshot() {
         const stored = await this.state.storage.get(['totalVisits', 'totalUniqueVisitors', 'totalVisitors', 'activeSessions']);
-        const legacyTotal = Number(stored.totalVisitors ?? 0);
-        let uniqueVisitors = Number(stored.totalUniqueVisitors ?? legacyTotal);
+        const legacyTotal = Number(readStoredValue(stored, 'totalVisitors') || 0);
+        let uniqueVisitors = Number(readStoredValue(stored, 'totalUniqueVisitors') || legacyTotal);
 
-        if (stored.totalUniqueVisitors === undefined && typeof this.state.storage.list === 'function') {
+        if (readStoredValue(stored, 'totalUniqueVisitors') === undefined && typeof this.state.storage.list === 'function') {
             const knownVisitors = await this.state.storage.list({ prefix: 'visitor:' });
             uniqueVisitors = knownVisitors.size;
             await this.state.storage.put('totalUniqueVisitors', uniqueVisitors);
         }
 
         return {
-            visits: Number(stored.totalVisits ?? legacyTotal),
+            visits: Number(readStoredValue(stored, 'totalVisits') || legacyTotal),
             uniqueVisitors,
-            activeSessions: stored.activeSessions || {}
+            activeSessions: readStoredValue(stored, 'activeSessions') || {}
         };
     }
 
@@ -310,6 +310,13 @@ function sanitizeVisitId(value) {
     }
 
     return trimmed.replace(/[^a-zA-Z0-9:_-]/g, '');
+}
+
+function readStoredValue(stored, key) {
+    if (stored && typeof stored.get === 'function') {
+        return stored.get(key);
+    }
+    return stored ? stored[key] : undefined;
 }
 
 async function verifyTurnstile(secret, token, ip) {
