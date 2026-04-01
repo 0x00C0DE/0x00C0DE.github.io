@@ -95,7 +95,7 @@ const VISITOR_COUNT_API_URL = window.VISITOR_COUNT_API_URL || 'https://0x00c0de-
 const VISITOR_TRACK_API_URL = window.VISITOR_TRACK_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/track';
 const VISITOR_LEAVE_API_URL = window.VISITOR_LEAVE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/leave';
 const BLOG_MAX_POST_LENGTH = 500;
-const VISITOR_HEARTBEAT_MS = 20000;
+const VISITOR_HEARTBEAT_MS = 5000;
 const TEXT_FILES = Object.freeze([
     'BLOG.txt',
     'README.txt',
@@ -600,7 +600,7 @@ function buildVisitorWidgetMarkup(stats = null) {
                 <span class="visitor-value" data-visitor-field="uniqueVisitors">${formatVisitorDigits(currentStats.uniqueVisitors)}</span>
             </div>
             <div class="visitor-widget-row">
-                <span class="visitor-label">On-site <span class="visitor-label-note">(approximately 2 min behind when people leave)</span>:</span>
+                <span class="visitor-label">On-site <span class="visitor-label-note">(approximately 10 sec behind when people leave)</span>:</span>
                 <span class="visitor-value" data-visitor-field="onSite">${formatVisitorDigits(currentStats.onSite)}</span>
             </div>
         </div>

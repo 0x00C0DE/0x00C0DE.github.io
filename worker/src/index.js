@@ -237,7 +237,7 @@ async function handleVisitorLeave(request, env) {
     return proxyJsonResponse(response, env.ALLOWED_ORIGIN);
 }
 
-const VISITOR_ONSITE_WINDOW_MS = 120000;
+const VISITOR_ONSITE_WINDOW_MS = 10000;
 
 async function handleAppend(request, env) {
     try {
