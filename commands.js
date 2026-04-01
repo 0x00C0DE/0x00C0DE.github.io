@@ -600,7 +600,7 @@ function buildVisitorWidgetMarkup(stats = null) {
                 <span class="visitor-value" data-visitor-field="uniqueVisitors">${formatVisitorDigits(currentStats.uniqueVisitors)}</span>
             </div>
             <div class="visitor-widget-row">
-                <span class="visitor-label">On-site:</span>
+                <span class="visitor-label">On-site (about 1-2 min behind when people leave):</span>
                 <span class="visitor-value" data-visitor-field="onSite">${formatVisitorDigits(currentStats.onSite)}</span>
             </div>
         </div>
