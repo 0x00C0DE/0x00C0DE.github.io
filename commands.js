@@ -96,6 +96,7 @@ const VISITOR_TRACK_API_URL = window.VISITOR_TRACK_API_URL || 'https://0x00c0de-
 const VISITOR_LEAVE_API_URL = window.VISITOR_LEAVE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/leave';
 const BLOG_MAX_POST_LENGTH = 500;
 const VISITOR_HEARTBEAT_MS = 5000;
+const VISITOR_STATS_POLL_MS = 1000;
 const TEXT_FILES = Object.freeze([
     'BLOG.txt',
     'README.txt',
@@ -116,6 +117,7 @@ const visitorCounterState = {
     stats: null,
     initialized: false,
     heartbeatId: null,
+    statsPollId: null,
     pendingStats: null,
     leaveSent: false
 };
@@ -729,6 +731,10 @@ function initVisitorTracking() {
                 fetchVisitorStats().catch(() => null);
             });
         }, VISITOR_HEARTBEAT_MS);
+        visitorCounterState.statsPollId = window.setInterval(() => {
+            fetchVisitorStats().catch(() => null);
+        }, VISITOR_STATS_POLL_MS);
+        fetchVisitorStats().catch(() => null);
 
         window.addEventListener('pagehide', sendVisitorLeave, { once: true });
         window.addEventListener('beforeunload', sendVisitorLeave, { once: true });
@@ -741,9 +747,7 @@ async function visitors_command() {
     try {
         initVisitorTracking();
         const stats = visitorCounterState.stats || await fetchVisitorStats();
-        sendVisitorTrack('heartbeat').catch(() => {
-            fetchVisitorStats().catch(() => null);
-        });
+        fetchVisitorStats().catch(() => null);
         return [buildVisitorWidgetMarkup(stats)];
     } catch (error) {
         return [
