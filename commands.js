@@ -231,6 +231,7 @@ function parseBlogTextFile(lines) {
     let imageBlockIndex = 0;
     let currentEntryTimestamp = '';
     let currentEntryImageIndex = 0;
+    let previousTextLine = '';
 
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
@@ -238,6 +239,9 @@ function parseBlogTextFile(lines) {
             if (isBlogEntryTimestampLine(line)) {
                 currentEntryTimestamp = line.trim();
                 currentEntryImageIndex = 0;
+                previousTextLine = '';
+            } else if (line.trim()) {
+                previousTextLine = line;
             }
             output.push(line);
             continue;
@@ -261,7 +265,8 @@ function parseBlogTextFile(lines) {
                 imageBlockIndex,
                 imageKey: createBlogImageKey(dataUrl),
                 entryTimestamp: currentEntryTimestamp,
-                entryImageIndex: currentEntryImageIndex
+                entryImageIndex: currentEntryImageIndex,
+                previousTextLine
             });
         } else {
             output.push('[image-base64]');
@@ -624,15 +629,16 @@ async function deleteBlogImageByBlockIndex(
     imageKey = '',
     imageDataUrl = '',
     entryTimestamp = '',
-    entryImageIndex = null
+    entryImageIndex = null,
+    previousTextLine = ''
 ) {
-    const normalizedImageDataUrl = normalizeBlogImageDataUrl(imageDataUrl);
     const normalizedEntryTimestamp = isBlogEntryTimestampLine(entryTimestamp) ? entryTimestamp.trim() : '';
     const normalizedEntryImageIndex = Number.isInteger(entryImageIndex)
         ? entryImageIndex
         : Number.parseInt(entryImageIndex, 10);
+    const normalizedPreviousTextLine = typeof previousTextLine === 'string' ? previousTextLine.trim() : '';
 
-    if ((!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) && !imageKey && !normalizedImageDataUrl && !normalizedEntryTimestamp) {
+    if ((!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) && !imageKey && !normalizedEntryTimestamp && !normalizedPreviousTextLine) {
         return {
             ok: false,
             error: 'invalid image reference'
@@ -647,11 +653,11 @@ async function deleteBlogImageByBlockIndex(
         body: JSON.stringify({
             imageBlockIndex,
             imageKey,
-            imageDataUrl: normalizedImageDataUrl,
             entryTimestamp: normalizedEntryTimestamp,
             entryImageIndex: Number.isInteger(normalizedEntryImageIndex) && normalizedEntryImageIndex >= 0
                 ? normalizedEntryImageIndex
                 : null,
+            previousTextLine: normalizedPreviousTextLine,
             password
         })
     });

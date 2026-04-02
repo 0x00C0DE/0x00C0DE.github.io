@@ -428,6 +428,7 @@ async function handleDeleteImage(request, env) {
         const entryTimestamp = normalizeBlogEntryTimestamp(body?.entryTimestamp);
         const entryImageIndex = Number.isInteger(body?.entryImageIndex) ? body.entryImageIndex : Number.parseInt(body?.entryImageIndex, 10);
         const imageBlockIndex = Number.isInteger(body?.imageBlockIndex) ? body.imageBlockIndex : Number.parseInt(body?.imageBlockIndex, 10);
+        const previousTextLine = typeof body?.previousTextLine === 'string' ? body.previousTextLine.trim() : '';
 
         if (!timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD)) {
             return jsonResponse({ error: 'invalid password' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
@@ -448,7 +449,8 @@ async function handleDeleteImage(request, env) {
             targetImageKey: imageKey,
             targetImageDataUrl: imageDataUrl,
             targetEntryTimestamp: entryTimestamp,
-            targetEntryImageIndex: Number.isInteger(entryImageIndex) && entryImageIndex >= 0 ? entryImageIndex : null
+            targetEntryImageIndex: Number.isInteger(entryImageIndex) && entryImageIndex >= 0 ? entryImageIndex : null,
+            targetPreviousTextLine: previousTextLine
         });
         if (!removal.removed) {
             return jsonResponse({ error: 'image not found in blog.txt' }, 404, env.ALLOWED_ORIGIN, rateCheck.headers);
@@ -805,7 +807,8 @@ export function removeImageBlock(currentContent, {
     targetImageKey = '',
     targetImageDataUrl = '',
     targetEntryTimestamp = '',
-    targetEntryImageIndex = null
+    targetEntryImageIndex = null,
+    targetPreviousTextLine = ''
 } = {}) {
     const blogDocument = parseBlogDocument(currentContent);
     const target = findImageBlockTarget(blogDocument.entries, {
@@ -813,7 +816,8 @@ export function removeImageBlock(currentContent, {
         targetImageKey,
         targetImageDataUrl,
         targetEntryTimestamp,
-        targetEntryImageIndex
+        targetEntryImageIndex,
+        targetPreviousTextLine
     });
 
     if (!target) {
@@ -1011,13 +1015,15 @@ function findImageBlockTarget(entries, {
     targetImageKey,
     targetImageDataUrl,
     targetEntryTimestamp,
-    targetEntryImageIndex
+    targetEntryImageIndex,
+    targetPreviousTextLine
 }) {
     const normalizedTargetEntryTimestamp = normalizeBlogEntryTimestamp(targetEntryTimestamp);
     const normalizedTargetEntryImageIndex = Number.isInteger(targetEntryImageIndex)
         ? targetEntryImageIndex
         : Number.parseInt(targetEntryImageIndex, 10);
     const normalizedTargetImageDataUrl = normalizeImageDataUrl(targetImageDataUrl);
+    const normalizedTargetPreviousTextLine = String(targetPreviousTextLine || '').trim();
 
     if (normalizedTargetEntryTimestamp) {
         const entryIndex = entries.findIndex(entry => entry.timestampLine === normalizedTargetEntryTimestamp);
@@ -1025,7 +1031,8 @@ function findImageBlockTarget(entries, {
             const match = findImageBlockInEntry(entries[entryIndex], {
                 targetImageKey,
                 targetImageDataUrl: normalizedTargetImageDataUrl,
-                targetEntryImageIndex: normalizedTargetEntryImageIndex
+                targetEntryImageIndex: normalizedTargetEntryImageIndex,
+                targetPreviousTextLine: normalizedTargetPreviousTextLine
             });
             if (match) {
                 return {
@@ -1057,12 +1064,23 @@ function findImageBlockTarget(entries, {
 function findImageBlockInEntry(entry, {
     targetImageKey,
     targetImageDataUrl,
-    targetEntryImageIndex
+    targetEntryImageIndex,
+    targetPreviousTextLine
 }) {
     const imageBlocks = [];
+    let lastNonEmptyTextLine = '';
 
     for (let blockIndex = 0; blockIndex < entry.blocks.length; blockIndex += 1) {
         const block = entry.blocks[blockIndex];
+        if (block.type === 'text') {
+            for (const line of block.lines) {
+                if (String(line || '').trim()) {
+                    lastNonEmptyTextLine = String(line);
+                }
+            }
+            continue;
+        }
+
         if (block.type !== 'image') {
             continue;
         }
@@ -1070,8 +1088,23 @@ function findImageBlockInEntry(entry, {
         imageBlocks.push({
             blockIndex,
             imageDataUrl: block.imageDataUrl,
-            imageKey: createBlogImageKey(block.imageDataUrl)
+            imageKey: createBlogImageKey(block.imageDataUrl),
+            previousTextLine: lastNonEmptyTextLine
         });
+    }
+
+    if (targetPreviousTextLine) {
+        const byPreviousTextLine = imageBlocks.filter(block => block.previousTextLine.trim() === targetPreviousTextLine);
+        if (Number.isInteger(targetEntryImageIndex) && targetEntryImageIndex >= 0) {
+            const byPreviousTextAndIndex = byPreviousTextLine.find(block => imageBlocks.indexOf(block) === targetEntryImageIndex);
+            if (byPreviousTextAndIndex) {
+                return byPreviousTextAndIndex;
+            }
+        }
+
+        if (byPreviousTextLine.length > 0) {
+            return byPreviousTextLine[0];
+        }
     }
 
     if (Number.isInteger(targetEntryImageIndex) && targetEntryImageIndex >= 0 && imageBlocks[targetEntryImageIndex]) {

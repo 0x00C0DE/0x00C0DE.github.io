@@ -205,6 +205,38 @@ test('removeImageBlock can target the correct image block within an entry by tim
     assert.doesNotMatch(removal.content, /data:image\/png;base64,BBBB/);
 });
 
+test('removeImageBlock can remove the image block that follows a specific text line within an entry', () => {
+    const imageA = 'data:image/png;base64,AAAA';
+    const imageB = 'data:image/png;base64,BBBB';
+    const imageC = 'data:image/png;base64,CCCC';
+    const currentContent = [
+        '[2026-04-02T10:17:04.041Z]',
+        'testing image post',
+        '[image-base64]',
+        imageA,
+        '[/image-base64]',
+        'test2',
+        '[image-base64]',
+        imageB,
+        '[/image-base64]',
+        '[image-base64]',
+        imageC,
+        '[/image-base64]',
+        ''
+    ].join('\n');
+
+    const removal = removeImageBlock(currentContent, {
+        targetEntryTimestamp: '[2026-04-02T10:17:04.041Z]',
+        targetPreviousTextLine: 'test2'
+    });
+
+    assert.equal(removal.removed, true);
+    assert.match(removal.content, /\[image-base64\]\ndata:image\/png;base64,AAAA\n\[\/image-base64\]/);
+    assert.match(removal.content, /test2/);
+    assert.match(removal.content, /\[image-base64\]\ndata:image\/png;base64,CCCC\n\[\/image-base64\]/);
+    assert.doesNotMatch(removal.content, /data:image\/png;base64,BBBB/);
+});
+
 test('appendBlogEntry and removeImageBlock use the same blog file serialization', () => {
     const initialContent = [
         '0x00C0DE Blog',
