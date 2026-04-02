@@ -298,9 +298,9 @@ export class RateLimiter {
 const VISITOR_ONSITE_WINDOW_MS = 8000;
 const HEARTBEAT_PERSIST_INTERVAL_MS = 2000;
 const MIN_SNAPSHOT_FLUSH_INTERVAL_MS = 1000;
-const MAX_IMAGE_DATA_URL_LENGTH = 350000;
+const MAX_IMAGE_DATA_URL_LENGTH = 12000000;
 const MAX_IMAGE_ATTACHMENTS = 4;
-const ALLOWED_BLOG_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+const ALLOWED_BLOG_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 
 function normalizeSnapshot(snapshot) {
     return {
@@ -429,7 +429,7 @@ function validateImageDataUrl(value, maxLength) {
     if (!ALLOWED_BLOG_IMAGE_MIME_TYPES.has(mimeType)) {
         return {
             ok: false,
-            error: 'imageDataUrl must be png, jpeg, webp, or gif'
+            error: 'imageDataUrl must be png, jpg, jpeg, webp, or gif'
         };
     }
 
