@@ -36,13 +36,18 @@ export default {
 export class VisitorCounter {
     constructor(state) {
         this.state = state;
+        this.snapshot = null;
+        this.loaded = false;
+        this.loadingPromise = null;
+        this.lastSnapshotFlushAt = 0;
+        this.knownVisitorsCache = new Set();
     }
 
     async fetch(request) {
         const url = new URL(request.url);
 
         if (request.method === 'GET' && url.pathname === '/count') {
-            return this.getCountResponse();
+            return this.jsonSuccessResponse(await this.getCountResponse());
         }
 
         if (request.method === 'POST' && url.pathname === '/track') {
@@ -50,6 +55,7 @@ export class VisitorCounter {
             const visitorId = sanitizeVisitorId(body?.visitorId);
             const visitId = sanitizeVisitId(body?.visitId);
             const action = body?.action === 'visit' ? 'visit' : 'heartbeat';
+
             if (!visitorId || !visitId) {
                 return this.jsonErrorResponse('visitorId and visitId are required', 400);
             }
@@ -60,6 +66,7 @@ export class VisitorCounter {
         if (request.method === 'POST' && url.pathname === '/leave') {
             const body = await request.json().catch(() => null);
             const visitId = sanitizeVisitId(body?.visitId);
+
             if (!visitId) {
                 return this.jsonErrorResponse('visitId is required', 400);
             }
@@ -67,12 +74,7 @@ export class VisitorCounter {
             return this.jsonSuccessResponse(await this.removeVisit(visitId));
         }
 
-        return new Response(JSON.stringify({ error: 'not found' }), {
-            status: 404,
-            headers: {
-                'Content-Type': 'application/json; charset=utf-8'
-            }
-        });
+        return this.jsonErrorResponse('not found', 404);
     }
 
     jsonSuccessResponse(stats) {
@@ -97,100 +99,155 @@ export class VisitorCounter {
     }
 
     async getCountResponse() {
-        const snapshot = await this.readSnapshot();
-        const activeSessions = await this.pruneActiveSessions(snapshot.activeSessions);
-        return this.jsonSuccessResponse({
-            visits: snapshot.visits,
-            uniqueVisitors: snapshot.uniqueVisitors,
-            onSite: Object.keys(activeSessions).length
-        });
+        await this.ensureSnapshotLoaded();
+        this.pruneActiveSessionsInMemory();
+
+        return {
+            visits: this.snapshot.visits,
+            uniqueVisitors: this.snapshot.uniqueVisitors,
+            onSite: Object.keys(this.snapshot.activeSessions).length
+        };
     }
 
     async trackVisitor(visitorId, visitId, action) {
-        const snapshot = await this.readSnapshot();
-        let { visits, uniqueVisitors, activeSessions } = snapshot;
-        activeSessions = await this.pruneActiveSessions(activeSessions);
+        await this.ensureSnapshotLoaded();
+
+        const now = Date.now();
+        this.pruneActiveSessionsInMemory(now);
+
+        let forceFlush = false;
 
         if (action === 'visit') {
-            visits += 1;
+            this.snapshot.visits += 1;
+            forceFlush = true;
         }
 
         const visitorKey = `visitor:${visitorId}`;
-        const alreadySeen = await this.state.storage.get(visitorKey);
+        let alreadySeen = this.knownVisitorsCache.has(visitorId);
+
         if (!alreadySeen) {
-            uniqueVisitors += 1;
-            await this.state.storage.put(visitorKey, Date.now());
+            alreadySeen = Boolean(await this.state.storage.get(visitorKey));
+            if (alreadySeen) {
+                this.knownVisitorsCache.add(visitorId);
+            }
         }
 
-        activeSessions[visitId] = Date.now();
+        if (!alreadySeen) {
+            this.snapshot.uniqueVisitors += 1;
+            this.knownVisitorsCache.add(visitorId);
+            await this.state.storage.put(visitorKey, now);
+            forceFlush = true;
+        }
 
-        await Promise.all([
-            this.state.storage.put('totalVisits', visits),
-            this.state.storage.put('totalUniqueVisitors', uniqueVisitors),
-            this.state.storage.put('activeSessions', activeSessions)
-        ]);
+        const previousSeen = Number(this.snapshot.activeSessions[visitId] || 0);
+        this.snapshot.activeSessions[visitId] = now;
+
+        const shouldPersistHeartbeat =
+            action === 'heartbeat' &&
+            (previousSeen === 0 || now - previousSeen >= HEARTBEAT_PERSIST_INTERVAL_MS) &&
+            now - this.lastSnapshotFlushAt >= MIN_SNAPSHOT_FLUSH_INTERVAL_MS;
+
+        if (forceFlush || shouldPersistHeartbeat) {
+            await this.flushSnapshot();
+        }
 
         return {
-            visits,
-            uniqueVisitors,
-            onSite: Object.keys(activeSessions).length
+            visits: this.snapshot.visits,
+            uniqueVisitors: this.snapshot.uniqueVisitors,
+            onSite: Object.keys(this.snapshot.activeSessions).length
         };
     }
 
     async removeVisit(visitId) {
-        const snapshot = await this.readSnapshot();
-        const activeSessions = await this.pruneActiveSessions(snapshot.activeSessions);
-        if (activeSessions[visitId]) {
-            delete activeSessions[visitId];
-            await this.state.storage.put('activeSessions', activeSessions);
+        await this.ensureSnapshotLoaded();
+        this.pruneActiveSessionsInMemory();
+
+        if (this.snapshot.activeSessions[visitId]) {
+            delete this.snapshot.activeSessions[visitId];
+            await this.flushSnapshot();
         }
 
         return {
-            visits: snapshot.visits,
-            uniqueVisitors: snapshot.uniqueVisitors,
-            onSite: Object.keys(activeSessions).length
+            visits: this.snapshot.visits,
+            uniqueVisitors: this.snapshot.uniqueVisitors,
+            onSite: Object.keys(this.snapshot.activeSessions).length
         };
     }
 
-    async readSnapshot() {
-        const stored = await this.state.storage.get(['totalVisits', 'totalUniqueVisitors', 'totalVisitors', 'activeSessions']);
-        const legacyTotal = Number(readStoredValue(stored, 'totalVisitors') || 0);
-        let uniqueVisitors = Number(readStoredValue(stored, 'totalUniqueVisitors') || legacyTotal);
-
-        if (typeof this.state.storage.list === 'function') {
-            const knownVisitors = await this.state.storage.list({ prefix: 'visitor:' });
-            if (knownVisitors.size > uniqueVisitors || readStoredValue(stored, 'totalUniqueVisitors') === undefined) {
-                uniqueVisitors = knownVisitors.size;
-                await this.state.storage.put('totalUniqueVisitors', uniqueVisitors);
-            }
+    async ensureSnapshotLoaded() {
+        if (this.loaded && this.snapshot) {
+            return;
         }
 
+        if (this.loadingPromise) {
+            await this.loadingPromise;
+            return;
+        }
+
+        this.loadingPromise = (async () => {
+            const snapshot = await this.state.storage.get('snapshot');
+            if (snapshot && typeof snapshot === 'object') {
+                this.snapshot = normalizeSnapshot(snapshot);
+            } else {
+                const legacy = await this.readLegacySnapshot();
+                this.snapshot = normalizeSnapshot(legacy);
+            }
+            this.loaded = true;
+        })();
+
+        try {
+            await this.loadingPromise;
+        } finally {
+            this.loadingPromise = null;
+        }
+    }
+
+    async readLegacySnapshot() {
+        const stored = await this.state.storage.get([
+            'totalVisits',
+            'totalUniqueVisitors',
+            'totalVisitors',
+            'activeSessions'
+        ]);
+
+        const legacyTotal = Number(readStoredValue(stored, 'totalVisitors') || 0);
         return {
             visits: Number(readStoredValue(stored, 'totalVisits') || legacyTotal),
-            uniqueVisitors,
+            uniqueVisitors: Number(readStoredValue(stored, 'totalUniqueVisitors') || legacyTotal),
             activeSessions: readStoredValue(stored, 'activeSessions') || {}
         };
     }
 
-    async pruneActiveSessions(activeSessions) {
-        const now = Date.now();
-        let dirty = false;
+    pruneActiveSessionsInMemory(now = Date.now()) {
         const nextSessions = {};
 
-        for (const [visitId, lastSeen] of Object.entries(activeSessions || {})) {
+        for (const [visitId, lastSeen] of Object.entries(this.snapshot.activeSessions || {})) {
             if (Number(lastSeen) + VISITOR_ONSITE_WINDOW_MS > now) {
                 nextSessions[visitId] = Number(lastSeen);
-            } else {
-                dirty = true;
             }
         }
 
-        if (dirty) {
-            await this.state.storage.put('activeSessions', nextSessions);
-        }
-
-        return nextSessions;
+        this.snapshot.activeSessions = nextSessions;
     }
+
+    async flushSnapshot() {
+        await this.state.storage.put('snapshot', this.snapshot);
+        this.lastSnapshotFlushAt = Date.now();
+    }
+}
+
+const VISITOR_ONSITE_WINDOW_MS = 2500;
+const HEARTBEAT_PERSIST_INTERVAL_MS = 15000;
+const MIN_SNAPSHOT_FLUSH_INTERVAL_MS = 3000;
+
+function normalizeSnapshot(snapshot) {
+    return {
+        visits: Number(snapshot?.visits || 0),
+        uniqueVisitors: Number(snapshot?.uniqueVisitors || 0),
+        activeSessions: snapshot?.activeSessions && typeof snapshot.activeSessions === 'object'
+            ? snapshot.activeSessions
+            : {}
+    };
 }
 
 async function handleVisitorCount(env) {
@@ -236,8 +293,6 @@ async function handleVisitorLeave(request, env) {
     });
     return proxyJsonResponse(response, env.ALLOWED_ORIGIN);
 }
-
-const VISITOR_ONSITE_WINDOW_MS = 2500;
 
 async function handleAppend(request, env) {
     try {
