@@ -236,9 +236,12 @@ export class VisitorCounter {
     }
 }
 
-const VISITOR_ONSITE_WINDOW_MS = 2500;
-const HEARTBEAT_PERSIST_INTERVAL_MS = 15000;
-const MIN_SNAPSHOT_FLUSH_INTERVAL_MS = 3000;
+// Keep the timeout comfortably above the persisted heartbeat cadence so
+// active visitors do not disappear if the Durable Object is reloaded
+// between storage flushes.
+const VISITOR_ONSITE_WINDOW_MS = 8000;
+const HEARTBEAT_PERSIST_INTERVAL_MS = 2000;
+const MIN_SNAPSHOT_FLUSH_INTERVAL_MS = 1000;
 
 function normalizeSnapshot(snapshot) {
     return {
