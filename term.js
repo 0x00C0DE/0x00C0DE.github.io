@@ -5,42 +5,135 @@ const PROMPT_PATH = "/home/0x00C0DE/Unkn0wn";
 let commandHistory = [];
 let historyIndex = -1;
 
-const commands = {
-    help: help_command,
-    banner: banner_command,
-    cat: cat_command,
-    date: date_command,
-    echo: echo_command,
-    fortune: fortune_command,
-    github: github_command,
-    help: help_command,
-    history: history_command,
-    instagram: instagram_command,
-    linkedin: linkedin_command,
-    ls: ls_command,
-    movie: movie_command,
-    picture: picture_command,
-    post: post_command,
-    projects: projects_command,
-    pwd: pwd_command,
-    resume: resume_command,
-    userpic: userpic_command,
-    visitors: visitors_command,
-    whoami: whoami_command,
-    youtube: youtube_command
-};
+const commandHandlers = new Map([
+    ['help', help_command],
+    ['banner', banner_command],
+    ['cat', cat_command],
+    ['date', date_command],
+    ['echo', echo_command],
+    ['fortune', fortune_command],
+    ['github', github_command],
+    ['history', history_command],
+    ['instagram', instagram_command],
+    ['linkedin', linkedin_command],
+    ['ls', ls_command],
+    ['movie', movie_command],
+    ['picture', picture_command],
+    ['post', post_command],
+    ['projects', projects_command],
+    ['pwd', pwd_command],
+    ['resume', resume_command],
+    ['userpic', userpic_command],
+    ['visitors', visitors_command],
+    ['whoami', whoami_command],
+    ['youtube', youtube_command]
+]);
 
-function promptMarkup() {
-    return `<span class="prompt-user">${PROMPT_USER}</span><span class="header">@</span><span class="prompt-host">${PROMPT_HOST}</span><span class="header">:</span><span class="prompt-path">${PROMPT_PATH}</span><span class="header">$ </span>`;
+function appendPrompt(container) {
+    const parts = [
+        ['prompt-user', PROMPT_USER],
+        ['header', '@'],
+        ['prompt-host', PROMPT_HOST],
+        ['header', ':'],
+        ['prompt-path', PROMPT_PATH],
+        ['header', '$ ']
+    ];
+
+    parts.forEach(([className, text]) => {
+        const span = document.createElement('span');
+        span.className = className;
+        span.textContent = text;
+        container.append(span);
+    });
+}
+
+function getSafeHref(href) {
+    try {
+        const parsed = new URL(href, window.location.href);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            return parsed.toString();
+        }
+    } catch {
+        // Fall through to a harmless default.
+    }
+
+    return '#';
+}
+
+function renderOutputObject(container, line) {
+    if (!line || typeof line !== 'object') {
+        container.textContent = String(line ?? '');
+        return;
+    }
+
+    if (line.type === 'banner') {
+        const banner = document.createElement('div');
+        banner.className = 'banner-art';
+        banner.textContent = line.title || '';
+        container.append(banner);
+
+        if (line.subtitle) {
+            const subtitle = document.createElement('div');
+            subtitle.className = 'banner-subtitle';
+            subtitle.textContent = line.subtitle;
+            container.append(subtitle);
+        }
+        return;
+    }
+
+    if (line.type === 'visitor-widget' && typeof window.buildVisitorWidgetElement === 'function') {
+        container.append(window.buildVisitorWidgetElement(line.stats));
+        return;
+    }
+
+    if (line.type === 'text-link') {
+        if (line.prefix) {
+            container.append(document.createTextNode(line.prefix));
+        }
+        const anchor = document.createElement('a');
+        anchor.href = getSafeHref(line.href || '#');
+        anchor.textContent = line.text || line.href || '';
+        if (line.newTab) {
+            anchor.target = '_blank';
+            anchor.rel = 'noreferrer';
+        }
+        container.append(anchor);
+        return;
+    }
+
+    container.textContent = typeof line.text === 'string' ? line.text : String(line ?? '');
+}
+
+function renderOutputLine(container, line) {
+    if (line && typeof line === 'object') {
+        renderOutputObject(container, line);
+        return;
+    }
+
+    if (typeof window.renderTerminalLineContent === 'function') {
+        window.renderTerminalLineContent(container, line);
+        return;
+    }
+
+    container.textContent = String(line ?? '');
 }
 
 function setupTerminal() {
     const terminal = document.getElementById("terminal");
     terminal.classList.remove("viewer-mode");
-    terminal.innerHTML = `<div class="input-line">${promptMarkup()}<input type="text" class="terminal-input" id="command-input" autocomplete="off"></div>`;
+    terminal.innerHTML = '';
+    const inputLine = document.createElement('div');
+    inputLine.className = 'input-line';
+    appendPrompt(inputLine);
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'terminal-input';
+    input.id = 'command-input';
+    input.autocomplete = 'off';
+    inputLine.append(input);
+    terminal.append(inputLine);
     terminal.scrollTop = 0;
     terminal.scrollLeft = 0;
-    const input = document.getElementById("command-input");
     input.addEventListener("keydown", handleKeyDown);
     input.focus();
 }
@@ -291,7 +384,7 @@ async function handleKeyDown(e) {
     } else if (e.key === "Tab") {
         e.preventDefault();
         const partial = input.value.toLowerCase();
-        const matches = Object.keys(commands).filter(cmd => cmd.startsWith(partial));
+        const matches = Array.from(commandHandlers.keys()).filter(cmd => cmd.startsWith(partial));
         if (matches.length === 1) {
             input.value = matches[0];
         }
@@ -311,11 +404,12 @@ async function executeCommand(commandLine) {
     const inputLine = terminal.querySelector(".input-line");
     const commandDiv = document.createElement("div");
     commandDiv.className = "terminal-line";
-    commandDiv.innerHTML = `${promptMarkup()}${commandLine}`;
+    appendPrompt(commandDiv);
+    commandDiv.append(document.createTextNode(commandLine));
     terminal.insertBefore(commandDiv, inputLine);
 
     const parts = commandLine.split(" ");
-    const cmd = parts[0];
+    const cmd = parts[0].toLowerCase();
     const args = parts.slice(1);
 
     if (cmd === "clear") {
@@ -328,8 +422,9 @@ async function executeCommand(commandLine) {
     }
 
     let output = null;
-    if (commands[cmd]) {
-        output = await commands[cmd](args);
+    const commandHandler = commandHandlers.get(cmd);
+    if (typeof commandHandler === 'function') {
+        output = await commandHandler(args);
     } else {
         output = [`bash: ${cmd}: command not found`];
     }
@@ -338,10 +433,10 @@ async function executeCommand(commandLine) {
         output.forEach(line => {
             const outputDiv = document.createElement("div");
             outputDiv.className = "terminal-line";
-            if (line.includes("not found") || line.includes("No such file") || line.includes("Unexpected")) {
+            if (typeof line === 'string' && (line.includes("not found") || line.includes("No such file") || line.includes("Unexpected"))) {
                 outputDiv.classList.add("error");
             }
-            outputDiv.innerHTML = line;
+            renderOutputLine(outputDiv, line);
             terminal.insertBefore(outputDiv, inputLine);
         });
     }

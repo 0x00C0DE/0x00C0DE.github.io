@@ -122,15 +122,6 @@ const visitorCounterState = {
     leaveSent: false
 };
 
-function escapeHtml(text) {
-    return text
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
-}
-
 function normalizeTextFilename(input) {
     const trimmed = input.trim();
     if (!trimmed) {
@@ -140,27 +131,56 @@ function normalizeTextFilename(input) {
     return TEXT_FILE_LOOKUP.get(candidate.toUpperCase()) || null;
 }
 
-function linkifyTextLine(line) {
-    if (!line) {
-        return '&nbsp;';
+function appendAnchor(container, href, text, options = {}) {
+    const anchor = document.createElement('a');
+    anchor.href = href;
+    anchor.textContent = text;
+    if (options.newTab) {
+        anchor.target = '_blank';
+        anchor.rel = 'noreferrer';
+    }
+    container.append(anchor);
+}
+
+function renderTerminalLineContent(container, line) {
+    const text = typeof line === 'string' ? line : String(line ?? '');
+    if (!text) {
+        container.append(document.createTextNode('\u00A0'));
+        return;
     }
 
-    let html = escapeHtml(line);
+    const pattern = /\bhttps?:\/\/[^\s<]+|\bproject-[a-z0-9-]+\.html\b|\bprojects\.html\b|\bresume\.pdf\b|\b[A-Za-z0-9-]+\.txt\b/gi;
+    let lastIndex = 0;
+    let match = pattern.exec(text);
 
-    html = html.replace(/\bhttps?:\/\/[^\s<]+/g, url => `<a href="${url}" target="_blank" rel="noreferrer">${url}</a>`);
-    html = html.replace(/\b(project-[a-z0-9-]+\.html|projects\.html|resume\.pdf)\b/gi, match => {
-        const attributes = match.toLowerCase().endsWith('.pdf') ? ' target="_blank" rel="noreferrer"' : '';
-        return `<a href="${match}"${attributes}>${match}</a>`;
-    });
-    html = html.replace(/\b([A-Za-z0-9-]+\.txt)\b/g, match => {
-        const normalized = TEXT_FILE_LOOKUP.get(match.toUpperCase());
-        if (!normalized) {
-            return match;
+    while (match) {
+        const matchedText = match[0];
+        const start = match.index;
+        if (start > lastIndex) {
+            container.append(document.createTextNode(text.slice(lastIndex, start)));
         }
-        return `<a href="?command=${encodeURIComponent(`cat ${normalized}`)}">${normalized}</a>`;
-    });
 
-    return html;
+        if (/^https?:\/\//i.test(matchedText)) {
+            appendAnchor(container, matchedText, matchedText, { newTab: true });
+        } else if (/\.txt$/i.test(matchedText)) {
+            const normalized = normalizeTextFilename(matchedText);
+            if (normalized) {
+                appendAnchor(container, `?command=${encodeURIComponent(`cat ${normalized}`)}`, normalized);
+            } else {
+                container.append(document.createTextNode(matchedText));
+            }
+        } else {
+            const newTab = /\.pdf$/i.test(matchedText);
+            appendAnchor(container, matchedText, matchedText, { newTab });
+        }
+
+        lastIndex = start + matchedText.length;
+        match = pattern.exec(text);
+    }
+
+    if (lastIndex < text.length) {
+        container.append(document.createTextNode(text.slice(lastIndex)));
+    }
 }
 
 async function readTextFile(filename) {
@@ -174,7 +194,7 @@ async function readTextFile(filename) {
     if (lines.length > 0 && lines[lines.length - 1] === '') {
         lines.pop();
     }
-    return lines.map(linkifyTextLine);
+    return lines;
 }
 
 function banner_command() {
@@ -184,8 +204,14 @@ function banner_command() {
     }, 0);
     return [
         ' ',
-        '<div class="banner-art">0x00C0DE</div><div class="banner-subtitle">Fléctere si néqueo súperos, Acheronta movebo</div>',
-        buildVisitorWidgetMarkup(),
+        {
+            type: 'banner',
+            title: '0x00C0DE',
+            subtitle: 'Fléctere si néqueo súperos, Acheronta movebo'
+        },
+        {
+            type: 'visitor-widget'
+        },
         'Type "help" for a list of commands.',
         ' '
     ];
@@ -237,14 +263,28 @@ async function cat_command(args) {
 }
 
 function normalizeImgurImage(url) {
-    if (url.includes('i.imgur.com/')) {
+    let parsedUrl;
+    try {
+        parsedUrl = new URL(url);
+    } catch {
         return url;
     }
-    const match = url.match(/imgur\.com\/([^./?#]+)/i);
-    if (!match) {
+
+    const hostname = parsedUrl.hostname.toLowerCase();
+    if (hostname === 'i.imgur.com') {
+        return parsedUrl.toString();
+    }
+
+    if (hostname !== 'imgur.com' && hostname !== 'www.imgur.com') {
         return url;
     }
-    return `https://i.imgur.com/${match[1]}.jpg`;
+
+    const imageId = parsedUrl.pathname.split('/').filter(Boolean)[0];
+    if (!/^[a-z0-9]+$/i.test(imageId || '')) {
+        return url;
+    }
+
+    return `https://i.imgur.com/${imageId}.jpg`;
 }
 
 function getAsciiCanvasContext(width, height) {
@@ -481,7 +521,13 @@ async function post_command(args) {
 
         const output = ['post: blog entry appended successfully'];
         if (payload.commitUrl) {
-            output.push(`post: <a href="${payload.commitUrl}" target="_blank" rel="noreferrer">view commit</a>`);
+            output.push({
+                type: 'text-link',
+                prefix: 'post: ',
+                href: payload.commitUrl,
+                text: 'view commit',
+                newTab: true
+            });
         }
         return output;
     } catch (error) {
@@ -576,37 +622,55 @@ function getCurrentVisitorStats() {
 
 function formatVisitorDigits(value, width = 7) {
     const safeValue = Math.max(0, Number.isFinite(value) ? Math.floor(value) : 0);
-    const digits = String(safeValue).padStart(width, '0');
+    return String(safeValue).padStart(width, '0');
+}
+
+function createVisitorDigitsFragment(value, width = 7) {
+    const digits = formatVisitorDigits(value, width);
+    const fragment = document.createDocumentFragment();
     const firstNonZeroIndex = digits.search(/[1-9]/);
     const zeroCutoff = firstNonZeroIndex === -1 ? digits.length - 1 : firstNonZeroIndex;
 
-    return digits
-        .split('')
-        .map((digit, index) => {
-            const className = digit === '0' && index < zeroCutoff ? 'visitor-digit visitor-digit-dim' : 'visitor-digit';
-            return `<span class="${className}">${digit}</span>`;
-        })
-        .join('');
+    digits.split('').forEach((digit, index) => {
+        const span = document.createElement('span');
+        span.className = digit === '0' && index < zeroCutoff ? 'visitor-digit visitor-digit-dim' : 'visitor-digit';
+        span.textContent = digit;
+        fragment.append(span);
+    });
+
+    return fragment;
 }
 
-function buildVisitorWidgetMarkup(stats = null) {
+function buildVisitorWidgetElement(stats = null) {
     const currentStats = stats || getCurrentVisitorStats();
-    return `
-        <div class="visitor-widget" data-visitor-counter>
-            <div class="visitor-widget-row">
-                <span class="visitor-label">Visits:</span>
-                <span class="visitor-value" data-visitor-field="visits">${formatVisitorDigits(currentStats.visits)}</span>
-            </div>
-            <div class="visitor-widget-row">
-                <span class="visitor-label">Uniq. Visitors:</span>
-                <span class="visitor-value" data-visitor-field="uniqueVisitors">${formatVisitorDigits(currentStats.uniqueVisitors)}</span>
-            </div>
-            <div class="visitor-widget-row">
-                <span class="visitor-label">On-site:</span>
-                <span class="visitor-value" data-visitor-field="onSite">${formatVisitorDigits(currentStats.onSite)}</span>
-            </div>
-        </div>
-    `.trim();
+    const widget = document.createElement('div');
+    widget.className = 'visitor-widget';
+    widget.setAttribute('data-visitor-counter', '');
+
+    const rows = [
+        ['Visits:', 'visits'],
+        ['Uniq. Visitors:', 'uniqueVisitors'],
+        ['On-site:', 'onSite']
+    ];
+
+    rows.forEach(([labelText, fieldName]) => {
+        const row = document.createElement('div');
+        row.className = 'visitor-widget-row';
+
+        const label = document.createElement('span');
+        label.className = 'visitor-label';
+        label.textContent = labelText;
+
+        const value = document.createElement('span');
+        value.className = 'visitor-value';
+        value.setAttribute('data-visitor-field', fieldName);
+        value.append(createVisitorDigitsFragment(currentStats[fieldName]));
+
+        row.append(label, value);
+        widget.append(row);
+    });
+
+    return widget;
 }
 
 function renderVisitorCounter() {
@@ -619,7 +683,7 @@ function renderVisitorCounter() {
     elements.forEach(element => {
         element.querySelectorAll('[data-visitor-field]').forEach(field => {
             const fieldName = field.getAttribute('data-visitor-field');
-            field.innerHTML = formatVisitorDigits(currentStats[fieldName]);
+            field.replaceChildren(createVisitorDigitsFragment(currentStats[fieldName]));
         });
     });
 }
@@ -786,10 +850,10 @@ async function visitors_command() {
         initVisitorTracking();
         const stats = visitorCounterState.stats || await fetchVisitorStats();
         fetchVisitorStats().catch(() => null);
-        return [buildVisitorWidgetMarkup(stats)];
+        return [{ type: 'visitor-widget', stats }];
     } catch (error) {
         return [
-            buildVisitorWidgetMarkup(),
+            { type: 'visitor-widget' },
             'visitors: unable to retrieve the live visitor stats right now'
         ];
     }
@@ -799,6 +863,9 @@ function projects_command() {
     window.open('projects.html', '_self');
     return [];
 }
+
+window.renderTerminalLineContent = renderTerminalLineContent;
+window.buildVisitorWidgetElement = buildVisitorWidgetElement;
 
 function resume_command() {
     window.open('resume.pdf', '_blank');
