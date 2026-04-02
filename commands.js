@@ -844,47 +844,28 @@ async function verifyQrTotpCode(secret, candidate) {
     return { valid: false, driftSteps: null };
 }
 
-function buildQrTotpEnrollmentOutput(enrollment, storageMode) {
-    const otpauthUrl = buildQrTotpOtpauthUrl(enrollment);
-    const qrUrl = buildQrTotpImageUrl(otpauthUrl);
-    return [
-        'qr-totp: new enrollment created',
-        `issuer: ${enrollment.issuer}`,
-        `username: ${enrollment.username}`,
-        `email: ${enrollment.email}`,
-        `secret: ${enrollment.secret}`,
-        `stored: ${storageMode === 'localStorage' ? 'saved in this browser via localStorage' : 'saved for this tab only (localStorage unavailable)'}`,
-        `otpauth url: ${otpauthUrl}`,
-        {
-            type: 'text-link',
-            prefix: 'qr code: ',
-            href: qrUrl,
-            text: 'open enrollment qr',
-            newTab: true
-        },
-        'next step: scan the QR code with an authenticator app, then run `qr-totp --get-otp`'
-    ];
+function buildQrTotpViewerHint(enrollment, storageMode = '') {
+    const storedMessage = storageMode === 'memory'
+        ? 'saved for this tab only'
+        : 'saved in this browser';
+    return `${enrollment.issuer} / ${enrollment.username} / ${enrollment.email} - scan this QR or save it (${storedMessage})`;
 }
 
-function buildQrTotpShowOutput(enrollment) {
+function openQrTotpViewer(enrollment, options = {}) {
     const otpauthUrl = buildQrTotpOtpauthUrl(enrollment);
     const qrUrl = buildQrTotpImageUrl(otpauthUrl);
-    return [
-        'qr-totp: current enrollment',
-        `issuer: ${enrollment.issuer}`,
-        `username: ${enrollment.username}`,
-        `email: ${enrollment.email}`,
-        `created: ${new Date(enrollment.createdAt).toLocaleString()}`,
-        `secret: ${enrollment.secret}`,
-        `otpauth url: ${otpauthUrl}`,
-        {
-            type: 'text-link',
-            prefix: 'qr code: ',
-            href: qrUrl,
-            text: 'open enrollment qr',
-            newTab: true
-        }
-    ];
+    if (typeof window.showImageStill === 'function') {
+        window.showImageStill(qrUrl, {
+            title: options.title || 'qr-totp',
+            hint: options.hint || 'scan this QR with your authenticator app, or save it to your device',
+            download: {
+                filename: options.filename || 'qr-totp-enrollment.svg',
+                label: options.downloadLabel || 'save'
+            }
+        });
+    } else {
+        window.open(qrUrl, '_blank');
+    }
 }
 
 async function qr_totp_command(args) {
@@ -909,7 +890,15 @@ async function qr_totp_command(args) {
             createdAt: new Date().toISOString()
         };
         const storageMode = saveQrTotpEnrollment(enrollment);
-        return buildQrTotpEnrollmentOutput(enrollment, storageMode);
+        openQrTotpViewer(enrollment, {
+            title: 'qr-totp enrollment',
+            hint: buildQrTotpViewerHint(enrollment, storageMode),
+            filename: `${enrollment.issuer}-${enrollment.username}-qr.svg`
+                .replace(/[^a-z0-9-_]+/gi, '-')
+                .replace(/^-+|-+$/g, '')
+                .toLowerCase() || 'qr-totp-enrollment.svg'
+        });
+        return [];
     }
 
     const enrollment = loadQrTotpEnrollment();
@@ -921,7 +910,11 @@ async function qr_totp_command(args) {
     }
 
     if (options.action === 'show') {
-        return buildQrTotpShowOutput(enrollment);
+        openQrTotpViewer(enrollment, {
+            title: 'qr-totp enrollment',
+            hint: buildQrTotpViewerHint(enrollment)
+        });
+        return [];
     }
 
     if (options.action === 'otp') {

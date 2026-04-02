@@ -285,3 +285,13 @@ A {
     padding: 0.35rem;
     background: rgba(0, 0, 0, 0.18);
 }
+
+.viewer-image {
+    display: block;
+    width: min(100%, 28rem);
+    height: auto;
+    margin: 0 auto;
+    background: #fff6f7;
+    padding: 0.75rem;
+    box-sizing: border-box;
+}

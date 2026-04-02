@@ -311,20 +311,23 @@ async function downloadAsciiArtImage(asciiLines, options = {}) {
     const canvas = renderAsciiArtToCanvas(asciiLines, options);
     const blob = await exportCanvasAsBlob(canvas, "image/png");
     const filename = options.filename || "ascii-art.png";
+    await downloadBlob(blob, filename, options.title || "ASCII art image");
+}
 
+async function downloadBlob(blob, filename, title) {
     if (navigator.canShare && typeof File !== "undefined") {
         try {
-            const file = new File([blob], filename, { type: "image/png" });
+            const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
             if (navigator.canShare({ files: [file] })) {
                 await navigator.share({
                     files: [file],
-                    title: options.title || "ASCII art image"
+                    title
                 });
                 return;
             }
         } catch (error) {
             if (error && error.name !== "AbortError") {
-                console.error("ascii share failed", error);
+                console.error("blob share failed", error);
             } else {
                 return;
             }
@@ -340,6 +343,74 @@ async function downloadAsciiArtImage(asciiLines, options = {}) {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
+async function downloadImageResource(imageUrl, options = {}) {
+    const response = await fetch(imageUrl, { cache: "no-store" });
+    if (!response.ok) {
+        throw new Error(`unable to fetch image resource (${response.status})`);
+    }
+    const blob = await response.blob();
+    await downloadBlob(blob, options.filename || "image-download.svg", options.title || "Image download");
+}
+
+function showImageStill(imageUrl, options = {}) {
+    const terminal = document.getElementById("terminal");
+    terminal.classList.add("viewer-mode");
+    terminal.scrollTop = 0;
+    terminal.scrollLeft = 0;
+    terminal.replaceChildren();
+    const viewer = createAsciiViewerShell(options);
+    const image = document.createElement("img");
+    image.className = "viewer-image";
+    image.src = imageUrl;
+    image.alt = options.title || "image viewer";
+    image.decoding = "async";
+    viewer.asciiArt.replaceChildren(image);
+    terminal.append(viewer.viewer);
+    viewer.scrollRegion.scrollTop = 0;
+    viewer.scrollRegion.scrollLeft = 0;
+
+    const restoreTerminal = () => {
+        document.removeEventListener("keydown", handleImageKeyDown);
+        viewer.closeButton.removeEventListener("click", restoreTerminal);
+        if (viewer.saveButton) {
+            viewer.saveButton.removeEventListener("click", handleImageSave);
+        }
+        setupTerminal();
+    };
+
+    const handleImageKeyDown = event => {
+        if (event.key === "Escape") {
+            restoreTerminal();
+        }
+    };
+
+    const handleImageSave = async () => {
+        try {
+            if (viewer.saveButton) {
+                viewer.saveButton.disabled = true;
+                viewer.saveButton.textContent = "saving";
+            }
+            await downloadImageResource(imageUrl, {
+                filename: options.download && options.download.filename ? options.download.filename : "image-download.svg",
+                title: options.title || "Image download"
+            });
+        } catch (error) {
+            console.error("image save failed", error);
+        } finally {
+            if (viewer.saveButton) {
+                viewer.saveButton.disabled = false;
+                viewer.saveButton.textContent = options.download && options.download.label ? options.download.label : "save";
+            }
+        }
+    };
+
+    document.addEventListener("keydown", handleImageKeyDown);
+    viewer.closeButton.addEventListener("click", restoreTerminal);
+    if (viewer.saveButton) {
+        viewer.saveButton.addEventListener("click", handleImageSave);
+    }
 }
 
 function showAsciiStill(asciiLines, options = {}) {
@@ -493,3 +564,4 @@ window.getPromptPath = () => PROMPT_PATH;
 window.getPromptUser = () => PROMPT_USER;
 window.getPromptHost = () => PROMPT_HOST;
 window.showAsciiStill = showAsciiStill;
+window.showImageStill = showImageStill;
