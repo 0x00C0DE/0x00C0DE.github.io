@@ -423,7 +423,7 @@ async function handleDeleteImage(request, env) {
 
         const body = await request.json().catch(() => null);
         const password = typeof body?.password === 'string' ? body.password : '';
-        const imageDataUrl = typeof body?.imageDataUrl === 'string' ? body.imageDataUrl.trim() : '';
+        const imageDataUrl = normalizeImageDataUrl(body?.imageDataUrl);
         const maxImageDataUrlLength = Number(env.MAX_IMAGE_DATA_URL_LENGTH || MAX_IMAGE_DATA_URL_LENGTH);
 
         if (!timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD)) {
@@ -464,14 +464,22 @@ function containsControlCharacters(value) {
 }
 
 function validateImageDataUrl(value, maxLength) {
-    if (value.length > maxLength) {
+    const normalizedValue = normalizeImageDataUrl(value);
+    if (!normalizedValue) {
+        return {
+            ok: false,
+            error: 'imageDataUrl must be a valid base64 image data URL'
+        };
+    }
+
+    if (normalizedValue.length > maxLength) {
         return {
             ok: false,
             error: `imageDataUrl must be ${maxLength} characters or fewer`
         };
     }
 
-    const match = /^data:([^;]+);base64,([A-Za-z0-9+/=\r\n]+)$/i.exec(value);
+    const match = /^data:([^;]+);base64,([A-Za-z0-9+/=\r\n]+)$/i.exec(normalizedValue);
     if (!match) {
         return {
             ok: false,
@@ -488,6 +496,17 @@ function validateImageDataUrl(value, maxLength) {
     }
 
     return { ok: true };
+}
+
+function normalizeImageDataUrl(value) {
+    const match = /^data:([^;]+);base64,([A-Za-z0-9+/=\r\n]+)$/i.exec(String(value || '').trim());
+    if (!match) {
+        return '';
+    }
+
+    const mimeType = match[1].toLowerCase();
+    const base64Payload = match[2].replace(/\s+/g, '');
+    return `data:${mimeType};base64,${base64Payload}`;
 }
 
 function timingSafeStringEqual(left, right) {
@@ -766,6 +785,7 @@ function appendBlogEntry(currentContent, contentBlocks) {
 }
 
 function removeFirstImageBlock(currentContent, targetImageDataUrl) {
+    const normalizedTarget = normalizeImageDataUrl(targetImageDataUrl);
     const hadTrailingNewline = currentContent.endsWith('\n');
     const lines = currentContent.replace(/\r\n/g, '\n').split('\n');
     const output = [];
@@ -782,7 +802,7 @@ function removeFirstImageBlock(currentContent, targetImageDataUrl) {
                 cursor += 1;
             }
 
-            if (cursor < lines.length && imageLines.join('') === targetImageDataUrl) {
+            if (cursor < lines.length && normalizeImageDataUrl(imageLines.join('')) === normalizedTarget) {
                 removed = true;
                 index = cursor;
                 continue;

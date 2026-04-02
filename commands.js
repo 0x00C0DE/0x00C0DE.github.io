@@ -605,7 +605,8 @@ async function resolvePostContentBlocks(templateBlocks) {
 }
 
 async function deleteBlogImageByDataUrl(imageDataUrl, password) {
-    if (!isSafeBlogImageDataUrl(imageDataUrl)) {
+    const normalizedImageDataUrl = normalizeBlogImageDataUrl(imageDataUrl);
+    if (!normalizedImageDataUrl || !isSafeBlogImageDataUrl(normalizedImageDataUrl)) {
         return {
             ok: false,
             error: 'invalid image payload'
@@ -618,7 +619,7 @@ async function deleteBlogImageByDataUrl(imageDataUrl, password) {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            imageDataUrl,
+            imageDataUrl: normalizedImageDataUrl,
             password
         })
     });
@@ -642,12 +643,24 @@ function getDataUrlMimeType(dataUrl) {
     return match ? match[1].toLowerCase() : '';
 }
 
+function normalizeBlogImageDataUrl(dataUrl) {
+    const match = BLOG_IMAGE_DATA_URL_PATTERN.exec(String(dataUrl || '').trim());
+    if (!match) {
+        return '';
+    }
+
+    const mimeType = match[1].toLowerCase();
+    const base64Payload = match[2].replace(/\s+/g, '');
+    return `data:${mimeType};base64,${base64Payload}`;
+}
+
 function isSafeBlogImageDataUrl(dataUrl) {
-    if (typeof dataUrl !== 'string' || !dataUrl || dataUrl.length > BLOG_MAX_IMAGE_DATA_URL_LENGTH) {
+    const normalizedDataUrl = normalizeBlogImageDataUrl(dataUrl);
+    if (!normalizedDataUrl || normalizedDataUrl.length > BLOG_MAX_IMAGE_DATA_URL_LENGTH) {
         return false;
     }
 
-    const match = BLOG_IMAGE_DATA_URL_PATTERN.exec(dataUrl);
+    const match = BLOG_IMAGE_DATA_URL_PATTERN.exec(normalizedDataUrl);
     if (!match) {
         return false;
     }
