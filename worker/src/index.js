@@ -299,6 +299,7 @@ const VISITOR_ONSITE_WINDOW_MS = 8000;
 const HEARTBEAT_PERSIST_INTERVAL_MS = 2000;
 const MIN_SNAPSHOT_FLUSH_INTERVAL_MS = 1000;
 const MAX_IMAGE_DATA_URL_LENGTH = 350000;
+const MAX_IMAGE_ATTACHMENTS = 4;
 const ALLOWED_BLOG_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
 function normalizeSnapshot(snapshot) {
@@ -366,24 +367,20 @@ async function handleAppend(request, env) {
         const body = await request.json().catch(() => null);
         const text = typeof body?.text === 'string' ? body.text.trim() : '';
         const imageDataUrl = typeof body?.imageDataUrl === 'string' ? body.imageDataUrl.trim() : '';
+        const contentBlocks = Array.isArray(body?.contentBlocks) ? body.contentBlocks : null;
         const turnstileToken = typeof body?.turnstileToken === 'string' ? body.turnstileToken : '';
         const maxPostLength = Number(env.MAX_POST_LENGTH || 500);
         const maxImageDataUrlLength = Number(env.MAX_IMAGE_DATA_URL_LENGTH || MAX_IMAGE_DATA_URL_LENGTH);
+        const normalizedBlocks = normalizeAppendContentBlocks({
+            contentBlocks,
+            text,
+            imageDataUrl,
+            maxPostLength,
+            maxImageDataUrlLength
+        });
 
-        if (!text && !imageDataUrl) {
-            return jsonResponse({ error: 'text or imageDataUrl is required' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
-        }
-        if (text.length > maxPostLength) {
-            return jsonResponse({ error: `text must be ${maxPostLength} characters or fewer` }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
-        }
-        if (containsControlCharacters(text)) {
-            return jsonResponse({ error: 'text contains unsupported control characters' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
-        }
-        if (imageDataUrl) {
-            const imageValidation = validateImageDataUrl(imageDataUrl, maxImageDataUrlLength);
-            if (!imageValidation.ok) {
-                return jsonResponse({ error: imageValidation.error }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
-            }
+        if (!normalizedBlocks.ok) {
+            return jsonResponse({ error: normalizedBlocks.error }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
         if (env.TURNSTILE_SECRET_KEY) {
@@ -394,7 +391,7 @@ async function handleAppend(request, env) {
         }
 
         const githubFile = await fetchGithubFile(env);
-        const nextContent = appendBlogEntry(githubFile.content, text, imageDataUrl);
+        const nextContent = appendBlogEntry(githubFile.content, normalizedBlocks.blocks);
         const commit = await updateGithubFile(env, nextContent, githubFile.sha);
 
         return jsonResponse({
@@ -437,6 +434,116 @@ function validateImageDataUrl(value, maxLength) {
     }
 
     return { ok: true };
+}
+
+function normalizeAppendContentBlocks({ contentBlocks, text, imageDataUrl, maxPostLength, maxImageDataUrlLength }) {
+    if (contentBlocks) {
+        return validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLength);
+    }
+
+    const blocks = [];
+    if (text) {
+        blocks.push({ type: 'text', text });
+    }
+    if (imageDataUrl) {
+        blocks.push({ type: 'image', imageDataUrl });
+    }
+
+    return validateContentBlocks(blocks, maxPostLength, maxImageDataUrlLength);
+}
+
+function validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLength) {
+    if (!Array.isArray(contentBlocks) || contentBlocks.length === 0) {
+        return {
+            ok: false,
+            error: 'text or imageDataUrl is required'
+        };
+    }
+
+    const normalized = [];
+    let totalTextLength = 0;
+    let imageCount = 0;
+
+    for (const block of contentBlocks) {
+        if (!block || typeof block !== 'object') {
+            return {
+                ok: false,
+                error: 'contentBlocks must contain valid objects'
+            };
+        }
+
+        if (block.type === 'text') {
+            const normalizedText = typeof block.text === 'string'
+                ? block.text.replace(/\s+/g, ' ').trim()
+                : '';
+
+            if (!normalizedText) {
+                continue;
+            }
+
+            totalTextLength += normalizedText.length;
+            if (totalTextLength > maxPostLength) {
+                return {
+                    ok: false,
+                    error: `text must be ${maxPostLength} characters or fewer`
+                };
+            }
+
+            if (containsControlCharacters(normalizedText)) {
+                return {
+                    ok: false,
+                    error: 'text contains unsupported control characters'
+                };
+            }
+
+            normalized.push({
+                type: 'text',
+                text: normalizedText
+            });
+            continue;
+        }
+
+        if (block.type === 'image') {
+            imageCount += 1;
+            if (imageCount > MAX_IMAGE_ATTACHMENTS) {
+                return {
+                    ok: false,
+                    error: `no more than ${MAX_IMAGE_ATTACHMENTS} images are allowed per entry`
+                };
+            }
+
+            const imageValidation = validateImageDataUrl(String(block.imageDataUrl || '').trim(), maxImageDataUrlLength);
+            if (!imageValidation.ok) {
+                return {
+                    ok: false,
+                    error: imageValidation.error
+                };
+            }
+
+            normalized.push({
+                type: 'image',
+                imageDataUrl: String(block.imageDataUrl || '').trim()
+            });
+            continue;
+        }
+
+        return {
+            ok: false,
+            error: 'contentBlocks contains an unsupported block type'
+        };
+    }
+
+    if (normalized.length === 0) {
+        return {
+            ok: false,
+            error: 'text or imageDataUrl is required'
+        };
+    }
+
+    return {
+        ok: true,
+        blocks: normalized
+    };
 }
 
 function sanitizeVisitorId(value) {
@@ -565,19 +672,22 @@ async function updateGithubFile(env, content, sha) {
     return payload.commit;
 }
 
-function appendBlogEntry(currentContent, text, imageDataUrl = '') {
+function appendBlogEntry(currentContent, contentBlocks) {
     const normalized = currentContent.endsWith('\n') ? currentContent : `${currentContent}\n`;
     const timestamp = new Date().toISOString();
     const lines = [`[${timestamp}]`];
 
-    if (text) {
-        lines.push(text);
-    }
+    for (const block of contentBlocks) {
+        if (block.type === 'text') {
+            lines.push(block.text);
+            continue;
+        }
 
-    if (imageDataUrl) {
-        lines.push('[image-base64]');
-        lines.push(imageDataUrl);
-        lines.push('[/image-base64]');
+        if (block.type === 'image') {
+            lines.push('[image-base64]');
+            lines.push(block.imageDataUrl);
+            lines.push('[/image-base64]');
+        }
     }
 
     return `${normalized}\n${lines.join('\n')}\n`;

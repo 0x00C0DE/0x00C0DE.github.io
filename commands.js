@@ -96,6 +96,7 @@ const VISITOR_TRACK_API_URL = window.VISITOR_TRACK_API_URL || 'https://0x00c0de-
 const VISITOR_LEAVE_API_URL = window.VISITOR_LEAVE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/leave';
 const BLOG_MAX_POST_LENGTH = 500;
 const BLOG_MAX_IMAGE_DATA_URL_LENGTH = 350000;
+const BLOG_MAX_IMAGE_ATTACHMENTS = 4;
 const BLOG_ALLOWED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 const BLOG_IMAGE_DATA_URL_PATTERN = /^data:([^;]+);base64,([A-Za-z0-9+/=\r\n]+)$/i;
 const VISITOR_HEARTBEAT_MS = 1000;
@@ -298,6 +299,7 @@ function help_command() {
         '  picture w h - Display 0x00C0DE\'s picture as ASCII art at size w x h',
         '  post text   - Append a blog entry through the backend API (may take a short time to appear)',
         '  post --image [text] - Append a blog entry with a base64-encoded image attachment',
+        '  post hello [image] goodbye - Insert a chosen image inline between text blocks',
         '  pwd         - Print working directory',
         '  qr-totp     - Browser QR enrollment + TOTP generator for the cs370 project',
         '  resume      - Open my resume PDF in a new tab',
@@ -496,6 +498,110 @@ function parsePostArgs(args) {
     };
 }
 
+function parsePostTemplateBlocks(text, includeImage) {
+    const placeholderPattern = /\[image\]/gi;
+    const template = typeof text === 'string' ? text : '';
+    const hasPlaceholder = placeholderPattern.test(template);
+    placeholderPattern.lastIndex = 0;
+
+    const normalizedTemplate = includeImage && !hasPlaceholder
+        ? (template ? `${template} [image]` : '[image]')
+        : template;
+
+    const blocks = [];
+    let lastIndex = 0;
+    let match = placeholderPattern.exec(normalizedTemplate);
+
+    while (match) {
+        const textPart = normalizedTemplate.slice(lastIndex, match.index);
+        if (textPart) {
+            blocks.push({
+                type: 'text',
+                text: textPart
+            });
+        }
+
+        blocks.push({ type: 'image' });
+        lastIndex = match.index + match[0].length;
+        match = placeholderPattern.exec(normalizedTemplate);
+    }
+
+    const trailingText = normalizedTemplate.slice(lastIndex);
+    if (trailingText) {
+        blocks.push({
+            type: 'text',
+            text: trailingText
+        });
+    }
+
+    if (blocks.length === 0 && template) {
+        blocks.push({
+            type: 'text',
+            text: template
+        });
+    }
+
+    return blocks;
+}
+
+function normalizePostTextBlock(text) {
+    return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+async function resolvePostContentBlocks(templateBlocks) {
+    const contentBlocks = [];
+    let imageCount = 0;
+    let totalTextLength = 0;
+
+    for (const block of templateBlocks) {
+        if (block.type === 'image') {
+            imageCount += 1;
+            if (imageCount > BLOG_MAX_IMAGE_ATTACHMENTS) {
+                return {
+                    error: `post: no more than ${BLOG_MAX_IMAGE_ATTACHMENTS} images are allowed per entry`
+                };
+            }
+
+            const imageAttachment = await selectPostImageDataUrl();
+            if (imageAttachment.error) {
+                return { error: imageAttachment.error };
+            }
+
+            contentBlocks.push({
+                type: 'image',
+                imageDataUrl: imageAttachment.dataUrl,
+                fileName: imageAttachment.fileName
+            });
+            continue;
+        }
+
+        const normalizedText = normalizePostTextBlock(block.text);
+        if (!normalizedText) {
+            continue;
+        }
+
+        totalTextLength += normalizedText.length;
+        if (totalTextLength > BLOG_MAX_POST_LENGTH) {
+            return {
+                error: `post: message exceeds ${BLOG_MAX_POST_LENGTH} characters`
+            };
+        }
+
+        contentBlocks.push({
+            type: 'text',
+            text: normalizedText
+        });
+    }
+
+    if (contentBlocks.length === 0) {
+        return {
+            error: 'post: missing blog text or image'
+        };
+    }
+
+    return { contentBlocks };
+}
+
 function getDataUrlMimeType(dataUrl) {
     const match = BLOG_IMAGE_DATA_URL_PATTERN.exec(dataUrl || '');
     return match ? match[1].toLowerCase() : '';
@@ -629,21 +735,16 @@ async function post_command(args) {
         return [
             'post: missing blog text',
             'usage: post Your blog entry goes here',
-            '       post --image Optional caption text'
+            '       post --image Optional caption text',
+            '       post hello [image] goodbye'
         ];
     }
 
-    if (text.length > BLOG_MAX_POST_LENGTH) {
-        return [`post: message exceeds ${BLOG_MAX_POST_LENGTH} characters`];
-    }
-
     try {
-        let imageAttachment = null;
-        if (includeImage) {
-            imageAttachment = await selectPostImageDataUrl();
-            if (imageAttachment.error) {
-                return [imageAttachment.error];
-            }
+        const templateBlocks = parsePostTemplateBlocks(text, includeImage);
+        const resolved = await resolvePostContentBlocks(templateBlocks);
+        if (resolved.error) {
+            return [resolved.error];
         }
 
         const response = await fetch(BLOG_POST_API_URL, {
@@ -652,8 +753,7 @@ async function post_command(args) {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                text,
-                imageDataUrl: imageAttachment ? imageAttachment.dataUrl : ''
+                contentBlocks: resolved.contentBlocks
             })
         });
 
@@ -663,8 +763,9 @@ async function post_command(args) {
         }
 
         const output = ['post: blog entry appended successfully'];
-        if (imageAttachment) {
-            output.push(`post: embedded base64 image from ${imageAttachment.fileName}`);
+        const imageCount = resolved.contentBlocks.filter(block => block.type === 'image').length;
+        if (imageCount > 0) {
+            output.push(`post: embedded ${imageCount} base64 image${imageCount === 1 ? '' : 's'} in the entry`);
         }
         if (payload.commitUrl) {
             output.push({
