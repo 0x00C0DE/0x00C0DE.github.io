@@ -427,6 +427,6 @@ Full text: [LICENSE](./LICENSE)
 └─────────────────────────────────────────────┘
 ```
 
-*Built without frameworks. Published via GitHub Pages, without a custom CI/CD pipeline. Documented without databases.*
+*Built without frameworks. Deployed without pipelines. Documented without databases.*
 
 </div>
