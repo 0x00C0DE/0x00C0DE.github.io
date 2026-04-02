@@ -864,7 +864,7 @@ function openQrTotpViewer(enrollment, options = {}) {
             }
         });
     } else {
-        window.open(qrUrl, '_blank');
+        window.open(getSafeTerminalHref(qrUrl), '_blank', 'noopener');
     }
 }
 

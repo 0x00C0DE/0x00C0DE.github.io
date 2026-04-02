@@ -61,6 +61,30 @@ function getSafeHref(href) {
     return '#';
 }
 
+function getSafeImageHref(href) {
+    const safeHref = getSafeHref(href);
+    if (safeHref === '#') {
+        return '';
+    }
+
+    try {
+        const parsed = new URL(safeHref);
+        const hostname = parsed.hostname.toLowerCase();
+        if (
+            parsed.origin === window.location.origin ||
+            hostname === 'quickchart.io' ||
+            hostname.endsWith('.quickchart.io') ||
+            hostname === 'i.imgur.com'
+        ) {
+            return parsed.toString();
+        }
+    } catch {
+        return '';
+    }
+
+    return '';
+}
+
 function renderOutputObject(container, line) {
     if (!line || typeof line !== 'object') {
         container.textContent = String(line ?? '');
@@ -346,7 +370,12 @@ async function downloadBlob(blob, filename, title) {
 }
 
 async function downloadImageResource(imageUrl, options = {}) {
-    const response = await fetch(imageUrl, { cache: "no-store" });
+    const safeImageUrl = getSafeImageHref(imageUrl);
+    if (!safeImageUrl) {
+        throw new Error("image url is not allowed");
+    }
+
+    const response = await fetch(safeImageUrl, { cache: "no-store" });
     if (!response.ok) {
         throw new Error(`unable to fetch image resource (${response.status})`);
     }
@@ -355,6 +384,11 @@ async function downloadImageResource(imageUrl, options = {}) {
 }
 
 function showImageStill(imageUrl, options = {}) {
+    const safeImageUrl = getSafeImageHref(imageUrl);
+    if (!safeImageUrl) {
+        throw new Error("image url is not allowed");
+    }
+
     const terminal = document.getElementById("terminal");
     terminal.classList.add("viewer-mode");
     terminal.scrollTop = 0;
@@ -363,7 +397,7 @@ function showImageStill(imageUrl, options = {}) {
     const viewer = createAsciiViewerShell(options);
     const image = document.createElement("img");
     image.className = "viewer-image";
-    image.src = imageUrl;
+    image.src = safeImageUrl;
     image.alt = options.title || "image viewer";
     image.decoding = "async";
     viewer.asciiArt.replaceChildren(image);
@@ -392,7 +426,7 @@ function showImageStill(imageUrl, options = {}) {
                 viewer.saveButton.disabled = true;
                 viewer.saveButton.textContent = "saving";
             }
-            await downloadImageResource(imageUrl, {
+            await downloadImageResource(safeImageUrl, {
                 filename: options.download && options.download.filename ? options.download.filename : "image-download.svg",
                 title: options.title || "Image download"
             });
