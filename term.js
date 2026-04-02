@@ -126,6 +126,26 @@ function renderOutputObject(container, line) {
         return;
     }
 
+    if (line.type === 'inline-image') {
+        const isSafeDataUrl = typeof window.isSafeBlogImageDataUrl === 'function'
+            ? window.isSafeBlogImageDataUrl(line.src)
+            : false;
+
+        if (!isSafeDataUrl) {
+            container.textContent = '[invalid embedded image]';
+            return;
+        }
+
+        const image = document.createElement('img');
+        image.className = 'terminal-inline-image';
+        image.src = line.src;
+        image.alt = line.alt || 'Embedded blog image';
+        image.decoding = 'async';
+        image.loading = 'lazy';
+        container.append(image);
+        return;
+    }
+
     container.textContent = typeof line.text === 'string' ? line.text : String(line ?? '');
 }
 

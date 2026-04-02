@@ -298,6 +298,8 @@ export class RateLimiter {
 const VISITOR_ONSITE_WINDOW_MS = 8000;
 const HEARTBEAT_PERSIST_INTERVAL_MS = 2000;
 const MIN_SNAPSHOT_FLUSH_INTERVAL_MS = 1000;
+const MAX_IMAGE_DATA_URL_LENGTH = 350000;
+const ALLOWED_BLOG_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
 function normalizeSnapshot(snapshot) {
     return {
@@ -363,17 +365,25 @@ async function handleAppend(request, env) {
 
         const body = await request.json().catch(() => null);
         const text = typeof body?.text === 'string' ? body.text.trim() : '';
+        const imageDataUrl = typeof body?.imageDataUrl === 'string' ? body.imageDataUrl.trim() : '';
         const turnstileToken = typeof body?.turnstileToken === 'string' ? body.turnstileToken : '';
         const maxPostLength = Number(env.MAX_POST_LENGTH || 500);
+        const maxImageDataUrlLength = Number(env.MAX_IMAGE_DATA_URL_LENGTH || MAX_IMAGE_DATA_URL_LENGTH);
 
-        if (!text) {
-            return jsonResponse({ error: 'text is required' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
+        if (!text && !imageDataUrl) {
+            return jsonResponse({ error: 'text or imageDataUrl is required' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
         if (text.length > maxPostLength) {
             return jsonResponse({ error: `text must be ${maxPostLength} characters or fewer` }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
         if (containsControlCharacters(text)) {
             return jsonResponse({ error: 'text contains unsupported control characters' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+        if (imageDataUrl) {
+            const imageValidation = validateImageDataUrl(imageDataUrl, maxImageDataUrlLength);
+            if (!imageValidation.ok) {
+                return jsonResponse({ error: imageValidation.error }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
+            }
         }
 
         if (env.TURNSTILE_SECRET_KEY) {
@@ -384,7 +394,7 @@ async function handleAppend(request, env) {
         }
 
         const githubFile = await fetchGithubFile(env);
-        const nextContent = appendBlogEntry(githubFile.content, text);
+        const nextContent = appendBlogEntry(githubFile.content, text, imageDataUrl);
         const commit = await updateGithubFile(env, nextContent, githubFile.sha);
 
         return jsonResponse({
@@ -400,6 +410,33 @@ async function handleAppend(request, env) {
 
 function containsControlCharacters(value) {
     return /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(value);
+}
+
+function validateImageDataUrl(value, maxLength) {
+    if (value.length > maxLength) {
+        return {
+            ok: false,
+            error: `imageDataUrl must be ${maxLength} characters or fewer`
+        };
+    }
+
+    const match = /^data:([^;]+);base64,([A-Za-z0-9+/=\r\n]+)$/i.exec(value);
+    if (!match) {
+        return {
+            ok: false,
+            error: 'imageDataUrl must be a valid base64 image data URL'
+        };
+    }
+
+    const mimeType = match[1].toLowerCase();
+    if (!ALLOWED_BLOG_IMAGE_MIME_TYPES.has(mimeType)) {
+        return {
+            ok: false,
+            error: 'imageDataUrl must be png, jpeg, webp, or gif'
+        };
+    }
+
+    return { ok: true };
 }
 
 function sanitizeVisitorId(value) {
@@ -528,10 +565,22 @@ async function updateGithubFile(env, content, sha) {
     return payload.commit;
 }
 
-function appendBlogEntry(currentContent, text) {
+function appendBlogEntry(currentContent, text, imageDataUrl = '') {
     const normalized = currentContent.endsWith('\n') ? currentContent : `${currentContent}\n`;
     const timestamp = new Date().toISOString();
-    return `${normalized}\n[${timestamp}]\n${text}\n`;
+    const lines = [`[${timestamp}]`];
+
+    if (text) {
+        lines.push(text);
+    }
+
+    if (imageDataUrl) {
+        lines.push('[image-base64]');
+        lines.push(imageDataUrl);
+        lines.push('[/image-base64]');
+    }
+
+    return `${normalized}\n${lines.join('\n')}\n`;
 }
 
 function githubContentsUrl(env) {

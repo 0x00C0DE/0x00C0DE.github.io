@@ -95,6 +95,9 @@ const VISITOR_COUNT_API_URL = window.VISITOR_COUNT_API_URL || 'https://0x00c0de-
 const VISITOR_TRACK_API_URL = window.VISITOR_TRACK_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/track';
 const VISITOR_LEAVE_API_URL = window.VISITOR_LEAVE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/leave';
 const BLOG_MAX_POST_LENGTH = 500;
+const BLOG_MAX_IMAGE_DATA_URL_LENGTH = 350000;
+const BLOG_ALLOWED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+const BLOG_IMAGE_DATA_URL_PATTERN = /^data:([^;]+);base64,([A-Za-z0-9+/=\r\n]+)$/i;
 const VISITOR_HEARTBEAT_MS = 1000;
 const VISITOR_STATS_POLL_MS = 500;
 const TEXT_FILES = Object.freeze([
@@ -213,7 +216,49 @@ async function readTextFile(filename) {
     if (lines.length > 0 && lines[lines.length - 1] === '') {
         lines.pop();
     }
+
+    if (filename === 'blog.txt') {
+        return parseBlogTextFile(lines);
+    }
+
     return lines;
+}
+
+function parseBlogTextFile(lines) {
+    const output = [];
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        if (line !== '[image-base64]') {
+            output.push(line);
+            continue;
+        }
+
+        const imageLines = [];
+        index += 1;
+
+        while (index < lines.length && lines[index] !== '[/image-base64]') {
+            imageLines.push(lines[index]);
+            index += 1;
+        }
+
+        const dataUrl = imageLines.join('');
+        if (isSafeBlogImageDataUrl(dataUrl)) {
+            output.push({
+                type: 'inline-image',
+                src: dataUrl,
+                alt: 'Embedded blog image'
+            });
+        } else {
+            output.push('[image-base64]');
+            imageLines.forEach(imageLine => output.push(imageLine));
+            if (index < lines.length && lines[index] === '[/image-base64]') {
+                output.push('[/image-base64]');
+            }
+        }
+    }
+
+    return output;
 }
 
 function banner_command() {
@@ -252,6 +297,7 @@ function help_command() {
         '  movie w h   - Display your live camera footage as ASCII art at size w x h (press any key to stop)',
         '  picture w h - Display 0x00C0DE\'s picture as ASCII art at size w x h',
         '  post text   - Append a blog entry through the backend API (may take a short time to appear)',
+        '  post --image [text] - Append a blog entry with a base64-encoded image attachment',
         '  pwd         - Print working directory',
         '  qr-totp     - Browser QR enrollment + TOTP generator for the cs370 project',
         '  resume      - Open my resume PDF in a new tab',
@@ -430,6 +476,71 @@ function buildAsciiDownloadFilename(file) {
     return `${baseName || 'userpic'}-ascii.png`;
 }
 
+function parsePostArgs(args) {
+    const options = {
+        includeImage: false,
+        textArgs: []
+    };
+
+    args.forEach(arg => {
+        if (arg === '--image' || arg === '-i') {
+            options.includeImage = true;
+            return;
+        }
+        options.textArgs.push(arg);
+    });
+
+    return {
+        includeImage: options.includeImage,
+        text: options.textArgs.join(' ').trim()
+    };
+}
+
+function getDataUrlMimeType(dataUrl) {
+    const match = BLOG_IMAGE_DATA_URL_PATTERN.exec(dataUrl || '');
+    return match ? match[1].toLowerCase() : '';
+}
+
+function isSafeBlogImageDataUrl(dataUrl) {
+    if (typeof dataUrl !== 'string' || !dataUrl || dataUrl.length > BLOG_MAX_IMAGE_DATA_URL_LENGTH) {
+        return false;
+    }
+
+    const match = BLOG_IMAGE_DATA_URL_PATTERN.exec(dataUrl);
+    if (!match) {
+        return false;
+    }
+
+    return BLOG_ALLOWED_IMAGE_MIME_TYPES.has(match[1].toLowerCase());
+}
+
+async function selectPostImageDataUrl() {
+    const file = await selectUserImageFile();
+    if (!file) {
+        return { error: 'post: no image selected' };
+    }
+
+    if (!file.type.startsWith('image/')) {
+        return { error: 'post: selected file is not an image' };
+    }
+
+    const dataUrl = await readFileAsDataUrl(file);
+    const mimeType = getDataUrlMimeType(dataUrl);
+    if (!BLOG_ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) {
+        return { error: 'post: image must be png, jpeg, webp, or gif' };
+    }
+
+    if (dataUrl.length > BLOG_MAX_IMAGE_DATA_URL_LENGTH) {
+        return { error: 'post: selected image is too large to store in blog.txt' };
+    }
+
+    return {
+        dataUrl,
+        mimeType,
+        fileName: file.name || 'image'
+    };
+}
+
 function date_command() {
     return [new Date().toString()];
 }
@@ -513,11 +624,12 @@ async function picture_command(args) {
 }
 
 async function post_command(args) {
-    const text = args.join(' ').trim();
-    if (!text) {
+    const { includeImage, text } = parsePostArgs(args);
+    if (!text && !includeImage) {
         return [
             'post: missing blog text',
-            'usage: post Your blog entry goes here'
+            'usage: post Your blog entry goes here',
+            '       post --image Optional caption text'
         ];
     }
 
@@ -526,12 +638,23 @@ async function post_command(args) {
     }
 
     try {
+        let imageAttachment = null;
+        if (includeImage) {
+            imageAttachment = await selectPostImageDataUrl();
+            if (imageAttachment.error) {
+                return [imageAttachment.error];
+            }
+        }
+
         const response = await fetch(BLOG_POST_API_URL, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ text })
+            body: JSON.stringify({
+                text,
+                imageDataUrl: imageAttachment ? imageAttachment.dataUrl : ''
+            })
         });
 
         const payload = await response.json().catch(() => ({}));
@@ -540,6 +663,9 @@ async function post_command(args) {
         }
 
         const output = ['post: blog entry appended successfully'];
+        if (imageAttachment) {
+            output.push(`post: embedded base64 image from ${imageAttachment.fileName}`);
+        }
         if (payload.commitUrl) {
             output.push({
                 type: 'text-link',
@@ -1248,6 +1374,7 @@ function projects_command() {
 
 window.renderTerminalLineContent = renderTerminalLineContent;
 window.buildVisitorWidgetElement = buildVisitorWidgetElement;
+window.isSafeBlogImageDataUrl = isSafeBlogImageDataUrl;
 
 function resume_command() {
     window.open('resume.pdf', '_blank');

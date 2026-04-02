@@ -51,6 +51,17 @@ body::after {
     white-space: pre-wrap;
 }
 
+.terminal-inline-image {
+    display: block;
+    max-width: min(100%, 34rem);
+    width: auto;
+    height: auto;
+    margin: 0.35rem 0 0.55rem;
+    border: 1px solid rgba(255, 143, 153, 0.45);
+    background: rgba(12, 0, 1, 0.75);
+    box-shadow: 0 0 0.65rem rgba(120, 15, 31, 0.2);
+}
+
 .banner-art {
     display: block;
     margin: 0.4vw 0 0.15vw;
