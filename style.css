@@ -62,6 +62,39 @@ body::after {
     box-shadow: 0 0 0.65rem rgba(120, 15, 31, 0.2);
 }
 
+.terminal-inline-image-wrapper {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.terminal-inline-image-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0.1rem 0 0.2rem;
+}
+
+.terminal-inline-image-delete {
+    font-family: "Courier New", monospace;
+    font-size: clamp(12px, 0.95vw, 15px);
+    background: transparent;
+    border: 1px solid #ff8f99;
+    color: #ff8f99;
+    padding: 0.2rem 0.6rem;
+    cursor: pointer;
+}
+
+.terminal-inline-image-delete:disabled {
+    opacity: 0.65;
+    cursor: wait;
+}
+
+.terminal-inline-image-status {
+    color: #ffb3bb;
+    font-size: 0.92em;
+}
+
 .banner-art {
     display: block;
     margin: 0.4vw 0 0.15vw;

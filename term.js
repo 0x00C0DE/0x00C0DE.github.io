@@ -136,13 +136,59 @@ function renderOutputObject(container, line) {
             return;
         }
 
+        const wrapper = document.createElement('div');
+        wrapper.className = 'terminal-inline-image-wrapper';
+
+        if (line.deletable && typeof window.deleteBlogImageByDataUrl === 'function') {
+            const actions = document.createElement('div');
+            actions.className = 'terminal-inline-image-actions';
+
+            const deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'terminal-inline-image-delete';
+            deleteButton.textContent = 'delete';
+
+            const status = document.createElement('span');
+            status.className = 'terminal-inline-image-status';
+
+            deleteButton.addEventListener('click', async () => {
+                const password = window.prompt('Enter delete password');
+                if (password === null) {
+                    return;
+                }
+
+                deleteButton.disabled = true;
+                status.textContent = ' deleting...';
+
+                try {
+                    const result = await window.deleteBlogImageByDataUrl(line.src, password);
+                    if (!result.ok) {
+                        status.textContent = ` ${result.error}`;
+                        deleteButton.disabled = false;
+                        return;
+                    }
+
+                    status.textContent = ' deleted';
+                    deleteButton.remove();
+                    image.remove();
+                } catch (error) {
+                    status.textContent = ' unable to delete image right now';
+                    deleteButton.disabled = false;
+                }
+            });
+
+            actions.append(deleteButton, status);
+            wrapper.append(actions);
+        }
+
         const image = document.createElement('img');
         image.className = 'terminal-inline-image';
         image.src = line.src;
         image.alt = line.alt || 'Embedded blog image';
         image.decoding = 'async';
         image.loading = 'lazy';
-        container.append(image);
+        wrapper.append(image);
+        container.append(wrapper);
         return;
     }
 

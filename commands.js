@@ -91,6 +91,7 @@ const ASTROLOGY_FORTUNE_SOURCES = [
     }
 ];
 const BLOG_POST_API_URL = window.BLOG_POST_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/append';
+const BLOG_DELETE_IMAGE_API_URL = window.BLOG_DELETE_IMAGE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/delete-image';
 const VISITOR_COUNT_API_URL = window.VISITOR_COUNT_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors';
 const VISITOR_TRACK_API_URL = window.VISITOR_TRACK_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/track';
 const VISITOR_LEAVE_API_URL = window.VISITOR_LEAVE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/leave';
@@ -248,7 +249,8 @@ function parseBlogTextFile(lines) {
             output.push({
                 type: 'inline-image',
                 src: dataUrl,
-                alt: 'Embedded blog image'
+                alt: 'Embedded blog image',
+                deletable: true
             });
         } else {
             output.push('[image-base64]');
@@ -600,6 +602,39 @@ async function resolvePostContentBlocks(templateBlocks) {
     }
 
     return { contentBlocks };
+}
+
+async function deleteBlogImageByDataUrl(imageDataUrl, password) {
+    if (!isSafeBlogImageDataUrl(imageDataUrl)) {
+        return {
+            ok: false,
+            error: 'invalid image payload'
+        };
+    }
+
+    const response = await fetch(BLOG_DELETE_IMAGE_API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            imageDataUrl,
+            password
+        })
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        return {
+            ok: false,
+            error: payload.error || 'unable to delete image right now'
+        };
+    }
+
+    return {
+        ok: true,
+        commitUrl: payload.commitUrl || ''
+    };
 }
 
 function getDataUrlMimeType(dataUrl) {
@@ -1476,6 +1511,7 @@ function projects_command() {
 window.renderTerminalLineContent = renderTerminalLineContent;
 window.buildVisitorWidgetElement = buildVisitorWidgetElement;
 window.isSafeBlogImageDataUrl = isSafeBlogImageDataUrl;
+window.deleteBlogImageByDataUrl = deleteBlogImageByDataUrl;
 
 function resume_command() {
     window.open('resume.pdf', '_blank');

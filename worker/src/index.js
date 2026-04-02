@@ -29,6 +29,10 @@ export default {
             return handleAppend(request, env);
         }
 
+        if (request.method === 'POST' && url.pathname === '/api/blog/delete-image') {
+            return handleDeleteImage(request, env);
+        }
+
         return jsonResponse({ error: 'not found' }, 404, env.ALLOWED_ORIGIN);
     }
 };
@@ -405,6 +409,56 @@ async function handleAppend(request, env) {
     }
 }
 
+async function handleDeleteImage(request, env) {
+    try {
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rateCheck = await enforceRateLimit(ip, env);
+        if (!rateCheck.allowed) {
+            return jsonResponse({ error: 'rate limit exceeded' }, 429, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        if (!env.BLOG_IMAGE_DELETE_PASSWORD) {
+            return jsonResponse({ error: 'delete password is not configured' }, 500, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        const body = await request.json().catch(() => null);
+        const password = typeof body?.password === 'string' ? body.password : '';
+        const imageDataUrl = typeof body?.imageDataUrl === 'string' ? body.imageDataUrl.trim() : '';
+        const maxImageDataUrlLength = Number(env.MAX_IMAGE_DATA_URL_LENGTH || MAX_IMAGE_DATA_URL_LENGTH);
+
+        if (!timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD)) {
+            return jsonResponse({ error: 'invalid password' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        const imageValidation = validateImageDataUrl(imageDataUrl, maxImageDataUrlLength);
+        if (!imageValidation.ok) {
+            return jsonResponse({ error: imageValidation.error }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        const githubFile = await fetchGithubFile(env);
+        const removal = removeFirstImageBlock(githubFile.content, imageDataUrl);
+        if (!removal.removed) {
+            return jsonResponse({ error: 'image not found in blog.txt' }, 404, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        const commit = await updateGithubFile(
+            env,
+            removal.content,
+            githubFile.sha,
+            'Delete blog image via terminal site'
+        );
+
+        return jsonResponse({
+            ok: true,
+            commitSha: commit.sha,
+            commitUrl: `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/commit/${commit.sha}`
+        }, 200, env.ALLOWED_ORIGIN, rateCheck.headers);
+    } catch (error) {
+        console.error('delete image failed', error);
+        return jsonResponse({ error: 'failed to delete blog image' }, 500, env.ALLOWED_ORIGIN);
+    }
+}
+
 function containsControlCharacters(value) {
     return /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(value);
 }
@@ -434,6 +488,24 @@ function validateImageDataUrl(value, maxLength) {
     }
 
     return { ok: true };
+}
+
+function timingSafeStringEqual(left, right) {
+    if (typeof left !== 'string' || typeof right !== 'string') {
+        return false;
+    }
+
+    const encoder = new TextEncoder();
+    const leftBytes = encoder.encode(left);
+    const rightBytes = encoder.encode(right);
+    const maxLength = Math.max(leftBytes.length, rightBytes.length);
+    let mismatch = leftBytes.length ^ rightBytes.length;
+
+    for (let index = 0; index < maxLength; index += 1) {
+        mismatch |= (leftBytes[index] || 0) ^ (rightBytes[index] || 0);
+    }
+
+    return mismatch === 0;
 }
 
 function normalizeAppendContentBlocks({ contentBlocks, text, imageDataUrl, maxPostLength, maxImageDataUrlLength }) {
@@ -648,7 +720,7 @@ async function fetchGithubFile(env) {
     };
 }
 
-async function updateGithubFile(env, content, sha) {
+async function updateGithubFile(env, content, sha, message = 'Append blog entry via terminal site') {
     const response = await fetch(githubContentsUrl(env), {
         method: 'PUT',
         headers: {
@@ -656,7 +728,7 @@ async function updateGithubFile(env, content, sha) {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            message: 'Append blog entry via terminal site',
+            message,
             content: encodeBase64(content),
             sha,
             branch: env.GITHUB_BRANCH || 'main'
@@ -691,6 +763,44 @@ function appendBlogEntry(currentContent, contentBlocks) {
     }
 
     return `${normalized}\n${lines.join('\n')}\n`;
+}
+
+function removeFirstImageBlock(currentContent, targetImageDataUrl) {
+    const hadTrailingNewline = currentContent.endsWith('\n');
+    const lines = currentContent.replace(/\r\n/g, '\n').split('\n');
+    const output = [];
+    let removed = false;
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        if (!removed && line === '[image-base64]') {
+            const imageLines = [];
+            let cursor = index + 1;
+
+            while (cursor < lines.length && lines[cursor] !== '[/image-base64]') {
+                imageLines.push(lines[cursor]);
+                cursor += 1;
+            }
+
+            if (cursor < lines.length && imageLines.join('') === targetImageDataUrl) {
+                removed = true;
+                index = cursor;
+                continue;
+            }
+        }
+
+        output.push(line);
+    }
+
+    let content = output.join('\n');
+    if (hadTrailingNewline && !content.endsWith('\n')) {
+        content += '\n';
+    }
+
+    return {
+        removed,
+        content
+    };
 }
 
 function githubContentsUrl(env) {

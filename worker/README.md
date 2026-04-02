@@ -19,9 +19,11 @@ Set them with Wrangler:
 ```bash
 wrangler secret put GITHUB_PAT
 wrangler secret put TURNSTILE_SECRET_KEY
+wrangler secret put BLOG_IMAGE_DELETE_PASSWORD
 ```
 
 `TURNSTILE_SECRET_KEY` is optional. If omitted, Turnstile verification is skipped.
+`BLOG_IMAGE_DELETE_PASSWORD` is used by the blog image delete button and should be set as a Worker secret, not committed.
 
 ## Visitor counter binding
 
@@ -59,6 +61,7 @@ npm install
 wrangler login
 wrangler secret put GITHUB_PAT
 wrangler secret put TURNSTILE_SECRET_KEY
+wrangler secret put BLOG_IMAGE_DELETE_PASSWORD
 npm run deploy
 ```
 
@@ -75,6 +78,10 @@ Before `commands.js` loads, set:
 Current deployed endpoint:
 
 `https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/append`
+
+Delete-image endpoint after redeploying this Worker:
+
+- `https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/delete-image`
 
 Visitor counter endpoints after redeploying this Worker:
 
