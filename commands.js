@@ -132,14 +132,28 @@ function normalizeTextFilename(input) {
 }
 
 function appendAnchor(container, href, text, options = {}) {
+    const safeHref = getSafeTerminalHref(href);
     const anchor = document.createElement('a');
-    anchor.href = href;
+    anchor.href = safeHref;
     anchor.textContent = text;
     if (options.newTab) {
         anchor.target = '_blank';
         anchor.rel = 'noreferrer';
     }
     container.append(anchor);
+}
+
+function getSafeTerminalHref(href) {
+    try {
+        const parsed = new URL(href, window.location.href);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            return parsed.toString();
+        }
+    } catch {
+        // Fall back to a harmless URL.
+    }
+
+    return '#';
 }
 
 function renderTerminalLineContent(container, line) {

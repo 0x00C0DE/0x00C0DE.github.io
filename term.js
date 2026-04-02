@@ -118,6 +118,67 @@ function renderOutputLine(container, line) {
     container.textContent = String(line ?? '');
 }
 
+function renderAsciiLines(element, asciiLines) {
+    const lines = Array.isArray(asciiLines) ? asciiLines : [];
+    element.textContent = lines.join('\n');
+}
+
+function createAsciiViewerShell(options = {}) {
+    const viewer = document.createElement('div');
+    viewer.className = 'ascii-viewer';
+
+    const toolbar = document.createElement('div');
+    toolbar.className = 'ascii-toolbar';
+
+    const title = document.createElement('span');
+    title.className = 'ascii-title';
+    title.textContent = options.title || 'ascii viewer';
+
+    const actions = document.createElement('div');
+    actions.className = 'ascii-actions';
+
+    let saveButton = null;
+    if (options.download) {
+        saveButton = document.createElement('button');
+        saveButton.type = 'button';
+        saveButton.className = 'ascii-save';
+        saveButton.id = 'ascii-save-button';
+        saveButton.textContent = options.download.label || 'save';
+        actions.append(saveButton);
+    }
+
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'ascii-close';
+    closeButton.id = 'ascii-close-button';
+    closeButton.textContent = 'close';
+    actions.append(closeButton);
+
+    toolbar.append(title, actions);
+
+    const hint = document.createElement('div');
+    hint.className = 'ascii-hint';
+    hint.textContent = options.hint || 'drag to pan, pinch to zoom';
+
+    const scrollRegion = document.createElement('div');
+    scrollRegion.className = 'ascii-scroll';
+    scrollRegion.id = 'ascii-scroll-region';
+
+    const asciiArt = document.createElement('div');
+    asciiArt.id = 'asciiArt';
+    scrollRegion.append(asciiArt);
+
+    viewer.append(toolbar, hint, scrollRegion);
+
+    return {
+        viewer,
+        asciiArt,
+        scrollRegion,
+        closeButton,
+        saveButton
+    };
+}
+
 function setupTerminal() {
     const terminal = document.getElementById("terminal");
     terminal.classList.remove("viewer-mode");
@@ -145,26 +206,22 @@ async function showMovie(args) {
     terminal.classList.add("viewer-mode");
     terminal.scrollTop = 0;
     terminal.scrollLeft = 0;
-    terminal.innerHTML = `
-        <div class="ascii-viewer">
-            <div class="ascii-toolbar">
-                <span class="ascii-title">movie</span>
-                <div class="ascii-actions">
-                    <button type="button" class="ascii-close" id="ascii-close-button">close</button>
-                </div>
-            </div>
-            <div class="ascii-hint">live camera ascii art, drag to pan, pinch to zoom</div>
-            <div class="ascii-scroll" id="ascii-scroll-region">
-                <div id="asciiArt"></div>
-            </div>
-            <video id="videoFeed" autoplay playsinline style="display:none"></video>
-        </div>
-    `;
-    const videoFeed = document.getElementById("videoFeed");
+    terminal.replaceChildren();
+    const viewer = createAsciiViewerShell({
+        title: 'movie',
+        hint: 'live camera ascii art, drag to pan, pinch to zoom'
+    });
+    const videoFeed = document.createElement('video');
+    videoFeed.id = 'videoFeed';
+    videoFeed.autoplay = true;
+    videoFeed.playsInline = true;
+    videoFeed.style.display = 'none';
+    viewer.viewer.append(videoFeed);
+    terminal.append(viewer.viewer);
     const canvas = document.getElementById("canvas");
     canvas.width = width;
     canvas.height = height;
-    const asciiArtDiv = document.getElementById("asciiArt");
+    const asciiArtDiv = viewer.asciiArt;
     const context = canvas.getContext("2d", { willReadFrequently: true });
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
     videoFeed.srcObject = stream;
@@ -172,7 +229,7 @@ async function showMovie(args) {
         if (videoFeed.readyState === videoFeed.HAVE_ENOUGH_DATA) {
             context.drawImage(videoFeed, 0, 0, width, height);
             const asciiArt = processImage(context, width, height);
-            asciiArtDiv.innerHTML = asciiArt.join("<br>");
+            renderAsciiLines(asciiArtDiv, asciiArt);
         }
     }, 200);
 
@@ -180,10 +237,7 @@ async function showMovie(args) {
         stream.getTracks().forEach(track => track.stop());
         clearInterval(intervalId);
         document.removeEventListener("keydown", handleMovieKeyDown);
-        const closeButton = document.getElementById("ascii-close-button");
-        if (closeButton) {
-            closeButton.removeEventListener("click", restoreTerminal);
-        }
+        viewer.closeButton.removeEventListener("click", restoreTerminal);
         setupTerminal();
     };
 
@@ -194,7 +248,7 @@ async function showMovie(args) {
     };
 
     document.addEventListener("keydown", handleMovieKeyDown);
-    document.getElementById("ascii-close-button").addEventListener("click", restoreTerminal);
+    viewer.closeButton.addEventListener("click", restoreTerminal);
 }
 
 function renderAsciiArtToCanvas(asciiLines, options = {}) {
@@ -292,35 +346,18 @@ function showAsciiStill(asciiLines, options = {}) {
     terminal.classList.add("viewer-mode");
     terminal.scrollTop = 0;
     terminal.scrollLeft = 0;
-    terminal.innerHTML = `
-        <div class="ascii-viewer">
-            <div class="ascii-toolbar">
-                <span class="ascii-title">${options.title || "ascii viewer"}</span>
-                <div class="ascii-actions">
-                    ${options.download ? `<button type="button" class="ascii-save" id="ascii-save-button">${options.download.label || "save"}</button>` : ""}
-                    <button type="button" class="ascii-close" id="ascii-close-button">close</button>
-                </div>
-            </div>
-            <div class="ascii-hint">${options.hint || "drag to pan, pinch to zoom"}</div>
-            <div class="ascii-scroll" id="ascii-scroll-region">
-                <div id="asciiArt"></div>
-            </div>
-        </div>
-    `;
-    document.getElementById("asciiArt").innerHTML = asciiLines.join("<br>");
-    const scrollRegion = document.getElementById("ascii-scroll-region");
-    scrollRegion.scrollTop = 0;
-    scrollRegion.scrollLeft = 0;
+    terminal.replaceChildren();
+    const viewer = createAsciiViewerShell(options);
+    terminal.append(viewer.viewer);
+    renderAsciiLines(viewer.asciiArt, asciiLines);
+    viewer.scrollRegion.scrollTop = 0;
+    viewer.scrollRegion.scrollLeft = 0;
 
     const restoreTerminal = () => {
         document.removeEventListener("keydown", handleAsciiKeyDown);
-        const closeButton = document.getElementById("ascii-close-button");
-        if (closeButton) {
-            closeButton.removeEventListener("click", restoreTerminal);
-        }
-        const saveButton = document.getElementById("ascii-save-button");
-        if (saveButton) {
-            saveButton.removeEventListener("click", handleAsciiSave);
+        viewer.closeButton.removeEventListener("click", restoreTerminal);
+        if (viewer.saveButton) {
+            viewer.saveButton.removeEventListener("click", handleAsciiSave);
         }
         setupTerminal();
     };
@@ -333,10 +370,9 @@ function showAsciiStill(asciiLines, options = {}) {
 
     const handleAsciiSave = async () => {
         try {
-            const saveButton = document.getElementById("ascii-save-button");
-            if (saveButton) {
-                saveButton.disabled = true;
-                saveButton.textContent = "saving";
+            if (viewer.saveButton) {
+                viewer.saveButton.disabled = true;
+                viewer.saveButton.textContent = "saving";
             }
             await downloadAsciiArtImage(asciiLines, {
                 filename: options.download && options.download.filename ? options.download.filename : "ascii-art.png",
@@ -345,19 +381,17 @@ function showAsciiStill(asciiLines, options = {}) {
         } catch (error) {
             console.error("ascii save failed", error);
         } finally {
-            const saveButton = document.getElementById("ascii-save-button");
-            if (saveButton) {
-                saveButton.disabled = false;
-                saveButton.textContent = options.download && options.download.label ? options.download.label : "save";
+            if (viewer.saveButton) {
+                viewer.saveButton.disabled = false;
+                viewer.saveButton.textContent = options.download && options.download.label ? options.download.label : "save";
             }
         }
     };
 
     document.addEventListener("keydown", handleAsciiKeyDown);
-    document.getElementById("ascii-close-button").addEventListener("click", restoreTerminal);
-    const saveButton = document.getElementById("ascii-save-button");
-    if (saveButton) {
-        saveButton.addEventListener("click", handleAsciiSave);
+    viewer.closeButton.addEventListener("click", restoreTerminal);
+    if (viewer.saveButton) {
+        viewer.saveButton.addEventListener("click", handleAsciiSave);
     }
 }
 
