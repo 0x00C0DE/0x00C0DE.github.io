@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { VisitorCounter, createBlogImageKey, removeImageBlock } from './index.js';
+import { VisitorCounter, appendBlogEntry, createBlogImageKey, removeImageBlock } from './index.js';
 
 class FakeStorage {
     constructor() {
@@ -203,4 +203,47 @@ test('removeImageBlock can target the correct image block within an entry by tim
     assert.match(removal.content, /multi image post/);
     assert.match(removal.content, /\[image-base64\]\ndata:image\/png;base64,AAAA\n\[\/image-base64\]/);
     assert.doesNotMatch(removal.content, /data:image\/png;base64,BBBB/);
+});
+
+test('appendBlogEntry and removeImageBlock use the same blog file serialization', () => {
+    const initialContent = [
+        '0x00C0DE Blog',
+        '=============',
+        'Header line',
+        ''
+    ].join('\n');
+
+    const appended = appendBlogEntry(initialContent, [
+        { type: 'text', text: 'testing image post' },
+        { type: 'image', imageDataUrl: 'data:image/png;base64,AAAA' }
+    ], '2026-04-02T10:17:04.041Z');
+
+    assert.equal(appended, [
+        '0x00C0DE Blog',
+        '=============',
+        'Header line',
+        '',
+        '[2026-04-02T10:17:04.041Z]',
+        'testing image post',
+        '[image-base64]',
+        'data:image/png;base64,AAAA',
+        '[/image-base64]',
+        ''
+    ].join('\n'));
+
+    const removal = removeImageBlock(appended, {
+        targetEntryTimestamp: '[2026-04-02T10:17:04.041Z]',
+        targetEntryImageIndex: 0
+    });
+
+    assert.equal(removal.removed, true);
+    assert.equal(removal.content, [
+        '0x00C0DE Blog',
+        '=============',
+        'Header line',
+        '',
+        '[2026-04-02T10:17:04.041Z]',
+        'testing image post',
+        ''
+    ].join('\n'));
 });

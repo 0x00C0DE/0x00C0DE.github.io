@@ -791,25 +791,13 @@ async function updateGithubFile(env, content, sha, message = 'Append blog entry 
     return payload.commit;
 }
 
-function appendBlogEntry(currentContent, contentBlocks) {
-    const normalized = currentContent.endsWith('\n') ? currentContent : `${currentContent}\n`;
-    const timestamp = new Date().toISOString();
-    const lines = [`[${timestamp}]`];
-
-    for (const block of contentBlocks) {
-        if (block.type === 'text') {
-            lines.push(block.text);
-            continue;
-        }
-
-        if (block.type === 'image') {
-            lines.push('[image-base64]');
-            lines.push(block.imageDataUrl);
-            lines.push('[/image-base64]');
-        }
-    }
-
-    return `${normalized}\n${lines.join('\n')}\n`;
+export function appendBlogEntry(currentContent, contentBlocks, timestamp = new Date().toISOString()) {
+    const blogDocument = parseBlogDocument(currentContent);
+    blogDocument.entries.push({
+        timestampLine: toBlogEntryTimestampLine(timestamp),
+        blocks: normalizeBlogEntryBlocks(contentBlocks)
+    });
+    return serializeBlogDocument(blogDocument);
 }
 
 export function removeImageBlock(currentContent, {
@@ -819,150 +807,356 @@ export function removeImageBlock(currentContent, {
     targetEntryTimestamp = '',
     targetEntryImageIndex = null
 } = {}) {
-    const hadTrailingNewline = currentContent.endsWith('\n');
-    const segments = splitBlogContentSegments(currentContent);
-    const segmentIndexToRemove = findImageSegmentIndex(segments, {
+    const blogDocument = parseBlogDocument(currentContent);
+    const target = findImageBlockTarget(blogDocument.entries, {
         targetImageBlockIndex,
         targetImageKey,
         targetImageDataUrl,
         targetEntryTimestamp,
         targetEntryImageIndex
     });
-    const removed = segmentIndexToRemove >= 0;
 
-    const output = [];
-    for (let index = 0; index < segments.length; index += 1) {
-        if (index === segmentIndexToRemove) {
-            continue;
-        }
-
-        output.push(...segments[index].lines);
+    if (!target) {
+        return {
+            removed: false,
+            content: currentContent
+        };
     }
 
-    let content = output.join('\n');
-    if (hadTrailingNewline && !content.endsWith('\n')) {
-        content += '\n';
-    }
-
+    blogDocument.entries[target.entryIndex].blocks.splice(target.blockIndex, 1);
     return {
-        removed,
-        content
+        removed: true,
+        content: serializeBlogDocument(blogDocument)
     };
 }
 
-function splitBlogContentSegments(currentContent) {
-    const lines = currentContent.replace(/\r\n/g, '\n').split('\n');
-    const segments = [];
-    let imageBlockIndex = 0;
-    let currentEntryTimestamp = '';
-    let currentEntryImageIndex = 0;
+function parseBlogDocument(currentContent) {
+    const lines = String(currentContent || '').replace(/\r\n/g, '\n').split('\n');
+    if (lines.length > 0 && lines[lines.length - 1] === '') {
+        lines.pop();
+    }
 
-    for (let index = 0; index < lines.length; index += 1) {
-        const line = lines[index];
-        if (line !== '[image-base64]') {
-            if (isBlogEntryTimestampLine(line)) {
-                currentEntryTimestamp = normalizeBlogEntryTimestamp(line);
-                currentEntryImageIndex = 0;
+    const introLines = [];
+    const entries = [];
+    let index = 0;
+
+    while (index < lines.length && !isBlogEntryTimestampLine(lines[index])) {
+        introLines.push(lines[index]);
+        index += 1;
+    }
+
+    while (index < lines.length) {
+        if (!isBlogEntryTimestampLine(lines[index])) {
+            if (entries.length === 0) {
+                introLines.push(lines[index]);
+            } else {
+                const lastEntry = entries[entries.length - 1];
+                const lastBlock = lastEntry.blocks[lastEntry.blocks.length - 1];
+                if (!lastBlock || lastBlock.type !== 'text') {
+                    lastEntry.blocks.push({
+                        type: 'text',
+                        lines: [lines[index]]
+                    });
+                } else {
+                    lastBlock.lines.push(lines[index]);
+                }
             }
-            segments.push({
-                type: 'text',
-                lines: [line]
-            });
+            index += 1;
             continue;
         }
 
-        const segmentLines = ['[image-base64]'];
-        const imageLines = [];
-        let cursor = index + 1;
+        const timestampLine = normalizeBlogEntryTimestamp(lines[index]);
+        index += 1;
 
-        while (cursor < lines.length && lines[cursor] !== '[/image-base64]') {
-            segmentLines.push(lines[cursor]);
-            imageLines.push(lines[cursor]);
-            cursor += 1;
+        const entryLines = [];
+        while (index < lines.length && !isBlogEntryTimestampLine(lines[index])) {
+            entryLines.push(lines[index]);
+            index += 1;
         }
 
-        if (cursor < lines.length && lines[cursor] === '[/image-base64]') {
-            segmentLines.push('[/image-base64]');
-            index = cursor;
-        } else {
-            index = cursor - 1;
+        while (entryLines.length > 0 && entryLines[entryLines.length - 1] === '') {
+            entryLines.pop();
         }
 
-        segments.push({
-            type: 'image',
-            lines: segmentLines,
-            imageBlockIndex,
-            imageKey: createBlogImageKey(imageLines.join('')),
-            imageDataUrl: normalizeImageDataUrl(imageLines.join('')),
-            entryTimestamp: currentEntryTimestamp,
-            entryImageIndex: currentEntryImageIndex
+        entries.push({
+            timestampLine,
+            blocks: parseBlogEntryBlocks(entryLines)
         });
-        imageBlockIndex += 1;
-        currentEntryImageIndex += 1;
     }
 
-    return segments;
+    return {
+        introLines,
+        entries
+    };
 }
 
-function findImageSegmentIndex(segments, {
+function parseBlogEntryBlocks(entryLines) {
+    const blocks = [];
+    let textLines = [];
+
+    const flushTextLines = () => {
+        if (textLines.length === 0) {
+            return;
+        }
+
+        blocks.push({
+            type: 'text',
+            lines: textLines
+        });
+        textLines = [];
+    };
+
+    for (let index = 0; index < entryLines.length; index += 1) {
+        const line = entryLines[index];
+        if (line !== '[image-base64]') {
+            textLines.push(line);
+            continue;
+        }
+
+        flushTextLines();
+
+        const imageLines = [];
+        index += 1;
+        while (index < entryLines.length && entryLines[index] !== '[/image-base64]') {
+            imageLines.push(entryLines[index]);
+            index += 1;
+        }
+
+        if (index < entryLines.length && entryLines[index] === '[/image-base64]') {
+            const imageDataUrl = normalizeImageDataUrl(imageLines.join(''));
+            if (imageDataUrl) {
+                blocks.push({
+                    type: 'image',
+                    imageDataUrl
+                });
+                continue;
+            }
+
+            textLines.push('[image-base64]', ...imageLines, '[/image-base64]');
+            continue;
+        }
+
+        textLines.push('[image-base64]', ...imageLines);
+    }
+
+    flushTextLines();
+    return blocks;
+}
+
+function normalizeBlogEntryBlocks(contentBlocks) {
+    const blocks = [];
+
+    for (const block of contentBlocks) {
+        if (block.type === 'text') {
+            const lines = String(block.text || '').replace(/\r\n/g, '\n').split('\n');
+            if (lines.length > 0) {
+                blocks.push({
+                    type: 'text',
+                    lines
+                });
+            }
+            continue;
+        }
+
+        if (block.type === 'image') {
+            const imageDataUrl = normalizeImageDataUrl(block.imageDataUrl);
+            if (!imageDataUrl) {
+                continue;
+            }
+
+            blocks.push({
+                type: 'image',
+                imageDataUrl
+            });
+        }
+    }
+
+    return blocks;
+}
+
+function serializeBlogDocument(blogDocument) {
+    const lines = [...blogDocument.introLines];
+
+    if (blogDocument.entries.length > 0 && lines.length > 0 && lines[lines.length - 1] !== '') {
+        lines.push('');
+    }
+
+    for (let entryIndex = 0; entryIndex < blogDocument.entries.length; entryIndex += 1) {
+        const entry = blogDocument.entries[entryIndex];
+        lines.push(entry.timestampLine);
+
+        for (const block of entry.blocks) {
+            if (block.type === 'text') {
+                lines.push(...block.lines);
+                continue;
+            }
+
+            if (block.type === 'image') {
+                lines.push('[image-base64]');
+                lines.push(block.imageDataUrl);
+                lines.push('[/image-base64]');
+            }
+        }
+
+        if (entryIndex < blogDocument.entries.length - 1) {
+            lines.push('');
+        }
+    }
+
+    return lines.length > 0 ? `${lines.join('\n')}\n` : '';
+}
+
+function findImageBlockTarget(entries, {
     targetImageBlockIndex,
     targetImageKey,
     targetImageDataUrl,
     targetEntryTimestamp,
     targetEntryImageIndex
 }) {
-    const normalizedTargetImageDataUrl = normalizeImageDataUrl(targetImageDataUrl);
     const normalizedTargetEntryTimestamp = normalizeBlogEntryTimestamp(targetEntryTimestamp);
     const normalizedTargetEntryImageIndex = Number.isInteger(targetEntryImageIndex)
         ? targetEntryImageIndex
         : Number.parseInt(targetEntryImageIndex, 10);
-    let bestMatch = { index: -1, score: -1 };
+    const normalizedTargetImageDataUrl = normalizeImageDataUrl(targetImageDataUrl);
 
-    for (let index = 0; index < segments.length; index += 1) {
-        const segment = segments[index];
-        if (segment.type !== 'image') {
-            continue;
-        }
-
-        const matchesDataUrl = Boolean(normalizedTargetImageDataUrl) && segment.imageDataUrl === normalizedTargetImageDataUrl;
-        const matchesKey = Boolean(targetImageKey) && segment.imageKey === targetImageKey;
-        const matchesIndex =
-            Number.isInteger(targetImageBlockIndex) &&
-            segment.imageBlockIndex === targetImageBlockIndex;
-        const matchesEntryTimestamp =
-            Boolean(normalizedTargetEntryTimestamp) &&
-            segment.entryTimestamp === normalizedTargetEntryTimestamp;
-        const matchesEntryImageIndex =
-            Number.isInteger(normalizedTargetEntryImageIndex) &&
-            segment.entryImageIndex === normalizedTargetEntryImageIndex;
-
-        if (!matchesDataUrl && !matchesKey && !matchesIndex && !matchesEntryTimestamp && !matchesEntryImageIndex) {
-            continue;
-        }
-
-        let score = 0;
-        if (matchesDataUrl) {
-            score += 8;
-        }
-        if (matchesEntryTimestamp) {
-            score += 4;
-        }
-        if (matchesEntryImageIndex) {
-            score += 3;
-        }
-        if (matchesKey) {
-            score += 2;
-        }
-        if (matchesIndex) {
-            score += 1;
-        }
-
-        if (score > bestMatch.score) {
-            bestMatch = { index, score };
+    if (normalizedTargetEntryTimestamp) {
+        const entryIndex = entries.findIndex(entry => entry.timestampLine === normalizedTargetEntryTimestamp);
+        if (entryIndex >= 0) {
+            const match = findImageBlockInEntry(entries[entryIndex], {
+                targetImageKey,
+                targetImageDataUrl: normalizedTargetImageDataUrl,
+                targetEntryImageIndex: normalizedTargetEntryImageIndex
+            });
+            if (match) {
+                return {
+                    entryIndex,
+                    blockIndex: match.blockIndex
+                };
+            }
         }
     }
 
-    return bestMatch.index;
+    const globalMatch = findImageBlockAcrossEntries(entries, {
+        targetImageKey,
+        targetImageDataUrl: normalizedTargetImageDataUrl
+    });
+    if (globalMatch) {
+        return globalMatch;
+    }
+
+    if (Number.isInteger(targetImageBlockIndex) && targetImageBlockIndex >= 0) {
+        const match = findImageBlockByGlobalIndex(entries, targetImageBlockIndex);
+        if (match) {
+            return match;
+        }
+    }
+
+    return null;
+}
+
+function findImageBlockInEntry(entry, {
+    targetImageKey,
+    targetImageDataUrl,
+    targetEntryImageIndex
+}) {
+    const imageBlocks = [];
+
+    for (let blockIndex = 0; blockIndex < entry.blocks.length; blockIndex += 1) {
+        const block = entry.blocks[blockIndex];
+        if (block.type !== 'image') {
+            continue;
+        }
+
+        imageBlocks.push({
+            blockIndex,
+            imageDataUrl: block.imageDataUrl,
+            imageKey: createBlogImageKey(block.imageDataUrl)
+        });
+    }
+
+    if (Number.isInteger(targetEntryImageIndex) && targetEntryImageIndex >= 0 && imageBlocks[targetEntryImageIndex]) {
+        return imageBlocks[targetEntryImageIndex];
+    }
+
+    if (targetImageDataUrl) {
+        const byDataUrl = imageBlocks.find(block => block.imageDataUrl === targetImageDataUrl);
+        if (byDataUrl) {
+            return byDataUrl;
+        }
+    }
+
+    if (targetImageKey) {
+        const byKey = imageBlocks.find(block => block.imageKey === targetImageKey);
+        if (byKey) {
+            return byKey;
+        }
+    }
+
+    if (imageBlocks.length === 1) {
+        return imageBlocks[0];
+    }
+
+    return null;
+}
+
+function findImageBlockByGlobalIndex(entries, targetImageBlockIndex) {
+    let globalImageIndex = 0;
+
+    for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+        const entry = entries[entryIndex];
+
+        for (let blockIndex = 0; blockIndex < entry.blocks.length; blockIndex += 1) {
+            const block = entry.blocks[blockIndex];
+            if (block.type !== 'image') {
+                continue;
+            }
+
+            if (globalImageIndex === targetImageBlockIndex) {
+                return {
+                    entryIndex,
+                    blockIndex
+                };
+            }
+
+            globalImageIndex += 1;
+        }
+    }
+
+    return null;
+}
+
+function findImageBlockAcrossEntries(entries, { targetImageKey, targetImageDataUrl }) {
+    for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+        const entry = entries[entryIndex];
+
+        for (let blockIndex = 0; blockIndex < entry.blocks.length; blockIndex += 1) {
+            const block = entry.blocks[blockIndex];
+            if (block.type !== 'image') {
+                continue;
+            }
+
+            if (targetImageDataUrl && block.imageDataUrl === targetImageDataUrl) {
+                return {
+                    entryIndex,
+                    blockIndex
+                };
+            }
+
+            if (targetImageKey && createBlogImageKey(block.imageDataUrl) === targetImageKey) {
+                return {
+                    entryIndex,
+                    blockIndex
+                };
+            }
+        }
+    }
+
+    return null;
+}
+
+function toBlogEntryTimestampLine(value) {
+    const normalized = String(value || new Date().toISOString()).trim();
+    return isBlogEntryTimestampLine(normalized) ? normalized : `[${normalized}]`;
 }
 
 function normalizeBlogEntryTimestamp(value) {
