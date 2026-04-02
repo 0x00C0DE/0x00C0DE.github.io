@@ -43,7 +43,7 @@ No frameworks. No build steps. Pure JavaScript + HTML + CSS.
 
 ## Overview
 
-`0x00C0DE.github.io` is a **browser-based Unix-like terminal** that serves as a developer portfolio. The entire UI is a scrollable command-line interface rendered inside a `<div>` — no actual terminal emulator libraries, no framework dependencies. Navigation, blog posting, project browsing, ASCII art rendering, and webcam-to-glyph conversion are all driven by a small, self-contained JavaScript shell engine.
+`0x00C0DE.github.io` is a **browser-based Unix-like terminal** that serves as a developer portfolio. The entire UI is a scrollable command-line interface rendered inside a `<div>` — no actual terminal emulator libraries, no framework dependencies. Navigation, blog posting, project browsing, ASCII art rendering, QR/TOTP enrollment, and webcam-to-glyph conversion are all driven by a small, self-contained JavaScript shell engine.
 
 The design philosophy is **file-system-first**: documentation lives as real `.txt` files fetched over HTTP at runtime, mirroring how a real terminal would `cat` files off disk. This means content is versionable, diffable, and human-readable without ever touching JavaScript.
 
@@ -199,16 +199,18 @@ Each exported function maps 1:1 to a terminal command. Key commands:
 | `ls` | Lists available commands and files |
 | `projects` | Renders the projects index from `projects.txt` |
 | `resume` | Triggers download of `resume.pdf` |
+| `qr-totp ...` | Browser-side QR enrollment, QR export, and 6-digit TOTP generation/verification |
 | `post <text>` | POSTs to the Cloudflare Worker; appends a dated entry to `blog.txt` |
 | `fortune` | Async call to a fortune API; displays a random quote |
 | `whoami` | Prints owner bio block |
 | `links` | Fetches and renders `links.txt` |
 | `picture` | Renders a built-in ASCII portrait via `pictures.js` |
-| `webcam` | Activates webcam → live glyph stream on `<canvas>` |
+| `movie` | Activates webcam → live glyph stream in the dedicated viewer |
+| `userpic` | Converts an uploaded or captured photo to ASCII art |
 | `help` | Prints the command reference |
 | `clear` | Clears terminal output |
 
-Commands that require async I/O (`cat`, `post`, `fortune`, `webcam`) return Promises and can be aborted mid-execution.
+Commands that require async I/O (`cat`, `post`, `fortune`, `movie`, `userpic`, `qr-totp`) return Promises and can be aborted mid-execution.
 
 ### `pictures.js` — ASCII / Glyph Renderer
 
@@ -278,7 +280,7 @@ Each project has a dedicated `.html` page and a corresponding `.txt` file for te
 | **Bloom Filters** | Probabilistic data structure implementation and analysis | `bloom.txt`, `project-bloom-filters.html` |
 | **Collision Avoidance** | Autonomous collision detection system | `project-collision-avoidance.html` |
 | **Property System (proprts)** | Custom property/ECS-style system | `proprts.txt`, `project-proprts.html` |
-| **QR + TOTP** | QR code generation + Time-based OTP implementation | `qr-totp.txt`, `project-qr-totp.html` |
+| **QR + TOTP** | Browser-side QR enrollment, QR export, and Time-based OTP implementation | `qr-totp.txt`, `project-qr-totp.html` |
 | **Shellcode Template** | x86/x64 shellcode scaffolding for security research | `shellcode.txt`, `project-shellcode-template.html` |
 | **smallsh** | A POSIX-subset shell written in C (CS 344 project) | `smallsh.txt`, `project-smallsh.html` |
 
@@ -353,8 +355,8 @@ GitHub Pages picks up changes immediately
 Cache busting is handled manually via version query strings in `index.html`:
 
 ```html
-<script src="commands.js?v=20260331t"></script>
-<script src="term.js?v=20260331e"></script>
+<script src="commands.js?v=20260402w"></script>
+<script src="term.js?v=20260402g"></script>
 <script src="pictures.js?v=20260331b"></script>
 <link rel="stylesheet" href="style.css?v=20260331f">
 ```
@@ -380,10 +382,13 @@ Start at **[https://0x00c0de.github.io](https://0x00c0de.github.io)** — the te
   cat readme.txt            In-terminal orientation
   projects                  Render project index
   resume                    Download résumé PDF
+  qr-totp --generate-qr ... Enroll a QR/TOTP secret in-browser
+  qr-totp --get-otp         Generate the current 6-digit code
   fortune                   Random quote (async)
   post <your message>       Append to blog.txt
   picture                   ASCII portrait
-  webcam                    Live webcam → ASCII art
+  movie                     Live webcam → ASCII art
+  userpic                   Uploaded/captured image → ASCII art
   clear                     Clear terminal output
   banner                    Re-display welcome art
 ```
