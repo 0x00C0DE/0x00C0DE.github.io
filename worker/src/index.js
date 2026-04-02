@@ -423,20 +423,18 @@ async function handleDeleteImage(request, env) {
 
         const body = await request.json().catch(() => null);
         const password = typeof body?.password === 'string' ? body.password : '';
-        const imageDataUrl = normalizeImageDataUrl(body?.imageDataUrl);
-        const maxImageDataUrlLength = Number(env.MAX_IMAGE_DATA_URL_LENGTH || MAX_IMAGE_DATA_URL_LENGTH);
+        const imageBlockIndex = Number.isInteger(body?.imageBlockIndex) ? body.imageBlockIndex : Number.parseInt(body?.imageBlockIndex, 10);
 
         if (!timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD)) {
             return jsonResponse({ error: 'invalid password' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
-        const imageValidation = validateImageDataUrl(imageDataUrl, maxImageDataUrlLength);
-        if (!imageValidation.ok) {
-            return jsonResponse({ error: imageValidation.error }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
+        if (!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) {
+            return jsonResponse({ error: 'imageBlockIndex must be a non-negative integer' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
         const githubFile = await fetchGithubFile(env);
-        const removal = removeFirstImageBlock(githubFile.content, imageDataUrl);
+        const removal = removeImageBlockByIndex(githubFile.content, imageBlockIndex);
         if (!removal.removed) {
             return jsonResponse({ error: 'image not found in blog.txt' }, 404, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
@@ -784,12 +782,12 @@ function appendBlogEntry(currentContent, contentBlocks) {
     return `${normalized}\n${lines.join('\n')}\n`;
 }
 
-function removeFirstImageBlock(currentContent, targetImageDataUrl) {
-    const normalizedTarget = normalizeImageDataUrl(targetImageDataUrl);
+function removeImageBlockByIndex(currentContent, targetImageBlockIndex) {
     const hadTrailingNewline = currentContent.endsWith('\n');
     const lines = currentContent.replace(/\r\n/g, '\n').split('\n');
     const output = [];
     let removed = false;
+    let imageBlockIndex = 0;
 
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
@@ -802,11 +800,13 @@ function removeFirstImageBlock(currentContent, targetImageDataUrl) {
                 cursor += 1;
             }
 
-            if (cursor < lines.length && normalizeImageDataUrl(imageLines.join('')) === normalizedTarget) {
+            if (cursor < lines.length && imageBlockIndex === targetImageBlockIndex) {
                 removed = true;
                 index = cursor;
                 continue;
             }
+
+            imageBlockIndex += 1;
         }
 
         output.push(line);

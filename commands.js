@@ -228,6 +228,7 @@ async function readTextFile(filename) {
 
 function parseBlogTextFile(lines) {
     const output = [];
+    let imageBlockIndex = 0;
 
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
@@ -250,7 +251,8 @@ function parseBlogTextFile(lines) {
                 type: 'inline-image',
                 src: dataUrl,
                 alt: 'Embedded blog image',
-                deletable: true
+                deletable: true,
+                imageBlockIndex
             });
         } else {
             output.push('[image-base64]');
@@ -259,6 +261,8 @@ function parseBlogTextFile(lines) {
                 output.push('[/image-base64]');
             }
         }
+
+        imageBlockIndex += 1;
     }
 
     return output;
@@ -604,12 +608,11 @@ async function resolvePostContentBlocks(templateBlocks) {
     return { contentBlocks };
 }
 
-async function deleteBlogImageByDataUrl(imageDataUrl, password) {
-    const normalizedImageDataUrl = normalizeBlogImageDataUrl(imageDataUrl);
-    if (!normalizedImageDataUrl || !isSafeBlogImageDataUrl(normalizedImageDataUrl)) {
+async function deleteBlogImageByBlockIndex(imageBlockIndex, password) {
+    if (!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) {
         return {
             ok: false,
-            error: 'invalid image payload'
+            error: 'invalid image reference'
         };
     }
 
@@ -619,7 +622,7 @@ async function deleteBlogImageByDataUrl(imageDataUrl, password) {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            imageDataUrl: normalizedImageDataUrl,
+            imageBlockIndex,
             password
         })
     });
@@ -1524,7 +1527,7 @@ function projects_command() {
 window.renderTerminalLineContent = renderTerminalLineContent;
 window.buildVisitorWidgetElement = buildVisitorWidgetElement;
 window.isSafeBlogImageDataUrl = isSafeBlogImageDataUrl;
-window.deleteBlogImageByDataUrl = deleteBlogImageByDataUrl;
+window.deleteBlogImageByBlockIndex = deleteBlogImageByBlockIndex;
 
 function resume_command() {
     window.open('resume.pdf', '_blank');

@@ -139,7 +139,7 @@ function renderOutputObject(container, line) {
         const wrapper = document.createElement('div');
         wrapper.className = 'terminal-inline-image-wrapper';
 
-        if (line.deletable && typeof window.deleteBlogImageByDataUrl === 'function') {
+        if (line.deletable && typeof window.deleteBlogImageByBlockIndex === 'function') {
             const actions = document.createElement('div');
             actions.className = 'terminal-inline-image-actions';
 
@@ -161,7 +161,7 @@ function renderOutputObject(container, line) {
                 status.textContent = ' deleting...';
 
                 try {
-                    const result = await window.deleteBlogImageByDataUrl(line.src, password);
+                    const result = await window.deleteBlogImageByBlockIndex(line.imageBlockIndex, password);
                     if (!result.ok) {
                         status.textContent = ` ${result.error}`;
                         deleteButton.disabled = false;
