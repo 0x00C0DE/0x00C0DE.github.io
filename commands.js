@@ -230,12 +230,14 @@ function parseBlogTextFile(lines) {
     const output = [];
     let imageBlockIndex = 0;
     let currentEntryTimestamp = '';
+    let currentEntryImageIndex = 0;
 
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
         if (line !== '[image-base64]') {
             if (isBlogEntryTimestampLine(line)) {
                 currentEntryTimestamp = line.trim();
+                currentEntryImageIndex = 0;
             }
             output.push(line);
             continue;
@@ -258,7 +260,8 @@ function parseBlogTextFile(lines) {
                 deletable: true,
                 imageBlockIndex,
                 imageKey: createBlogImageKey(dataUrl),
-                entryTimestamp: currentEntryTimestamp
+                entryTimestamp: currentEntryTimestamp,
+                entryImageIndex: currentEntryImageIndex
             });
         } else {
             output.push('[image-base64]');
@@ -269,6 +272,7 @@ function parseBlogTextFile(lines) {
         }
 
         imageBlockIndex += 1;
+        currentEntryImageIndex += 1;
     }
 
     return output;
@@ -614,11 +618,21 @@ async function resolvePostContentBlocks(templateBlocks) {
     return { contentBlocks };
 }
 
-async function deleteBlogImageByBlockIndex(imageBlockIndex, password, imageKey = '', imageDataUrl = '', entryTimestamp = '') {
+async function deleteBlogImageByBlockIndex(
+    imageBlockIndex,
+    password,
+    imageKey = '',
+    imageDataUrl = '',
+    entryTimestamp = '',
+    entryImageIndex = null
+) {
     const normalizedImageDataUrl = normalizeBlogImageDataUrl(imageDataUrl);
     const normalizedEntryTimestamp = isBlogEntryTimestampLine(entryTimestamp) ? entryTimestamp.trim() : '';
+    const normalizedEntryImageIndex = Number.isInteger(entryImageIndex)
+        ? entryImageIndex
+        : Number.parseInt(entryImageIndex, 10);
 
-    if ((!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) && !imageKey && !normalizedImageDataUrl) {
+    if ((!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) && !imageKey && !normalizedImageDataUrl && !normalizedEntryTimestamp) {
         return {
             ok: false,
             error: 'invalid image reference'
@@ -635,6 +649,9 @@ async function deleteBlogImageByBlockIndex(imageBlockIndex, password, imageKey =
             imageKey,
             imageDataUrl: normalizedImageDataUrl,
             entryTimestamp: normalizedEntryTimestamp,
+            entryImageIndex: Number.isInteger(normalizedEntryImageIndex) && normalizedEntryImageIndex >= 0
+                ? normalizedEntryImageIndex
+                : null,
             password
         })
     });

@@ -166,7 +166,8 @@ function renderOutputObject(container, line) {
                         password,
                         typeof line.imageKey === 'string' ? line.imageKey : '',
                         typeof line.src === 'string' ? line.src : '',
-                        typeof line.entryTimestamp === 'string' ? line.entryTimestamp : ''
+                        typeof line.entryTimestamp === 'string' ? line.entryTimestamp : '',
+                        Number.isInteger(line.entryImageIndex) ? line.entryImageIndex : null
                     );
                     if (!result.ok) {
                         status.textContent = ` ${result.error}`;

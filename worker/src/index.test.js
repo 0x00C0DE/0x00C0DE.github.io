@@ -175,3 +175,32 @@ test('removeImageBlock can remove the matching entry image when index and key ar
     assert.doesNotMatch(removal.content, /\[2026-04-02T10:19:04\.041Z\]\nsecond image post\n\[image-base64\][\s\S]*?\[\/image-base64\]/);
     assert.match(removal.content, /\[2026-04-02T10:19:04\.041Z\]\nsecond image post\n$/);
 });
+
+test('removeImageBlock can target the correct image block within an entry by timestamp and entry image index', () => {
+    const imageA = 'data:image/png;base64,AAAA';
+    const imageB = 'data:image/png;base64,BBBB';
+    const currentContent = [
+        '[2026-04-02T10:17:04.041Z]',
+        'multi image post',
+        '[image-base64]',
+        imageA,
+        '[/image-base64]',
+        'between images',
+        '[image-base64]',
+        imageB,
+        '[/image-base64]',
+        ''
+    ].join('\n');
+
+    const removal = removeImageBlock(currentContent, {
+        targetImageBlockIndex: 99,
+        targetImageKey: 'stale-key',
+        targetEntryTimestamp: '[2026-04-02T10:17:04.041Z]',
+        targetEntryImageIndex: 1
+    });
+
+    assert.equal(removal.removed, true);
+    assert.match(removal.content, /multi image post/);
+    assert.match(removal.content, /\[image-base64\]\ndata:image\/png;base64,AAAA\n\[\/image-base64\]/);
+    assert.doesNotMatch(removal.content, /data:image\/png;base64,BBBB/);
+});

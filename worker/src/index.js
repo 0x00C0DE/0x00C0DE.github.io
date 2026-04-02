@@ -426,14 +426,20 @@ async function handleDeleteImage(request, env) {
         const imageKey = typeof body?.imageKey === 'string' ? body.imageKey.trim() : '';
         const imageDataUrl = normalizeImageDataUrl(body?.imageDataUrl);
         const entryTimestamp = normalizeBlogEntryTimestamp(body?.entryTimestamp);
+        const entryImageIndex = Number.isInteger(body?.entryImageIndex) ? body.entryImageIndex : Number.parseInt(body?.entryImageIndex, 10);
         const imageBlockIndex = Number.isInteger(body?.imageBlockIndex) ? body.imageBlockIndex : Number.parseInt(body?.imageBlockIndex, 10);
 
         if (!timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD)) {
             return jsonResponse({ error: 'invalid password' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
-        if ((!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) && !imageKey && !imageDataUrl) {
-            return jsonResponse({ error: 'imageBlockIndex, imageKey, or imageDataUrl is required' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
+        if (
+            (!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) &&
+            !imageKey &&
+            !imageDataUrl &&
+            !entryTimestamp
+        ) {
+            return jsonResponse({ error: 'imageBlockIndex, imageKey, imageDataUrl, or entryTimestamp is required' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
         const githubFile = await fetchGithubFile(env);
@@ -441,7 +447,8 @@ async function handleDeleteImage(request, env) {
             targetImageBlockIndex: Number.isInteger(imageBlockIndex) && imageBlockIndex >= 0 ? imageBlockIndex : null,
             targetImageKey: imageKey,
             targetImageDataUrl: imageDataUrl,
-            targetEntryTimestamp: entryTimestamp
+            targetEntryTimestamp: entryTimestamp,
+            targetEntryImageIndex: Number.isInteger(entryImageIndex) && entryImageIndex >= 0 ? entryImageIndex : null
         });
         if (!removal.removed) {
             return jsonResponse({ error: 'image not found in blog.txt' }, 404, env.ALLOWED_ORIGIN, rateCheck.headers);
@@ -809,7 +816,8 @@ export function removeImageBlock(currentContent, {
     targetImageBlockIndex = null,
     targetImageKey = '',
     targetImageDataUrl = '',
-    targetEntryTimestamp = ''
+    targetEntryTimestamp = '',
+    targetEntryImageIndex = null
 } = {}) {
     const hadTrailingNewline = currentContent.endsWith('\n');
     const segments = splitBlogContentSegments(currentContent);
@@ -817,7 +825,8 @@ export function removeImageBlock(currentContent, {
         targetImageBlockIndex,
         targetImageKey,
         targetImageDataUrl,
-        targetEntryTimestamp
+        targetEntryTimestamp,
+        targetEntryImageIndex
     });
     const removed = segmentIndexToRemove >= 0;
 
@@ -846,12 +855,14 @@ function splitBlogContentSegments(currentContent) {
     const segments = [];
     let imageBlockIndex = 0;
     let currentEntryTimestamp = '';
+    let currentEntryImageIndex = 0;
 
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
         if (line !== '[image-base64]') {
             if (isBlogEntryTimestampLine(line)) {
                 currentEntryTimestamp = normalizeBlogEntryTimestamp(line);
+                currentEntryImageIndex = 0;
             }
             segments.push({
                 type: 'text',
@@ -883,9 +894,11 @@ function splitBlogContentSegments(currentContent) {
             imageBlockIndex,
             imageKey: createBlogImageKey(imageLines.join('')),
             imageDataUrl: normalizeImageDataUrl(imageLines.join('')),
-            entryTimestamp: currentEntryTimestamp
+            entryTimestamp: currentEntryTimestamp,
+            entryImageIndex: currentEntryImageIndex
         });
         imageBlockIndex += 1;
+        currentEntryImageIndex += 1;
     }
 
     return segments;
@@ -895,10 +908,14 @@ function findImageSegmentIndex(segments, {
     targetImageBlockIndex,
     targetImageKey,
     targetImageDataUrl,
-    targetEntryTimestamp
+    targetEntryTimestamp,
+    targetEntryImageIndex
 }) {
     const normalizedTargetImageDataUrl = normalizeImageDataUrl(targetImageDataUrl);
     const normalizedTargetEntryTimestamp = normalizeBlogEntryTimestamp(targetEntryTimestamp);
+    const normalizedTargetEntryImageIndex = Number.isInteger(targetEntryImageIndex)
+        ? targetEntryImageIndex
+        : Number.parseInt(targetEntryImageIndex, 10);
     let bestMatch = { index: -1, score: -1 };
 
     for (let index = 0; index < segments.length; index += 1) {
@@ -915,8 +932,11 @@ function findImageSegmentIndex(segments, {
         const matchesEntryTimestamp =
             Boolean(normalizedTargetEntryTimestamp) &&
             segment.entryTimestamp === normalizedTargetEntryTimestamp;
+        const matchesEntryImageIndex =
+            Number.isInteger(normalizedTargetEntryImageIndex) &&
+            segment.entryImageIndex === normalizedTargetEntryImageIndex;
 
-        if (!matchesDataUrl && !matchesKey && !matchesIndex) {
+        if (!matchesDataUrl && !matchesKey && !matchesIndex && !matchesEntryTimestamp && !matchesEntryImageIndex) {
             continue;
         }
 
@@ -926,6 +946,9 @@ function findImageSegmentIndex(segments, {
         }
         if (matchesEntryTimestamp) {
             score += 4;
+        }
+        if (matchesEntryImageIndex) {
+            score += 3;
         }
         if (matchesKey) {
             score += 2;
