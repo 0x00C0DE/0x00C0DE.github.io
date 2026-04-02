@@ -121,7 +121,6 @@ const visitorCounterState = {
     pendingStats: null,
     leaveSent: false
 };
-const QR_TOTP_STORAGE_KEY = 'qrTotpEnrollmentV1';
 const QR_TOTP_MEMORY_KEY = '__qrTotpEnrollmentV1';
 const QR_TOTP_BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 const QR_TOTP_SECRET_BYTES = 20;
@@ -692,18 +691,6 @@ function validateQrTotpEnrollment(enrollment) {
 }
 
 function loadQrTotpEnrollment() {
-    try {
-        const stored = window.localStorage.getItem(QR_TOTP_STORAGE_KEY);
-        if (stored) {
-            const parsed = validateQrTotpEnrollment(JSON.parse(stored));
-            if (parsed) {
-                return parsed;
-            }
-        }
-    } catch (error) {
-        console.warn('unable to load qr-totp enrollment from localStorage', error);
-    }
-
     return validateQrTotpEnrollment(window[QR_TOTP_MEMORY_KEY]) || null;
 }
 
@@ -714,22 +701,11 @@ function saveQrTotpEnrollment(enrollment) {
     }
 
     window[QR_TOTP_MEMORY_KEY] = normalized;
-    try {
-        window.localStorage.setItem(QR_TOTP_STORAGE_KEY, JSON.stringify(normalized));
-        return 'localStorage';
-    } catch (error) {
-        console.warn('unable to persist qr-totp enrollment to localStorage', error);
-        return 'memory';
-    }
+    return 'memory';
 }
 
 function clearQrTotpEnrollment() {
     delete window[QR_TOTP_MEMORY_KEY];
-    try {
-        window.localStorage.removeItem(QR_TOTP_STORAGE_KEY);
-    } catch (error) {
-        console.warn('unable to clear qr-totp enrollment from localStorage', error);
-    }
 }
 
 function encodeBase32(bytes) {
@@ -846,7 +822,7 @@ async function verifyQrTotpCode(secret, candidate) {
 
 function buildQrTotpViewerHint(enrollment, storageMode = '') {
     const storedMessage = storageMode === 'memory'
-        ? 'saved for this tab only'
+        ? 'available only until this page is refreshed or closed'
         : 'saved in this browser';
     return `${enrollment.issuer} / ${enrollment.username} / ${enrollment.email} - scan this QR or save it (${storedMessage})`;
 }
