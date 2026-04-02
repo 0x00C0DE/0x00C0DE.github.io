@@ -161,7 +161,11 @@ function renderOutputObject(container, line) {
                 status.textContent = ' deleting...';
 
                 try {
-                    const result = await window.deleteBlogImageByBlockIndex(line.imageBlockIndex, password);
+                    const result = await window.deleteBlogImageByBlockIndex(
+                        line.imageBlockIndex,
+                        password,
+                        typeof line.imageKey === 'string' ? line.imageKey : ''
+                    );
                     if (!result.ok) {
                         status.textContent = ` ${result.error}`;
                         deleteButton.disabled = false;

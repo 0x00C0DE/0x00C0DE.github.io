@@ -252,7 +252,8 @@ function parseBlogTextFile(lines) {
                 src: dataUrl,
                 alt: 'Embedded blog image',
                 deletable: true,
-                imageBlockIndex
+                imageBlockIndex,
+                imageKey: createBlogImageKey(dataUrl)
             });
         } else {
             output.push('[image-base64]');
@@ -608,7 +609,7 @@ async function resolvePostContentBlocks(templateBlocks) {
     return { contentBlocks };
 }
 
-async function deleteBlogImageByBlockIndex(imageBlockIndex, password) {
+async function deleteBlogImageByBlockIndex(imageBlockIndex, password, imageKey = '') {
     if (!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) {
         return {
             ok: false,
@@ -623,6 +624,7 @@ async function deleteBlogImageByBlockIndex(imageBlockIndex, password) {
         },
         body: JSON.stringify({
             imageBlockIndex,
+            imageKey,
             password
         })
     });
@@ -655,6 +657,21 @@ function normalizeBlogImageDataUrl(dataUrl) {
     const mimeType = match[1].toLowerCase();
     const base64Payload = match[2].replace(/\s+/g, '');
     return `data:${mimeType};base64,${base64Payload}`;
+}
+
+function createBlogImageKey(dataUrl) {
+    const normalizedDataUrl = normalizeBlogImageDataUrl(dataUrl);
+    if (!normalizedDataUrl) {
+        return '';
+    }
+
+    let hash = 2166136261;
+    for (let index = 0; index < normalizedDataUrl.length; index += 1) {
+        hash ^= normalizedDataUrl.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+
+    return `${normalizedDataUrl.length}:${(hash >>> 0).toString(16)}`;
 }
 
 function isSafeBlogImageDataUrl(dataUrl) {

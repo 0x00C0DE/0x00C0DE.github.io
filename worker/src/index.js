@@ -423,18 +423,22 @@ async function handleDeleteImage(request, env) {
 
         const body = await request.json().catch(() => null);
         const password = typeof body?.password === 'string' ? body.password : '';
+        const imageKey = typeof body?.imageKey === 'string' ? body.imageKey.trim() : '';
         const imageBlockIndex = Number.isInteger(body?.imageBlockIndex) ? body.imageBlockIndex : Number.parseInt(body?.imageBlockIndex, 10);
 
         if (!timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD)) {
             return jsonResponse({ error: 'invalid password' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
-        if (!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) {
-            return jsonResponse({ error: 'imageBlockIndex must be a non-negative integer' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
+        if ((!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) && !imageKey) {
+            return jsonResponse({ error: 'imageBlockIndex or imageKey is required' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
         const githubFile = await fetchGithubFile(env);
-        const removal = removeImageBlockByIndex(githubFile.content, imageBlockIndex);
+        const removal = removeImageBlock(githubFile.content, {
+            targetImageBlockIndex: Number.isInteger(imageBlockIndex) && imageBlockIndex >= 0 ? imageBlockIndex : null,
+            targetImageKey: imageKey
+        });
         if (!removal.removed) {
             return jsonResponse({ error: 'image not found in blog.txt' }, 404, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
@@ -505,6 +509,21 @@ function normalizeImageDataUrl(value) {
     const mimeType = match[1].toLowerCase();
     const base64Payload = match[2].replace(/\s+/g, '');
     return `data:${mimeType};base64,${base64Payload}`;
+}
+
+export function createBlogImageKey(dataUrl) {
+    const normalizedDataUrl = normalizeImageDataUrl(dataUrl);
+    if (!normalizedDataUrl) {
+        return '';
+    }
+
+    let hash = 2166136261;
+    for (let index = 0; index < normalizedDataUrl.length; index += 1) {
+        hash ^= normalizedDataUrl.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+
+    return `${normalizedDataUrl.length}:${(hash >>> 0).toString(16)}`;
 }
 
 function timingSafeStringEqual(left, right) {
@@ -782,34 +801,22 @@ function appendBlogEntry(currentContent, contentBlocks) {
     return `${normalized}\n${lines.join('\n')}\n`;
 }
 
-function removeImageBlockByIndex(currentContent, targetImageBlockIndex) {
+export function removeImageBlock(currentContent, { targetImageBlockIndex = null, targetImageKey = '' } = {}) {
     const hadTrailingNewline = currentContent.endsWith('\n');
-    const lines = currentContent.replace(/\r\n/g, '\n').split('\n');
+    const segments = splitBlogContentSegments(currentContent);
+    const segmentIndexToRemove = findImageSegmentIndex(segments, {
+        targetImageBlockIndex,
+        targetImageKey
+    });
+    const removed = segmentIndexToRemove >= 0;
+
     const output = [];
-    let removed = false;
-    let imageBlockIndex = 0;
-
-    for (let index = 0; index < lines.length; index += 1) {
-        const line = lines[index];
-        if (!removed && line === '[image-base64]') {
-            const imageLines = [];
-            let cursor = index + 1;
-
-            while (cursor < lines.length && lines[cursor] !== '[/image-base64]') {
-                imageLines.push(lines[cursor]);
-                cursor += 1;
-            }
-
-            if (cursor < lines.length && imageBlockIndex === targetImageBlockIndex) {
-                removed = true;
-                index = cursor;
-                continue;
-            }
-
-            imageBlockIndex += 1;
+    for (let index = 0; index < segments.length; index += 1) {
+        if (index === segmentIndexToRemove) {
+            continue;
         }
 
-        output.push(line);
+        output.push(...segments[index].lines);
     }
 
     let content = output.join('\n');
@@ -821,6 +828,89 @@ function removeImageBlockByIndex(currentContent, targetImageBlockIndex) {
         removed,
         content
     };
+}
+
+function splitBlogContentSegments(currentContent) {
+    const lines = currentContent.replace(/\r\n/g, '\n').split('\n');
+    const segments = [];
+    let imageBlockIndex = 0;
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        if (line !== '[image-base64]') {
+            segments.push({
+                type: 'text',
+                lines: [line]
+            });
+            continue;
+        }
+
+        const segmentLines = ['[image-base64]'];
+        const imageLines = [];
+        let cursor = index + 1;
+
+        while (cursor < lines.length && lines[cursor] !== '[/image-base64]') {
+            segmentLines.push(lines[cursor]);
+            imageLines.push(lines[cursor]);
+            cursor += 1;
+        }
+
+        if (cursor < lines.length && lines[cursor] === '[/image-base64]') {
+            segmentLines.push('[/image-base64]');
+            index = cursor;
+        } else {
+            index = cursor - 1;
+        }
+
+        segments.push({
+            type: 'image',
+            lines: segmentLines,
+            imageBlockIndex,
+            imageKey: createBlogImageKey(imageLines.join(''))
+        });
+        imageBlockIndex += 1;
+    }
+
+    return segments;
+}
+
+function findImageSegmentIndex(segments, { targetImageBlockIndex, targetImageKey }) {
+    let keyAndIndexMatch = -1;
+    let keyOnlyMatch = -1;
+    let indexOnlyMatch = -1;
+
+    for (let index = 0; index < segments.length; index += 1) {
+        const segment = segments[index];
+        if (segment.type !== 'image') {
+            continue;
+        }
+
+        const matchesKey = Boolean(targetImageKey) && segment.imageKey === targetImageKey;
+        const matchesIndex =
+            Number.isInteger(targetImageBlockIndex) &&
+            segment.imageBlockIndex === targetImageBlockIndex;
+
+        if (matchesKey && matchesIndex) {
+            keyAndIndexMatch = index;
+            break;
+        }
+
+        if (matchesKey && keyOnlyMatch < 0) {
+            keyOnlyMatch = index;
+        }
+
+        if (matchesIndex && indexOnlyMatch < 0) {
+            indexOnlyMatch = index;
+        }
+    }
+
+    if (keyAndIndexMatch >= 0) {
+        return keyAndIndexMatch;
+    }
+    if (keyOnlyMatch >= 0) {
+        return keyOnlyMatch;
+    }
+    return indexOnlyMatch;
 }
 
 function githubContentsUrl(env) {

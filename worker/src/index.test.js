@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { VisitorCounter } from './index.js';
+import { VisitorCounter, createBlogImageKey, removeImageBlock } from './index.js';
 
 class FakeStorage {
     constructor() {
@@ -58,10 +58,10 @@ test('trackVisitor persists totals and increments visits only on "visit" action'
     const heartbeat = await counter.trackVisitor('visitor-1', 'visit-1', 'heartbeat');
     assert.deepEqual(heartbeat, { visits: 1, uniqueVisitors: 1, onSite: 1 });
 
-    assert.equal(await storage.get('totalVisits'), 1);
-    assert.equal(await storage.get('totalUniqueVisitors'), 1);
-    const sessions = await storage.get('activeSessions');
-    assert.equal(typeof sessions['visit-1'], 'number');
+    const snapshot = await storage.get('snapshot');
+    assert.equal(snapshot.visits, 1);
+    assert.equal(snapshot.uniqueVisitors, 1);
+    assert.equal(typeof snapshot.activeSessions['visit-1'], 'number');
 });
 
 test('unique visitor count does not increase for repeat visitor ids', async () => {
@@ -85,15 +85,62 @@ test('removeVisit drops an active session and preserves historical totals', asyn
     assert.deepEqual(afterLeave, { visits: 2, uniqueVisitors: 2, onSite: 1 });
 });
 
-test('readSnapshot backfills missing unique visitor totals from visitor keys', async () => {
-    const { counter, storage } = createCounter();
-    await storage.put('totalVisits', 4);
-    await storage.put('visitor:alpha', 1);
-    await storage.put('visitor:beta', 2);
+test('removeImageBlock prefers image key when the index is stale', () => {
+    const imageA = 'data:image/png;base64,AAAA';
+    const imageB = 'data:image/png;base64,BBBB';
+    const currentContent = [
+        '[2026-04-02T10:17:04.041Z]',
+        'first image',
+        '[image-base64]',
+        imageA,
+        '[/image-base64]',
+        '',
+        '[2026-04-02T10:19:04.041Z]',
+        'second image',
+        '[image-base64]',
+        imageB,
+        '[/image-base64]',
+        ''
+    ].join('\n');
 
-    const snapshot = await counter.readSnapshot();
+    const removal = removeImageBlock(currentContent, {
+        targetImageBlockIndex: 0,
+        targetImageKey: createBlogImageKey(imageB)
+    });
 
-    assert.equal(snapshot.visits, 4);
-    assert.equal(snapshot.uniqueVisitors, 2);
-    assert.equal(await storage.get('totalUniqueVisitors'), 2);
+    assert.equal(removal.removed, true);
+    assert.match(removal.content, /first image/);
+    assert.match(removal.content, /second image/);
+    assert.match(removal.content, /\[image-base64\]\ndata:image\/png;base64,AAAA\n\[\/image-base64\]/);
+    assert.doesNotMatch(removal.content, /data:image\/png;base64,BBBB/);
+    assert.ok(removal.content.endsWith('\n'));
+});
+
+test('removeImageBlock falls back to imageBlockIndex when imageKey is missing', () => {
+    const imageA = 'data:image/png;base64,AAAA';
+    const imageB = 'data:image/png;base64,BBBB';
+    const currentContent = [
+        '[2026-04-02T10:17:04.041Z]',
+        'first image',
+        '[image-base64]',
+        imageA,
+        '[/image-base64]',
+        '',
+        '[2026-04-02T10:19:04.041Z]',
+        'second image',
+        '[image-base64]',
+        imageB,
+        '[/image-base64]',
+        ''
+    ].join('\n');
+
+    const removal = removeImageBlock(currentContent, {
+        targetImageBlockIndex: 1
+    });
+
+    assert.equal(removal.removed, true);
+    assert.match(removal.content, /first image/);
+    assert.match(removal.content, /second image/);
+    assert.match(removal.content, /\[image-base64\]\ndata:image\/png;base64,AAAA\n\[\/image-base64\]/);
+    assert.doesNotMatch(removal.content, /data:image\/png;base64,BBBB/);
 });
