@@ -229,10 +229,14 @@ async function readTextFile(filename) {
 function parseBlogTextFile(lines) {
     const output = [];
     let imageBlockIndex = 0;
+    let currentEntryTimestamp = '';
 
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
         if (line !== '[image-base64]') {
+            if (isBlogEntryTimestampLine(line)) {
+                currentEntryTimestamp = line.trim();
+            }
             output.push(line);
             continue;
         }
@@ -253,7 +257,8 @@ function parseBlogTextFile(lines) {
                 alt: 'Embedded blog image',
                 deletable: true,
                 imageBlockIndex,
-                imageKey: createBlogImageKey(dataUrl)
+                imageKey: createBlogImageKey(dataUrl),
+                entryTimestamp: currentEntryTimestamp
             });
         } else {
             output.push('[image-base64]');
@@ -609,8 +614,11 @@ async function resolvePostContentBlocks(templateBlocks) {
     return { contentBlocks };
 }
 
-async function deleteBlogImageByBlockIndex(imageBlockIndex, password, imageKey = '') {
-    if (!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) {
+async function deleteBlogImageByBlockIndex(imageBlockIndex, password, imageKey = '', imageDataUrl = '', entryTimestamp = '') {
+    const normalizedImageDataUrl = normalizeBlogImageDataUrl(imageDataUrl);
+    const normalizedEntryTimestamp = isBlogEntryTimestampLine(entryTimestamp) ? entryTimestamp.trim() : '';
+
+    if ((!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) && !imageKey && !normalizedImageDataUrl) {
         return {
             ok: false,
             error: 'invalid image reference'
@@ -625,6 +633,8 @@ async function deleteBlogImageByBlockIndex(imageBlockIndex, password, imageKey =
         body: JSON.stringify({
             imageBlockIndex,
             imageKey,
+            imageDataUrl: normalizedImageDataUrl,
+            entryTimestamp: normalizedEntryTimestamp,
             password
         })
     });
@@ -672,6 +682,10 @@ function createBlogImageKey(dataUrl) {
     }
 
     return `${normalizedDataUrl.length}:${(hash >>> 0).toString(16)}`;
+}
+
+function isBlogEntryTimestampLine(line) {
+    return /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z]$/.test(String(line || '').trim());
 }
 
 function isSafeBlogImageDataUrl(dataUrl) {

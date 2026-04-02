@@ -144,3 +144,34 @@ test('removeImageBlock falls back to imageBlockIndex when imageKey is missing', 
     assert.match(removal.content, /\[image-base64\]\ndata:image\/png;base64,AAAA\n\[\/image-base64\]/);
     assert.doesNotMatch(removal.content, /data:image\/png;base64,BBBB/);
 });
+
+test('removeImageBlock can remove the matching entry image when index and key are stale', () => {
+    const sharedImage = 'data:image/png;base64,AAAA';
+    const currentContent = [
+        '[2026-04-02T10:17:04.041Z]',
+        'first image post',
+        '[image-base64]',
+        sharedImage,
+        '[/image-base64]',
+        '',
+        '[2026-04-02T10:19:04.041Z]',
+        'second image post',
+        '[image-base64]',
+        sharedImage,
+        '[/image-base64]',
+        ''
+    ].join('\n');
+
+    const removal = removeImageBlock(currentContent, {
+        targetImageBlockIndex: 99,
+        targetImageKey: 'stale-key',
+        targetImageDataUrl: sharedImage,
+        targetEntryTimestamp: '[2026-04-02T10:19:04.041Z]'
+    });
+
+    assert.equal(removal.removed, true);
+    assert.match(removal.content, /\[2026-04-02T10:17:04\.041Z\][\s\S]*data:image\/png;base64,AAAA/);
+    assert.match(removal.content, /second image post/);
+    assert.doesNotMatch(removal.content, /\[2026-04-02T10:19:04\.041Z\]\nsecond image post\n\[image-base64\][\s\S]*?\[\/image-base64\]/);
+    assert.match(removal.content, /\[2026-04-02T10:19:04\.041Z\]\nsecond image post\n$/);
+});

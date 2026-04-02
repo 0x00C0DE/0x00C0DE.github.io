@@ -164,7 +164,9 @@ function renderOutputObject(container, line) {
                     const result = await window.deleteBlogImageByBlockIndex(
                         line.imageBlockIndex,
                         password,
-                        typeof line.imageKey === 'string' ? line.imageKey : ''
+                        typeof line.imageKey === 'string' ? line.imageKey : '',
+                        typeof line.src === 'string' ? line.src : '',
+                        typeof line.entryTimestamp === 'string' ? line.entryTimestamp : ''
                     );
                     if (!result.ok) {
                         status.textContent = ` ${result.error}`;

@@ -424,20 +424,24 @@ async function handleDeleteImage(request, env) {
         const body = await request.json().catch(() => null);
         const password = typeof body?.password === 'string' ? body.password : '';
         const imageKey = typeof body?.imageKey === 'string' ? body.imageKey.trim() : '';
+        const imageDataUrl = normalizeImageDataUrl(body?.imageDataUrl);
+        const entryTimestamp = normalizeBlogEntryTimestamp(body?.entryTimestamp);
         const imageBlockIndex = Number.isInteger(body?.imageBlockIndex) ? body.imageBlockIndex : Number.parseInt(body?.imageBlockIndex, 10);
 
         if (!timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD)) {
             return jsonResponse({ error: 'invalid password' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
-        if ((!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) && !imageKey) {
-            return jsonResponse({ error: 'imageBlockIndex or imageKey is required' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
+        if ((!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) && !imageKey && !imageDataUrl) {
+            return jsonResponse({ error: 'imageBlockIndex, imageKey, or imageDataUrl is required' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
         const githubFile = await fetchGithubFile(env);
         const removal = removeImageBlock(githubFile.content, {
             targetImageBlockIndex: Number.isInteger(imageBlockIndex) && imageBlockIndex >= 0 ? imageBlockIndex : null,
-            targetImageKey: imageKey
+            targetImageKey: imageKey,
+            targetImageDataUrl: imageDataUrl,
+            targetEntryTimestamp: entryTimestamp
         });
         if (!removal.removed) {
             return jsonResponse({ error: 'image not found in blog.txt' }, 404, env.ALLOWED_ORIGIN, rateCheck.headers);
@@ -801,12 +805,19 @@ function appendBlogEntry(currentContent, contentBlocks) {
     return `${normalized}\n${lines.join('\n')}\n`;
 }
 
-export function removeImageBlock(currentContent, { targetImageBlockIndex = null, targetImageKey = '' } = {}) {
+export function removeImageBlock(currentContent, {
+    targetImageBlockIndex = null,
+    targetImageKey = '',
+    targetImageDataUrl = '',
+    targetEntryTimestamp = ''
+} = {}) {
     const hadTrailingNewline = currentContent.endsWith('\n');
     const segments = splitBlogContentSegments(currentContent);
     const segmentIndexToRemove = findImageSegmentIndex(segments, {
         targetImageBlockIndex,
-        targetImageKey
+        targetImageKey,
+        targetImageDataUrl,
+        targetEntryTimestamp
     });
     const removed = segmentIndexToRemove >= 0;
 
@@ -834,10 +845,14 @@ function splitBlogContentSegments(currentContent) {
     const lines = currentContent.replace(/\r\n/g, '\n').split('\n');
     const segments = [];
     let imageBlockIndex = 0;
+    let currentEntryTimestamp = '';
 
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
         if (line !== '[image-base64]') {
+            if (isBlogEntryTimestampLine(line)) {
+                currentEntryTimestamp = normalizeBlogEntryTimestamp(line);
+            }
             segments.push({
                 type: 'text',
                 lines: [line]
@@ -866,7 +881,9 @@ function splitBlogContentSegments(currentContent) {
             type: 'image',
             lines: segmentLines,
             imageBlockIndex,
-            imageKey: createBlogImageKey(imageLines.join(''))
+            imageKey: createBlogImageKey(imageLines.join('')),
+            imageDataUrl: normalizeImageDataUrl(imageLines.join('')),
+            entryTimestamp: currentEntryTimestamp
         });
         imageBlockIndex += 1;
     }
@@ -874,10 +891,15 @@ function splitBlogContentSegments(currentContent) {
     return segments;
 }
 
-function findImageSegmentIndex(segments, { targetImageBlockIndex, targetImageKey }) {
-    let keyAndIndexMatch = -1;
-    let keyOnlyMatch = -1;
-    let indexOnlyMatch = -1;
+function findImageSegmentIndex(segments, {
+    targetImageBlockIndex,
+    targetImageKey,
+    targetImageDataUrl,
+    targetEntryTimestamp
+}) {
+    const normalizedTargetImageDataUrl = normalizeImageDataUrl(targetImageDataUrl);
+    const normalizedTargetEntryTimestamp = normalizeBlogEntryTimestamp(targetEntryTimestamp);
+    let bestMatch = { index: -1, score: -1 };
 
     for (let index = 0; index < segments.length; index += 1) {
         const segment = segments[index];
@@ -885,32 +907,48 @@ function findImageSegmentIndex(segments, { targetImageBlockIndex, targetImageKey
             continue;
         }
 
+        const matchesDataUrl = Boolean(normalizedTargetImageDataUrl) && segment.imageDataUrl === normalizedTargetImageDataUrl;
         const matchesKey = Boolean(targetImageKey) && segment.imageKey === targetImageKey;
         const matchesIndex =
             Number.isInteger(targetImageBlockIndex) &&
             segment.imageBlockIndex === targetImageBlockIndex;
+        const matchesEntryTimestamp =
+            Boolean(normalizedTargetEntryTimestamp) &&
+            segment.entryTimestamp === normalizedTargetEntryTimestamp;
 
-        if (matchesKey && matchesIndex) {
-            keyAndIndexMatch = index;
-            break;
+        if (!matchesDataUrl && !matchesKey && !matchesIndex) {
+            continue;
         }
 
-        if (matchesKey && keyOnlyMatch < 0) {
-            keyOnlyMatch = index;
+        let score = 0;
+        if (matchesDataUrl) {
+            score += 8;
+        }
+        if (matchesEntryTimestamp) {
+            score += 4;
+        }
+        if (matchesKey) {
+            score += 2;
+        }
+        if (matchesIndex) {
+            score += 1;
         }
 
-        if (matchesIndex && indexOnlyMatch < 0) {
-            indexOnlyMatch = index;
+        if (score > bestMatch.score) {
+            bestMatch = { index, score };
         }
     }
 
-    if (keyAndIndexMatch >= 0) {
-        return keyAndIndexMatch;
-    }
-    if (keyOnlyMatch >= 0) {
-        return keyOnlyMatch;
-    }
-    return indexOnlyMatch;
+    return bestMatch.index;
+}
+
+function normalizeBlogEntryTimestamp(value) {
+    const normalized = String(value || '').trim();
+    return isBlogEntryTimestampLine(normalized) ? normalized : '';
+}
+
+function isBlogEntryTimestampLine(line) {
+    return /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z]$/.test(String(line || '').trim());
 }
 
 function githubContentsUrl(env) {
