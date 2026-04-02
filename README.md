@@ -53,10 +53,10 @@ The design philosophy is **file-system-first**: documentation lives as real `.tx
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
-│                        	BROWSER                             │
+│                         BROWSER                                   │
 │                                                                   │
 │  ┌──────────────┐      ┌──────────────┐       ┌───────────────┐   │
-│  │  index.html  │───▶	 │    term.js	│───▶	│  commands.js	│   │
+│  │  index.html  │───▶  │   term.js    │───▶   │  commands.js  │   │
 │  │  (entry pt)  │      │  (loop/REPL) │       │ (shell verbs) │   │
 │  └──────────────┘      └──────┬───────┘       └──────┬────────┘   │
 │                               │                      │            │
