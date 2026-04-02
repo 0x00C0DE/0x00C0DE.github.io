@@ -236,6 +236,62 @@ export class VisitorCounter {
     }
 }
 
+export class RateLimiter {
+    constructor(state) {
+        this.state = state;
+    }
+
+    async fetch(request) {
+        const url = new URL(request.url);
+
+        if (request.method !== 'POST' || url.pathname !== '/consume') {
+            return new Response(JSON.stringify({ error: 'not found' }), {
+                status: 404,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        const body = await request.json().catch(() => null);
+        const windowMs = Number(body?.windowMs || 3600000);
+        const max = Number(body?.max || 10);
+        const now = Date.now();
+        const bucket = Math.floor(now / windowMs);
+        const expiresAt = (bucket + 1) * windowMs;
+
+        const stored = await this.state.storage.get(['bucket', 'count', 'expiresAt']);
+        const activeBucket = Number(readStoredValue(stored, 'bucket'));
+        let count = Number(readStoredValue(stored, 'count') || 0);
+
+        if (activeBucket !== bucket) {
+            count = 0;
+        }
+
+        count += 1;
+
+        await this.state.storage.put({
+            bucket,
+            count,
+            expiresAt
+        });
+
+        return new Response(JSON.stringify({
+            allowed: count <= max,
+            headers: {
+                'X-RateLimit-Limit': String(max),
+                'X-RateLimit-Remaining': String(Math.max(0, max - count)),
+                'X-RateLimit-Reset': String(expiresAt)
+            }
+        }), {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/json; charset=utf-8'
+            }
+        });
+    }
+}
+
 // Keep the timeout comfortably above the persisted heartbeat cadence so
 // active visitors do not disappear if the Durable Object is reloaded
 // between storage flushes.
@@ -407,39 +463,29 @@ async function verifyTurnstile(secret, token, ip) {
 }
 
 async function enforceRateLimit(ip, env) {
+    if (!env.RATE_LIMITER) {
+        throw new Error('rate limiter binding not configured');
+    }
+
     const windowMs = Number(env.RATE_LIMIT_WINDOW_MS || 3600000);
     const max = Number(env.RATE_LIMIT_MAX || 10);
-    const now = Date.now();
-    const bucket = Math.floor(now / windowMs);
-    const key = `rate:${ip}:${bucket}`;
-    const store = getInMemoryStore();
-    const entry = store.get(key) || { count: 0, expiresAt: now + windowMs };
-
-    entry.count += 1;
-    store.set(key, entry);
-
-    for (const [storeKey, value] of store.entries()) {
-        if (value.expiresAt <= now) {
-            store.delete(storeKey);
-        }
-    }
-
-    return {
-        allowed: entry.count <= max,
+    const stub = getRateLimiterStub(env, ip);
+    const response = await stub.fetch('https://rate-limiter/consume', {
+        method: 'POST',
         headers: {
-            'X-RateLimit-Limit': String(max),
-            'X-RateLimit-Remaining': String(Math.max(0, max - entry.count)),
-            'X-RateLimit-Reset': String(entry.expiresAt)
-        }
-    };
-}
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            windowMs,
+            max
+        })
+    });
 
-function getInMemoryStore() {
-    const globalScope = globalThis;
-    if (!globalScope.__BLOG_RATE_LIMITS__) {
-        globalScope.__BLOG_RATE_LIMITS__ = new Map();
+    if (!response.ok) {
+        throw new Error(`rate limiter failed with ${response.status}`);
     }
-    return globalScope.__BLOG_RATE_LIMITS__;
+
+    return response.json();
 }
 
 async function fetchGithubFile(env) {
@@ -508,6 +554,11 @@ function githubHeaders(env) {
 function getVisitorCounterStub(env) {
     const id = env.VISITOR_COUNTER.idFromName('0x00c0de-total-visitors');
     return env.VISITOR_COUNTER.get(id);
+}
+
+function getRateLimiterStub(env, ip) {
+    const id = env.RATE_LIMITER.idFromName(`rate:${ip}`);
+    return env.RATE_LIMITER.get(id);
 }
 
 function jsonResponse(payload, status, origin, extraHeaders = {}) {

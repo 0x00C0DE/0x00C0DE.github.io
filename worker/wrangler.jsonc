@@ -9,6 +9,10 @@
       {
         "name": "VISITOR_COUNTER",
         "class_name": "VisitorCounter"
+      },
+      {
+        "name": "RATE_LIMITER",
+        "class_name": "RateLimiter"
       }
     ]
   },
@@ -17,6 +21,12 @@
       "tag": "v1",
       "new_sqlite_classes": [
         "VisitorCounter"
+      ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": [
+        "RateLimiter"
       ]
     }
   ],
