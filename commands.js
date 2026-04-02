@@ -121,6 +121,12 @@ const visitorCounterState = {
     pendingStats: null,
     leaveSent: false
 };
+const QR_TOTP_STORAGE_KEY = 'qrTotpEnrollmentV1';
+const QR_TOTP_MEMORY_KEY = '__qrTotpEnrollmentV1';
+const QR_TOTP_BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+const QR_TOTP_SECRET_BYTES = 20;
+const QR_TOTP_STEP_SECONDS = 30;
+const QR_TOTP_CODE_DIGITS = 6;
 
 function normalizeTextFilename(input) {
     const trimmed = input.trim();
@@ -248,6 +254,7 @@ function help_command() {
         '  picture w h - Display 0x00C0DE\'s picture as ASCII art at size w x h',
         '  post text   - Append a blog entry through the backend API (may take a short time to appear)',
         '  pwd         - Print working directory',
+        '  qr-totp     - Browser QR enrollment + TOTP generator for the cs370 project',
         '  resume      - Open my resume PDF in a new tab',
         '  userpic w h - Upload or take your own picture and display it as ASCII art',
         '  visitors    - Display the live visitor stats widget',
@@ -548,6 +555,398 @@ async function post_command(args) {
         console.error('post failed', error);
         return ['post: backend unavailable right now'];
     }
+}
+
+function getQrTotpUsage() {
+    return [
+        'qr-totp usage:',
+        '  qr-totp --generate-qr --issuer=ExampleApp --username=alice --email=alice@example.com',
+        '  qr-totp --get-otp',
+        '  qr-totp --show',
+        '  qr-totp --verify=123456',
+        '  qr-totp --clear'
+    ];
+}
+
+function parseQrTotpArgs(args) {
+    const options = {
+        action: null,
+        issuer: '',
+        username: '',
+        email: '',
+        verifyCode: ''
+    };
+
+    const setAction = action => {
+        if (options.action && options.action !== action) {
+            return `qr-totp: choose exactly one action at a time`;
+        }
+        options.action = action;
+        return null;
+    };
+
+    for (const arg of args) {
+        if (arg === '--generate-qr') {
+            const error = setAction('generate');
+            if (error) {
+                return { error };
+            }
+            continue;
+        }
+        if (arg === '--get-otp') {
+            const error = setAction('otp');
+            if (error) {
+                return { error };
+            }
+            continue;
+        }
+        if (arg === '--show') {
+            const error = setAction('show');
+            if (error) {
+                return { error };
+            }
+            continue;
+        }
+        if (arg === '--clear') {
+            const error = setAction('clear');
+            if (error) {
+                return { error };
+            }
+            continue;
+        }
+        if (arg.startsWith('--verify=')) {
+            const error = setAction('verify');
+            if (error) {
+                return { error };
+            }
+            options.verifyCode = arg.slice('--verify='.length).trim();
+            continue;
+        }
+        if (arg.startsWith('--issuer=')) {
+            options.issuer = arg.slice('--issuer='.length).trim();
+            continue;
+        }
+        if (arg.startsWith('--username=')) {
+            options.username = arg.slice('--username='.length).trim();
+            continue;
+        }
+        if (arg.startsWith('--email=')) {
+            options.email = arg.slice('--email='.length).trim();
+            continue;
+        }
+
+        return { error: `qr-totp: unrecognized option ${arg}` };
+    }
+
+    if (!options.action) {
+        return { error: 'qr-totp: choose one of --generate-qr, --get-otp, --show, --verify=123456, or --clear' };
+    }
+
+    if (options.action === 'generate') {
+        const missing = [];
+        if (!options.issuer) {
+            missing.push('--issuer=...');
+        }
+        if (!options.username) {
+            missing.push('--username=...');
+        }
+        if (!options.email) {
+            missing.push('--email=...');
+        }
+        if (missing.length > 0) {
+            return { error: `qr-totp: --generate-qr requires ${missing.join(', ')}` };
+        }
+    }
+
+    if (options.action === 'verify') {
+        if (!/^\d{6}$/.test(options.verifyCode)) {
+            return { error: 'qr-totp: --verify requires a 6-digit code, for example --verify=123456' };
+        }
+    }
+
+    return { options };
+}
+
+function validateQrTotpEnrollment(enrollment) {
+    if (!enrollment || typeof enrollment !== 'object') {
+        return null;
+    }
+    const { issuer, username, email, secret, createdAt } = enrollment;
+    if (
+        typeof issuer !== 'string' ||
+        typeof username !== 'string' ||
+        typeof email !== 'string' ||
+        typeof secret !== 'string' ||
+        !secret
+    ) {
+        return null;
+    }
+
+    return {
+        issuer,
+        username,
+        email,
+        secret: secret.toUpperCase(),
+        createdAt: typeof createdAt === 'string' ? createdAt : new Date().toISOString()
+    };
+}
+
+function loadQrTotpEnrollment() {
+    try {
+        const stored = window.localStorage.getItem(QR_TOTP_STORAGE_KEY);
+        if (stored) {
+            const parsed = validateQrTotpEnrollment(JSON.parse(stored));
+            if (parsed) {
+                return parsed;
+            }
+        }
+    } catch (error) {
+        console.warn('unable to load qr-totp enrollment from localStorage', error);
+    }
+
+    return validateQrTotpEnrollment(window[QR_TOTP_MEMORY_KEY]) || null;
+}
+
+function saveQrTotpEnrollment(enrollment) {
+    const normalized = validateQrTotpEnrollment(enrollment);
+    if (!normalized) {
+        throw new Error('invalid enrollment payload');
+    }
+
+    window[QR_TOTP_MEMORY_KEY] = normalized;
+    try {
+        window.localStorage.setItem(QR_TOTP_STORAGE_KEY, JSON.stringify(normalized));
+        return 'localStorage';
+    } catch (error) {
+        console.warn('unable to persist qr-totp enrollment to localStorage', error);
+        return 'memory';
+    }
+}
+
+function clearQrTotpEnrollment() {
+    delete window[QR_TOTP_MEMORY_KEY];
+    try {
+        window.localStorage.removeItem(QR_TOTP_STORAGE_KEY);
+    } catch (error) {
+        console.warn('unable to clear qr-totp enrollment from localStorage', error);
+    }
+}
+
+function encodeBase32(bytes) {
+    let bits = 0;
+    let value = 0;
+    let output = '';
+
+    bytes.forEach(byte => {
+        value = (value << 8) | byte;
+        bits += 8;
+        while (bits >= 5) {
+            output += QR_TOTP_BASE32_ALPHABET[(value >>> (bits - 5)) & 31];
+            bits -= 5;
+        }
+    });
+
+    if (bits > 0) {
+        output += QR_TOTP_BASE32_ALPHABET[(value << (5 - bits)) & 31];
+    }
+
+    return output;
+}
+
+function decodeBase32(secret) {
+    let bits = 0;
+    let value = 0;
+    const output = [];
+    const normalized = secret.toUpperCase().replace(/=+$/g, '');
+
+    for (const char of normalized) {
+        const index = QR_TOTP_BASE32_ALPHABET.indexOf(char);
+        if (index === -1) {
+            throw new Error('secret contains invalid base32 characters');
+        }
+
+        value = (value << 5) | index;
+        bits += 5;
+        if (bits >= 8) {
+            output.push((value >>> (bits - 8)) & 255);
+            bits -= 8;
+        }
+    }
+
+    return new Uint8Array(output);
+}
+
+function generateQrTotpSecret() {
+    if (!window.crypto || typeof window.crypto.getRandomValues !== 'function') {
+        throw new Error('secure random generation is unavailable in this browser');
+    }
+
+    const bytes = new Uint8Array(QR_TOTP_SECRET_BYTES);
+    window.crypto.getRandomValues(bytes);
+    return encodeBase32(bytes);
+}
+
+function buildQrTotpOtpauthUrl(enrollment) {
+    const label = encodeURIComponent(`${enrollment.issuer}:${enrollment.email}`);
+    return `otpauth://totp/${label}?secret=${enrollment.secret}&issuer=${encodeURIComponent(enrollment.issuer)}&username=${encodeURIComponent(enrollment.username)}`;
+}
+
+function buildQrTotpImageUrl(otpauthUrl) {
+    return `https://quickchart.io/qr?text=${encodeURIComponent(otpauthUrl)}&size=280&format=svg&margin=2&ecLevel=H`;
+}
+
+async function generateQrTotpCode(secret, timestampMs = Date.now()) {
+    if (!window.crypto || !window.crypto.subtle) {
+        throw new Error('Web Crypto is unavailable in this browser');
+    }
+
+    const counter = BigInt(Math.floor(timestampMs / 1000 / QR_TOTP_STEP_SECONDS));
+    const counterBytes = new Uint8Array(8);
+    let value = counter;
+
+    for (let index = counterBytes.length - 1; index >= 0; index -= 1) {
+        counterBytes[index] = Number(value & 255n);
+        value >>= 8n;
+    }
+
+    const key = await window.crypto.subtle.importKey(
+        'raw',
+        decodeBase32(secret),
+        { name: 'HMAC', hash: 'SHA-1' },
+        false,
+        ['sign']
+    );
+
+    const signature = new Uint8Array(await window.crypto.subtle.sign('HMAC', key, counterBytes));
+    const offset = signature[signature.length - 1] & 15;
+    const binary =
+        ((signature[offset] & 127) << 24) |
+        ((signature[offset + 1] & 255) << 16) |
+        ((signature[offset + 2] & 255) << 8) |
+        (signature[offset + 3] & 255);
+
+    return {
+        otp: String(binary % (10 ** QR_TOTP_CODE_DIGITS)).padStart(QR_TOTP_CODE_DIGITS, '0'),
+        secondsRemaining: QR_TOTP_STEP_SECONDS - (Math.floor(timestampMs / 1000) % QR_TOTP_STEP_SECONDS)
+    };
+}
+
+async function verifyQrTotpCode(secret, candidate) {
+    const now = Date.now();
+    for (const stepOffset of [-1, 0, 1]) {
+        const windowTime = now + stepOffset * QR_TOTP_STEP_SECONDS * 1000;
+        const current = await generateQrTotpCode(secret, windowTime);
+        if (current.otp === candidate) {
+            return { valid: true, driftSteps: stepOffset };
+        }
+    }
+
+    return { valid: false, driftSteps: null };
+}
+
+function buildQrTotpEnrollmentOutput(enrollment, storageMode) {
+    const otpauthUrl = buildQrTotpOtpauthUrl(enrollment);
+    const qrUrl = buildQrTotpImageUrl(otpauthUrl);
+    return [
+        'qr-totp: new enrollment created',
+        `issuer: ${enrollment.issuer}`,
+        `username: ${enrollment.username}`,
+        `email: ${enrollment.email}`,
+        `secret: ${enrollment.secret}`,
+        `stored: ${storageMode === 'localStorage' ? 'saved in this browser via localStorage' : 'saved for this tab only (localStorage unavailable)'}`,
+        `otpauth url: ${otpauthUrl}`,
+        {
+            type: 'text-link',
+            prefix: 'qr code: ',
+            href: qrUrl,
+            text: 'open enrollment qr',
+            newTab: true
+        },
+        'next step: scan the QR code with an authenticator app, then run `qr-totp --get-otp`'
+    ];
+}
+
+function buildQrTotpShowOutput(enrollment) {
+    const otpauthUrl = buildQrTotpOtpauthUrl(enrollment);
+    const qrUrl = buildQrTotpImageUrl(otpauthUrl);
+    return [
+        'qr-totp: current enrollment',
+        `issuer: ${enrollment.issuer}`,
+        `username: ${enrollment.username}`,
+        `email: ${enrollment.email}`,
+        `created: ${new Date(enrollment.createdAt).toLocaleString()}`,
+        `secret: ${enrollment.secret}`,
+        `otpauth url: ${otpauthUrl}`,
+        {
+            type: 'text-link',
+            prefix: 'qr code: ',
+            href: qrUrl,
+            text: 'open enrollment qr',
+            newTab: true
+        }
+    ];
+}
+
+async function qr_totp_command(args) {
+    const parsed = parseQrTotpArgs(args);
+    if (parsed.error) {
+        return [parsed.error, ...getQrTotpUsage()];
+    }
+
+    const { options } = parsed;
+
+    if (options.action === 'clear') {
+        clearQrTotpEnrollment();
+        return ['qr-totp: cleared the saved enrollment from this browser'];
+    }
+
+    if (options.action === 'generate') {
+        const enrollment = {
+            issuer: options.issuer,
+            username: options.username,
+            email: options.email,
+            secret: generateQrTotpSecret(),
+            createdAt: new Date().toISOString()
+        };
+        const storageMode = saveQrTotpEnrollment(enrollment);
+        return buildQrTotpEnrollmentOutput(enrollment, storageMode);
+    }
+
+    const enrollment = loadQrTotpEnrollment();
+    if (!enrollment) {
+        return [
+            'qr-totp: no enrolled secret found in this browser',
+            'run `qr-totp --generate-qr --issuer=ExampleApp --username=alice --email=alice@example.com` first'
+        ];
+    }
+
+    if (options.action === 'show') {
+        return buildQrTotpShowOutput(enrollment);
+    }
+
+    if (options.action === 'otp') {
+        const current = await generateQrTotpCode(enrollment.secret);
+        return [
+            `qr-totp: current otp for ${enrollment.username} is ${current.otp}`,
+            `refreshes in: ${current.secondsRemaining}s`
+        ];
+    }
+
+    if (options.action === 'verify') {
+        const verification = await verifyQrTotpCode(enrollment.secret, options.verifyCode);
+        if (!verification.valid) {
+            return [`qr-totp: ${options.verifyCode} is not valid for the current enrollment`];
+        }
+
+        if (verification.driftSteps === 0) {
+            return [`qr-totp: ${options.verifyCode} is valid for the current 30-second window`];
+        }
+
+        const direction = verification.driftSteps < 0 ? 'previous' : 'next';
+        return [`qr-totp: ${options.verifyCode} is valid in the ${direction} 30-second window`];
+    }
+
+    return getQrTotpUsage();
 }
 
 async function userpic_command(args) {

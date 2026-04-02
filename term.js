@@ -22,6 +22,7 @@ const commandHandlers = new Map([
     ['post', post_command],
     ['projects', projects_command],
     ['pwd', pwd_command],
+    ['qr-totp', qr_totp_command],
     ['resume', resume_command],
     ['userpic', userpic_command],
     ['visitors', visitors_command],
