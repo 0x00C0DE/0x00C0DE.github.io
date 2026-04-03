@@ -408,6 +408,8 @@ const MIN_SNAPSHOT_FLUSH_INTERVAL_MS = 1000;
 const MAX_IMAGE_DATA_URL_LENGTH = 100000000;
 const MAX_IMAGE_ATTACHMENTS = 4;
 const ALLOWED_BLOG_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
+const BLOG_COMPACT_IMAGE_MIME_TYPES = new Set(['image/gif']);
+const BLOG_Z85_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#';
 const BLOG_DEPLOY_PENDING_ERROR = 'site is still deploying previous changes; wait for blog.txt to go live before posting or deleting again';
 
 function normalizeSnapshot(snapshot) {
@@ -668,19 +670,125 @@ function normalizeImageDataUrl(value) {
     return `data:${mimeType};base64,${base64Payload}`;
 }
 
-export function createBlogImageKey(dataUrl) {
-    const normalizedDataUrl = normalizeImageDataUrl(dataUrl);
-    if (!normalizedDataUrl) {
+function parseImageDataUrlParts(value) {
+    const match = /^data:([^;]+);base64,([A-Za-z0-9+/=\r\n]+)$/i.exec(String(value || '').trim());
+    if (!match) {
+        return null;
+    }
+
+    return {
+        mimeType: match[1].toLowerCase(),
+        base64Payload: match[2].replace(/\s+/g, '')
+    };
+}
+
+function toComparableImageValue(value) {
+    const normalizedDataUrl = normalizeImageDataUrl(value);
+    if (normalizedDataUrl) {
+        return normalizedDataUrl;
+    }
+
+    const normalizedValue = String(value || '').trim();
+    return normalizedValue || '';
+}
+
+export function createBlogImageKey(value) {
+    const comparableValue = toComparableImageValue(value);
+    if (!comparableValue) {
         return '';
     }
 
     let hash = 2166136261;
-    for (let index = 0; index < normalizedDataUrl.length; index += 1) {
-        hash ^= normalizedDataUrl.charCodeAt(index);
+    for (let index = 0; index < comparableValue.length; index += 1) {
+        hash ^= comparableValue.charCodeAt(index);
         hash = Math.imul(hash, 16777619);
     }
 
-    return `${normalizedDataUrl.length}:${(hash >>> 0).toString(16)}`;
+    return `${comparableValue.length}:${(hash >>> 0).toString(16)}`;
+}
+
+function decodeBase64ToBytes(value) {
+    const binary = atob(String(value || '').replace(/\s+/g, ''));
+    const bytes = new Uint8Array(binary.length);
+
+    for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+    }
+
+    return bytes;
+}
+
+function encodeBytesToZ85(bytes) {
+    if (!(bytes instanceof Uint8Array) || bytes.length === 0) {
+        return '';
+    }
+
+    const paddedLength = Math.ceil(bytes.length / 4) * 4;
+    const padded = new Uint8Array(paddedLength);
+    padded.set(bytes);
+    const segments = [];
+    let segment = [];
+
+    for (let index = 0; index < padded.length; index += 4) {
+        let value =
+            (padded[index] * 16777216) +
+            ((padded[index + 1] || 0) << 16) +
+            ((padded[index + 2] || 0) << 8) +
+            (padded[index + 3] || 0);
+        const chunk = new Array(5);
+
+        for (let characterIndex = 4; characterIndex >= 0; characterIndex -= 1) {
+            chunk[characterIndex] = BLOG_Z85_ALPHABET[value % 85];
+            value = Math.floor(value / 85);
+        }
+
+        segment.push(chunk.join(''));
+        if (segment.length >= 4096) {
+            segments.push(segment.join(''));
+            segment = [];
+        }
+    }
+
+    if (segment.length > 0) {
+        segments.push(segment.join(''));
+    }
+
+    return segments.join('');
+}
+
+function createCompactImageBlock(imageDataUrl) {
+    const parts = parseImageDataUrlParts(imageDataUrl);
+    if (!parts || !BLOG_COMPACT_IMAGE_MIME_TYPES.has(parts.mimeType)) {
+        return {
+            type: 'image',
+            imageDataUrl: normalizeImageDataUrl(imageDataUrl)
+        };
+    }
+
+    const imageBytes = decodeBase64ToBytes(parts.base64Payload);
+    return {
+        type: 'image',
+        imageEncoding: 'z85',
+        mimeType: parts.mimeType,
+        byteLength: imageBytes.length,
+        encodedPayload: encodeBytesToZ85(imageBytes)
+    };
+}
+
+function createStoredImageComparisonValue(block) {
+    if (!block || block.type !== 'image') {
+        return '';
+    }
+
+    if (typeof block.imageDataUrl === 'string' && block.imageDataUrl) {
+        return block.imageDataUrl;
+    }
+
+    if (block.imageEncoding === 'z85' && typeof block.encodedPayload === 'string' && block.encodedPayload) {
+        return `z85:${String(block.mimeType || '').toLowerCase()}:${block.encodedPayload}`;
+    }
+
+    return '';
 }
 
 function timingSafeStringEqual(left, right) {
@@ -850,15 +958,17 @@ async function resolveStagedImageBlocks(blocks, maxImageDataUrlLength, env) {
             };
         }
 
-        resolvedBlocks.push({
-            type: 'image',
-            imageDataUrl: stagedUpload.dataUrl
-        });
+        resolvedBlocks.push(createCompactImageBlock(stagedUpload.dataUrl));
     }
 
     return {
         ok: true,
-        blocks: resolvedBlocks
+        blocks: resolvedBlocks.map(block => {
+            if (block.type !== 'image' || !block.imageDataUrl) {
+                return block;
+            }
+            return createCompactImageBlock(block.imageDataUrl);
+        })
     };
 }
 
@@ -1219,7 +1329,7 @@ function parseBlogEntryBlocks(entryLines) {
 
     for (let index = 0; index < entryLines.length; index += 1) {
         const line = entryLines[index];
-        if (line !== '[image-base64]') {
+        if (line !== '[image-base64]' && line !== '[image-z85]') {
             textLines.push(line);
             continue;
         }
@@ -1227,13 +1337,26 @@ function parseBlogEntryBlocks(entryLines) {
         flushTextLines();
 
         const imageLines = [];
+        const isCompactImageBlock = line === '[image-z85]';
+        const closingMarker = isCompactImageBlock ? '[/image-z85]' : '[/image-base64]';
         index += 1;
-        while (index < entryLines.length && entryLines[index] !== '[/image-base64]') {
+        while (index < entryLines.length && entryLines[index] !== closingMarker) {
             imageLines.push(entryLines[index]);
             index += 1;
         }
 
-        if (index < entryLines.length && entryLines[index] === '[/image-base64]') {
+        if (index < entryLines.length && entryLines[index] === closingMarker) {
+            if (isCompactImageBlock) {
+                const compactImageBlock = parseCompactImageBlockLines(imageLines);
+                if (compactImageBlock) {
+                    blocks.push(compactImageBlock);
+                    continue;
+                }
+
+                textLines.push('[image-z85]', ...imageLines, '[/image-z85]');
+                continue;
+            }
+
             const imageDataUrl = normalizeImageDataUrl(imageLines.join(''));
             if (imageDataUrl) {
                 blocks.push({
@@ -1247,11 +1370,45 @@ function parseBlogEntryBlocks(entryLines) {
             continue;
         }
 
-        textLines.push('[image-base64]', ...imageLines);
+        textLines.push(line, ...imageLines);
     }
 
     flushTextLines();
     return blocks;
+}
+
+function parseCompactImageBlockLines(imageLines) {
+    if (!Array.isArray(imageLines) || imageLines.length < 3) {
+        return null;
+    }
+
+    const mimeTypeLine = String(imageLines[0] || '').trim();
+    const byteLengthLine = String(imageLines[1] || '').trim();
+    const mimeTypeMatch = /^mime:(.+)$/i.exec(mimeTypeLine);
+    const byteLengthMatch = /^bytes:(\d+)$/i.exec(byteLengthLine);
+    const encodedPayload = imageLines.slice(2).join('').trim();
+
+    if (!mimeTypeMatch || !byteLengthMatch || !encodedPayload) {
+        return null;
+    }
+
+    const mimeType = mimeTypeMatch[1].trim().toLowerCase();
+    const byteLength = Number.parseInt(byteLengthMatch[1], 10);
+    if (!ALLOWED_BLOG_IMAGE_MIME_TYPES.has(mimeType) || !Number.isInteger(byteLength) || byteLength <= 0) {
+        return null;
+    }
+
+    if (!/^[0-9a-zA-Z.\-:+=\^!/*?&<>()\[\]{}@%$#]+$/.test(encodedPayload)) {
+        return null;
+    }
+
+    return {
+        type: 'image',
+        imageEncoding: 'z85',
+        mimeType,
+        byteLength,
+        encodedPayload
+    };
 }
 
 function normalizeBlogEntryBlocks(contentBlocks) {
@@ -1270,6 +1427,26 @@ function normalizeBlogEntryBlocks(contentBlocks) {
         }
 
         if (block.type === 'image') {
+            if (block.imageEncoding === 'z85') {
+                const mimeType = String(block.mimeType || '').trim().toLowerCase();
+                const byteLength = Number.parseInt(block.byteLength, 10);
+                const encodedPayload = typeof block.encodedPayload === 'string'
+                    ? block.encodedPayload.trim()
+                    : '';
+                if (!ALLOWED_BLOG_IMAGE_MIME_TYPES.has(mimeType) || !Number.isInteger(byteLength) || byteLength <= 0 || !encodedPayload) {
+                    continue;
+                }
+
+                blocks.push({
+                    type: 'image',
+                    imageEncoding: 'z85',
+                    mimeType,
+                    byteLength,
+                    encodedPayload
+                });
+                continue;
+            }
+
             const imageDataUrl = normalizeImageDataUrl(block.imageDataUrl);
             if (!imageDataUrl) {
                 continue;
@@ -1303,6 +1480,15 @@ function serializeBlogDocument(blogDocument) {
             }
 
             if (block.type === 'image') {
+                if (block.imageEncoding === 'z85') {
+                    lines.push('[image-z85]');
+                    lines.push(`mime:${String(block.mimeType || '').toLowerCase()}`);
+                    lines.push(`bytes:${Number(block.byteLength || 0)}`);
+                    lines.push(block.encodedPayload);
+                    lines.push('[/image-z85]');
+                    continue;
+                }
+
                 lines.push('[image-base64]');
                 lines.push(block.imageDataUrl);
                 lines.push('[/image-base64]');
@@ -1402,7 +1588,7 @@ function findImageBlockInEntry(entry, {
             blockIndex,
             imageIndex: imageBlocks.length,
             imageDataUrl: block.imageDataUrl,
-            imageKey: createBlogImageKey(block.imageDataUrl),
+            imageKey: createBlogImageKey(createStoredImageComparisonValue(block)),
             previousTextLine: lastNonEmptyTextLine,
             nextTextLine: findNextNonEmptyTextLineInEntry(entry.blocks, blockIndex)
         });
@@ -1559,6 +1745,13 @@ function findImageBlockAcrossEntries(entries, { targetImageKey, targetImageDataU
             }
 
             if (targetImageKey && createBlogImageKey(block.imageDataUrl) === targetImageKey) {
+                return {
+                    entryIndex,
+                    blockIndex
+                };
+            }
+
+            if (targetImageKey && createBlogImageKey(createStoredImageComparisonValue(block)) === targetImageKey) {
                 return {
                     entryIndex,
                     blockIndex

@@ -127,11 +127,11 @@ function renderOutputObject(container, line) {
     }
 
     if (line.type === 'inline-image') {
-        const isSafeDataUrl = typeof window.isSafeBlogImageDataUrl === 'function'
-            ? window.isSafeBlogImageDataUrl(line.src)
+        const isSafeSource = typeof window.isSafeBlogImageSource === 'function'
+            ? window.isSafeBlogImageSource(line.src)
             : false;
 
-        if (!isSafeDataUrl) {
+        if (!isSafeSource) {
             container.textContent = '[invalid embedded image]';
             return;
         }

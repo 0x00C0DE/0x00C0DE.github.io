@@ -103,6 +103,14 @@ const BLOG_STAGED_IMAGE_CHUNK_LENGTH = 2000000;
 const BLOG_MAX_IMAGE_ATTACHMENTS = 4;
 const BLOG_ALLOWED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 const BLOG_IMAGE_DATA_URL_PATTERN = /^data:([^;]+);base64,([A-Za-z0-9+/=\r\n]+)$/i;
+const BLOG_Z85_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#';
+const BLOG_Z85_CHAR_TO_VALUE = (() => {
+    const mapping = Object.create(null);
+    for (let index = 0; index < BLOG_Z85_ALPHABET.length; index += 1) {
+        mapping[BLOG_Z85_ALPHABET[index]] = index;
+    }
+    return mapping;
+})();
 const VISITOR_HEARTBEAT_MS = 1000;
 const VISITOR_STATS_POLL_MS = 500;
 const TEXT_FILES = Object.freeze([
@@ -238,7 +246,7 @@ function parseBlogTextFile(lines) {
 
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
-        if (line !== '[image-base64]') {
+        if (line !== '[image-base64]' && line !== '[image-z85]') {
             if (isBlogEntryTimestampLine(line)) {
                 currentEntryTimestamp = line.trim();
                 currentEntryImageIndex = 0;
@@ -251,33 +259,59 @@ function parseBlogTextFile(lines) {
         }
 
         const imageLines = [];
+        const isCompactImageBlock = line === '[image-z85]';
+        const closingMarker = isCompactImageBlock ? '[/image-z85]' : '[/image-base64]';
         index += 1;
 
-        while (index < lines.length && lines[index] !== '[/image-base64]') {
+        while (index < lines.length && lines[index] !== closingMarker) {
             imageLines.push(lines[index]);
             index += 1;
         }
 
-        const dataUrl = imageLines.join('');
         const nextTextLine = findNextBlogTextLine(lines, index + 1);
-        if (isSafeBlogImageDataUrl(dataUrl)) {
-            output.push({
-                type: 'inline-image',
-                src: dataUrl,
-                alt: 'Embedded blog image',
-                deletable: true,
-                imageBlockIndex,
-                imageKey: createBlogImageKey(dataUrl),
-                entryTimestamp: currentEntryTimestamp,
-                entryImageIndex: currentEntryImageIndex,
-                previousTextLine,
-                nextTextLine
-            });
+        if (isCompactImageBlock) {
+            const compactImage = parseCompactBlogImageBlockLines(imageLines);
+            if (compactImage) {
+                output.push({
+                    type: 'inline-image',
+                    src: compactImage.src,
+                    alt: 'Embedded blog image',
+                    deletable: true,
+                    imageBlockIndex,
+                    imageKey: createBlogImageKey(`z85:${compactImage.mimeType}:${compactImage.encodedPayload}`),
+                    entryTimestamp: currentEntryTimestamp,
+                    entryImageIndex: currentEntryImageIndex,
+                    previousTextLine,
+                    nextTextLine
+                });
+            } else {
+                output.push('[image-z85]');
+                imageLines.forEach(imageLine => output.push(imageLine));
+                if (index < lines.length && lines[index] === '[/image-z85]') {
+                    output.push('[/image-z85]');
+                }
+            }
         } else {
-            output.push('[image-base64]');
-            imageLines.forEach(imageLine => output.push(imageLine));
-            if (index < lines.length && lines[index] === '[/image-base64]') {
-                output.push('[/image-base64]');
+            const dataUrl = imageLines.join('');
+            if (isSafeBlogImageDataUrl(dataUrl)) {
+                output.push({
+                    type: 'inline-image',
+                    src: dataUrl,
+                    alt: 'Embedded blog image',
+                    deletable: true,
+                    imageBlockIndex,
+                    imageKey: createBlogImageKey(dataUrl),
+                    entryTimestamp: currentEntryTimestamp,
+                    entryImageIndex: currentEntryImageIndex,
+                    previousTextLine,
+                    nextTextLine
+                });
+            } else {
+                output.push('[image-base64]');
+                imageLines.forEach(imageLine => output.push(imageLine));
+                if (index < lines.length && lines[index] === '[/image-base64]') {
+                    output.push('[/image-base64]');
+                }
             }
         }
 
@@ -295,9 +329,10 @@ function findNextBlogTextLine(lines, startIndex) {
             return '';
         }
 
-        if (line === '[image-base64]') {
+        if (line === '[image-base64]' || line === '[image-z85]') {
+            const closingMarker = line === '[image-z85]' ? '[/image-z85]' : '[/image-base64]';
             index += 1;
-            while (index < lines.length && lines[index] !== '[/image-base64]') {
+            while (index < lines.length && lines[index] !== closingMarker) {
                 index += 1;
             }
             continue;
@@ -347,7 +382,7 @@ function help_command() {
         '  movie w h   - Display your live camera footage as ASCII art at size w x h (press any key to stop)',
         '  picture w h - Display 0x00C0DE\'s picture as ASCII art at size w x h',
         '  post text   - Append a blog entry through the backend API (may take a short time to appear)',
-        '  post --image [text] - Append a blog entry with a base64-encoded image attachment',
+        '  post --image [text] - Append a blog entry with an image attachment',
         '  post hello [image] goodbye - Insert a chosen image inline between text blocks',
         '  pwd         - Print working directory',
         '  qr-totp     - Browser QR enrollment + TOTP generator for the cs370 project',
@@ -728,18 +763,18 @@ function normalizeBlogImageDataUrl(dataUrl) {
 }
 
 function createBlogImageKey(dataUrl) {
-    const normalizedDataUrl = normalizeBlogImageDataUrl(dataUrl);
-    if (!normalizedDataUrl) {
+    const normalizedValue = normalizeBlogImageDataUrl(dataUrl) || String(dataUrl || '').trim();
+    if (!normalizedValue) {
         return '';
     }
 
     let hash = 2166136261;
-    for (let index = 0; index < normalizedDataUrl.length; index += 1) {
-        hash ^= normalizedDataUrl.charCodeAt(index);
+    for (let index = 0; index < normalizedValue.length; index += 1) {
+        hash ^= normalizedValue.charCodeAt(index);
         hash = Math.imul(hash, 16777619);
     }
 
-    return `${normalizedDataUrl.length}:${(hash >>> 0).toString(16)}`;
+    return `${normalizedValue.length}:${(hash >>> 0).toString(16)}`;
 }
 
 function isBlogEntryTimestampLine(line) {
@@ -758,6 +793,83 @@ function isSafeBlogImageDataUrl(dataUrl) {
     }
 
     return BLOG_ALLOWED_IMAGE_MIME_TYPES.has(match[1].toLowerCase());
+}
+
+function isSafeBlogImageSource(source) {
+    if (isSafeBlogImageDataUrl(source)) {
+        return true;
+    }
+
+    return /^blob:/i.test(String(source || '').trim());
+}
+
+function parseCompactBlogImageBlockLines(imageLines) {
+    if (!Array.isArray(imageLines) || imageLines.length < 3) {
+        return null;
+    }
+
+    const mimeTypeMatch = /^mime:(.+)$/i.exec(String(imageLines[0] || '').trim());
+    const byteLengthMatch = /^bytes:(\d+)$/i.exec(String(imageLines[1] || '').trim());
+    const encodedPayload = imageLines.slice(2).join('').trim();
+    if (!mimeTypeMatch || !byteLengthMatch || !encodedPayload) {
+        return null;
+    }
+
+    const mimeType = mimeTypeMatch[1].trim().toLowerCase();
+    const byteLength = Number.parseInt(byteLengthMatch[1], 10);
+    if (!BLOG_ALLOWED_IMAGE_MIME_TYPES.has(mimeType) || !Number.isInteger(byteLength) || byteLength <= 0) {
+        return null;
+    }
+
+    const imageBytes = decodeZ85ToBytes(encodedPayload, byteLength);
+    if (!imageBytes) {
+        return null;
+    }
+
+    return {
+        mimeType,
+        encodedPayload,
+        src: URL.createObjectURL(new Blob([imageBytes], { type: mimeType }))
+    };
+}
+
+function decodeZ85ToBytes(encodedPayload, byteLength) {
+    const payload = String(encodedPayload || '').trim();
+    if (!payload || payload.length % 5 !== 0 || !Number.isInteger(byteLength) || byteLength <= 0) {
+        return null;
+    }
+
+    const output = new Uint8Array(byteLength);
+    let outputIndex = 0;
+
+    for (let index = 0; index < payload.length; index += 5) {
+        let value = 0;
+
+        for (let characterIndex = 0; characterIndex < 5; characterIndex += 1) {
+            const alphabetIndex = BLOG_Z85_CHAR_TO_VALUE[payload[index + characterIndex]];
+            if (!Number.isInteger(alphabetIndex) || alphabetIndex < 0) {
+                return null;
+            }
+            value = (value * 85) + alphabetIndex;
+        }
+
+        const bytes = [
+            Math.floor(value / 16777216) % 256,
+            Math.floor(value / 65536) % 256,
+            Math.floor(value / 256) % 256,
+            value % 256
+        ];
+
+        for (const byte of bytes) {
+            if (outputIndex >= byteLength) {
+                break;
+            }
+            output[outputIndex] = byte;
+            outputIndex += 1;
+        }
+    }
+
+    return outputIndex === byteLength ? output : null;
 }
 
 async function selectPostImageDataUrl() {
@@ -971,7 +1083,7 @@ async function post_command(args) {
         const output = ['post: blog entry appended successfully'];
         const imageCount = resolved.contentBlocks.filter(block => block.type === 'image').length;
         if (imageCount > 0) {
-            output.push(`post: embedded ${imageCount} base64 image${imageCount === 1 ? '' : 's'} in the entry`);
+            output.push(`post: attached ${imageCount} image${imageCount === 1 ? '' : 's'} in the entry`);
         }
         if (payload.commitUrl) {
             output.push({
@@ -1682,6 +1794,7 @@ function projects_command() {
 window.renderTerminalLineContent = renderTerminalLineContent;
 window.buildVisitorWidgetElement = buildVisitorWidgetElement;
 window.isSafeBlogImageDataUrl = isSafeBlogImageDataUrl;
+window.isSafeBlogImageSource = isSafeBlogImageSource;
 window.deleteBlogImageByBlockIndex = deleteBlogImageByBlockIndex;
 
 function resume_command() {
