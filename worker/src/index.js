@@ -360,7 +360,7 @@ export class BlogUploadSession {
             const storedChunks = await this.state.storage.get(chunkKeys);
             const chunks = [];
             for (const key of chunkKeys) {
-                const chunk = storedChunks?.[key];
+                const chunk = readStoredValue(storedChunks, key);
                 if (typeof chunk !== 'string' || !chunk) {
                     return this.jsonErrorResponse('staged upload is incomplete', 409);
                 }
