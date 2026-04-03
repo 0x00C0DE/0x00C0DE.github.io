@@ -48,7 +48,9 @@ No frameworks. No build steps. Pure JavaScript + HTML + CSS.
 
 The design philosophy is **file-system-first**: documentation lives as real `.txt` files fetched over HTTP at runtime, mirroring how a real terminal would `cat` files off disk. This keeps content versionable, diffable, and human-readable without introducing a database or build step.
 
-The latest terminal update integrates **Pretext** directly into the live render path. Plain text output, echoed commands, wrapped links, and the `help` descriptions now reflow through a link-aware layout engine that behaves correctly on mobile and on browser resize, while the standalone Pretext lab remains available for isolated experiments.
+The latest terminal updates integrate **Pretext** directly into the live render path and add a constrained `su` session toggle. Plain text output, echoed commands, wrapped links, and the `help` descriptions now reflow through a link-aware layout engine that behaves correctly on mobile and on browser resize, while `su` now only supports `su` for `root` and `su guest` for the default guest shell.
+
+When the prompt is running as `root`, the terminal also enables a red animated glyph-rain background and root-colored prompt text. Switching back with `su guest` restores the original CRT background and standard prompt styling.
 
 Credit to Cheng Lou for the original [Pretext](https://github.com/chenglou/pretext) project, the pure JavaScript/TypeScript multiline text measurement and layout library this terminal integration builds on.
 
@@ -150,10 +152,12 @@ Next `cat blog.txt` reflects the new entry live
 ├── project-shellcode-template.html   # Project deep-dive: Shellcode Template
 ├── project-smallsh.html              # Project deep-dive: smallsh Unix shell
 │
-├── term.js                           # Terminal REPL engine and boot flow
+├── term.js                           # Terminal REPL engine, prompt rendering, and root visual effects
 ├── commands.js                       # Shell commands, fetch/post logic, Pretext bridge
 ├── pictures.js                       # ASCII/glyph image rendering + webcam support
-├── style.css                         # CRT palette, terminal layout, mobile help grid
+├── style.css                         # CRT palette, root visual mode, terminal layout, mobile help grid
+├── terminal-session-core.mjs         # Pure session state for prompt/su behavior
+├── terminal-visuals-core.mjs         # Pure helpers for root-only animated glyph rain
 ├── terminal-pretext-core.mjs         # Link-aware tokenization and wrapped-line slicing
 ├── terminal-pretext-runtime.mjs      # Browser Pretext renderer + resize reflow
 ├── pretext-lab.html                  # Standalone layout lab for Pretext experiments
@@ -175,7 +179,7 @@ Next `cat blog.txt` reflects the new entry live
 │
 ├── backend/                          # Local backend/server helpers
 ├── worker/                           # Cloudflare Worker package and deployment scripts
-├── tests/                            # Node tests for Pretext adapters and lab logic
+├── tests/                            # Node tests for session, visuals, and Pretext logic
 ├── vendor/pretext/                   # Vendored Pretext runtime used in-browser
 │
 ├── wrangler.jsonc                    # Worker configuration
@@ -200,6 +204,8 @@ Responsibilities:
 - Streams multi-line output into the DOM while preserving scroll position
 - Handles `Ctrl+C`, `clear`, and boot-command execution
 - Boots each entry page through `bootTerminalSite(...)`
+- Switches between the default guest shell and the root shell prompt state
+- Enables the animated glyph-rain background only while the terminal user is `root`
 - Waits for the Pretext runtime before the first command renders
 - Calls `initVisitorTracking()` for lightweight analytics
 
@@ -239,14 +245,29 @@ The terminal command map in `term.js` routes each shell verb to its handler, wit
 | `pwd` | Prints the simulated working directory |
 | `qr-totp ...` | Browser-side QR enrollment, QR export, and TOTP generation/verification |
 | `resume` | Opens `resume.pdf` in a new tab |
+| `su` / `su guest` | Switches only between the `root` shell and the default `guest` shell |
 | `userpic [w h]` | Converts an uploaded or captured photo to ASCII art |
 | `visitors` | Renders the live visitor stats widget |
-| `whoami` | Prints the owner bio block |
+| `whoami` | Prints the current simulated terminal username |
 | `youtube` | Opens YouTube in a new tab |
 
 Commands that require async I/O (`cat`, `post`, `fortune`, `movie`, `userpic`, `qr-totp`, `visitors`) return Promises and can be aborted mid-execution.
 
-`commands.js` also exposes the terminal text rendering bridge. It lazy-loads `terminal-pretext-runtime.mjs`, routes plain string output through Pretext when available, and falls back to the older regex-based renderer if the module cannot be loaded.
+`commands.js` also exposes the terminal text rendering bridge. It lazy-loads `terminal-pretext-runtime.mjs`, routes plain string output through Pretext when available, falls back to the older regex-based renderer if the module cannot be loaded, and coordinates the root/guest session toggle with the prompt renderer.
+
+### `terminal-session-core.mjs` — Session State
+
+Responsibilities:
+- Normalizes the simulated shell session into a small pure state object
+- Restricts `su` transitions to two supported targets: implicit `root` and explicit `guest`
+- Produces the prompt snapshot consumed by the browser renderer and `whoami` / `pwd`
+
+### `terminal-visuals-core.mjs` — Root Visual Helpers
+
+Responsibilities:
+- Decides whether the root-only animated background should be active
+- Builds randomized falling glyph columns for the root shell visual mode
+- Mutates glyph streams over time so columns change while they fall instead of remaining static
 
 ### `terminal-pretext-core.mjs` — Link-aware Wrapping Adapter
 
@@ -294,10 +315,11 @@ Muted:         #550000   (dark red for inactive elements)
 Font:          monospace stack with Courier New styling
 ```
 
-The stylesheet also contains the Pretext-specific layout classes:
+The stylesheet also contains the Pretext-specific layout classes and the root-only visual mode:
 - `.terminal-pretext-enabled` and `.terminal-pretext-row` for wrapped terminal rows
 - `.terminal-help-entry` for the help command's three-column grid layout
 - Mobile-safe wrapping rules that keep long help descriptions in the right-hand column instead of drifting under the command name
+- Root prompt and background styles that only activate when the terminal session is `root`
 
 ---
 
@@ -415,14 +437,16 @@ Frontend-only changes go live with a push to `main`. A separate Worker redeploy 
 
 ## Testing
 
-The recent Pretext integration was added with red/green TDD around the pure adapter layer before wiring it into the browser runtime.
+The recent terminal updates were added with red/green TDD around the pure adapter/session/visual layers before wiring them into the browser runtime.
 
 Current checks:
 
 ```bash
-node --test tests/terminal-pretext-core.test.mjs tests/pretext-lab-core.test.mjs
+node --test tests/terminal-session-core.test.mjs tests/terminal-visuals-core.test.mjs tests/terminal-pretext-core.test.mjs tests/pretext-lab-core.test.mjs
 node --check commands.js
 node --check term.js
+node --check terminal-session-core.mjs
+node --check terminal-visuals-core.mjs
 node --check terminal-pretext-core.mjs
 node --check terminal-pretext-runtime.mjs
 ```
@@ -435,7 +459,7 @@ The Pretext lab remains available at [pretext-lab.html](https://0x00c0de.github.
 
 Start at **[https://0x00c0de.github.io](https://0x00c0de.github.io)**. The terminal loads automatically with the `banner` command.
 
-Plain terminal output, echoed commands, and `help` descriptions now use Pretext-backed wrapping, so they reflow cleanly on mobile and when the window width changes.
+Plain terminal output, echoed commands, and `help` descriptions now use Pretext-backed wrapping, so they reflow cleanly on mobile and when the window width changes. The prompt starts in the original guest shell, `su` switches into `root`, and `su guest` switches back to the guest shell and restores the default background.
 
 ```text
 ╔══════════════════════════════════════════════════╗
@@ -461,6 +485,8 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
   youtube                    Open YouTube in a new tab
   projects                   Render project index
   resume                     Download resume PDF
+  su                         Switch to the root shell
+  su guest                   Return to the guest shell
   qr-totp --generate-qr ...  Enroll a QR/TOTP secret in-browser
   qr-totp --get-otp          Generate the current 6-digit code
   fortune                    Random quote

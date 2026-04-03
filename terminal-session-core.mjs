@@ -41,7 +41,12 @@ export function resolveSuTarget(args = []) {
         return 'root';
     }
 
-    return sanitizeUsername(args[0], 'root');
+    if (args.length !== 1) {
+        return null;
+    }
+
+    const target = sanitizeUsername(args[0], '');
+    return target.toLowerCase() === 'guest' ? 'guest' : null;
 }
 
 export function applyTerminalSessionCommand(session, command, args = []) {
@@ -50,9 +55,14 @@ export function applyTerminalSessionCommand(session, command, args = []) {
         return normalized;
     }
 
+    const target = resolveSuTarget(args);
+    if (!target) {
+        return normalized;
+    }
+
     return {
         shell: 'default',
-        user: resolveSuTarget(args)
+        user: target
     };
 }
 

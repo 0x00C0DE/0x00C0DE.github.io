@@ -272,11 +272,33 @@ function applyTerminalSessionCommand(command, args = []) {
         return normalizeTerminalSessionState(terminalSessionState);
     }
 
-    const username = typeof args[0] === 'string' && args[0].trim() ? args[0].trim() : 'root';
+    if (!Array.isArray(args) || args.length === 0) {
+        return {
+            shell: 'default',
+            user: 'root'
+        };
+    }
+
+    if (args.length !== 1 || String(args[0] || '').trim().toLowerCase() !== 'guest') {
+        return normalizeTerminalSessionState(terminalSessionState);
+    }
+
     return {
         shell: 'default',
-        user: username
+        user: 'guest'
     };
+}
+
+function resolveSupportedSuTarget(args = []) {
+    if (!Array.isArray(args) || args.length === 0) {
+        return 'root';
+    }
+
+    if (args.length !== 1) {
+        return null;
+    }
+
+    return String(args[0] || '').trim().toLowerCase() === 'guest' ? 'guest' : null;
 }
 
 function ensureTerminalSessionReady() {
@@ -608,7 +630,7 @@ function help_command() {
         ['pwd', 'Print working directory'],
         ['qr-totp', 'Browser QR enrollment + TOTP generator for the cs370 project'],
         ['resume', 'Open my resume PDF in a new tab'],
-        ['su [user]', 'Switch the current terminal user (defaults to root)'],
+        ['su [guest]', 'Switch to root with `su` or back to guest with `su guest`'],
         ['userpic [w h]', 'Upload or take your own picture and display it as ASCII art'],
         ['visitors', 'Display the live visitor stats widget'],
         ['whoami', 'Print current username'],
@@ -1405,6 +1427,15 @@ function pretext_command(args) {
 }
 
 function su_command(args) {
+    const target = resolveSupportedSuTarget(args);
+    if (!target) {
+        return [
+            'su: unsupported user target',
+            'usage: su',
+            '       su guest'
+        ];
+    }
+
     setTerminalSessionState(applyTerminalSessionCommand('su', args));
     return [];
 }
