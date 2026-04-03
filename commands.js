@@ -554,6 +554,19 @@ function readFileAsDataUrl(file) {
     });
 }
 
+function readFileAsArrayBuffer(file) {
+    if (file && typeof file.arrayBuffer === 'function') {
+        return file.arrayBuffer();
+    }
+
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error || new Error('unable to read selected file'));
+        reader.readAsArrayBuffer(file);
+    });
+}
+
 function buildAsciiDownloadFilename(file) {
     const baseName = (file && file.name ? file.name : 'userpic')
         .replace(/\.[^.]+$/, '')
@@ -655,8 +668,24 @@ async function resolvePostContentBlocks(templateBlocks) {
             contentBlocks.push({
                 type: 'image',
                 ...(imageAttachment.stagedUploadToken
-                    ? { stagedUploadToken: imageAttachment.stagedUploadToken }
-                    : { imageDataUrl: imageAttachment.dataUrl }),
+                    ? {
+                        stagedUploadToken: imageAttachment.stagedUploadToken,
+                        ...(imageAttachment.imageEncoding === 'z85'
+                            ? {
+                                imageEncoding: 'z85',
+                                mimeType: imageAttachment.mimeType,
+                                byteLength: imageAttachment.byteLength
+                            }
+                            : {})
+                    }
+                    : imageAttachment.imageEncoding === 'z85'
+                        ? {
+                            imageEncoding: 'z85',
+                            mimeType: imageAttachment.mimeType,
+                            byteLength: imageAttachment.byteLength,
+                            encodedPayload: imageAttachment.encodedPayload
+                        }
+                        : { imageDataUrl: imageAttachment.dataUrl }),
                 fileName: imageAttachment.fileName
             });
             continue;
@@ -873,6 +902,78 @@ function decodeZ85ToBytes(encodedPayload, byteLength) {
     return outputIndex === byteLength ? output : null;
 }
 
+function encodeBytesToZ85(bytes) {
+    if (!(bytes instanceof Uint8Array) || bytes.length === 0) {
+        return '';
+    }
+
+    const paddedLength = Math.ceil(bytes.length / 4) * 4;
+    const padded = new Uint8Array(paddedLength);
+    padded.set(bytes);
+    const segments = [];
+    let segment = [];
+
+    for (let index = 0; index < padded.length; index += 4) {
+        let value =
+            (padded[index] * 16777216) +
+            ((padded[index + 1] || 0) << 16) +
+            ((padded[index + 2] || 0) << 8) +
+            (padded[index + 3] || 0);
+        const chunk = new Array(5);
+
+        for (let characterIndex = 4; characterIndex >= 0; characterIndex -= 1) {
+            chunk[characterIndex] = BLOG_Z85_ALPHABET[value % 85];
+            value = Math.floor(value / 85);
+        }
+
+        segment.push(chunk.join(''));
+        if (segment.length >= 4096) {
+            segments.push(segment.join(''));
+            segment = [];
+        }
+    }
+
+    if (segment.length > 0) {
+        segments.push(segment.join(''));
+    }
+
+    return segments.join('');
+}
+
+async function buildCompactGifImageAttachment(file) {
+    const arrayBuffer = await readFileAsArrayBuffer(file);
+    const imageBytes = new Uint8Array(arrayBuffer);
+    const encodedPayload = encodeBytesToZ85(imageBytes);
+    if (!encodedPayload) {
+        return {
+            error: 'post: unable to prepare gif for upload'
+        };
+    }
+
+    if (encodedPayload.length > BLOG_DIRECT_POST_IMAGE_DATA_URL_LENGTH) {
+        const staged = await stageBlogUploadPayload(encodedPayload, 'compact gif upload');
+        if (!staged.ok) {
+            return { error: staged.error };
+        }
+
+        return {
+            stagedUploadToken: staged.token,
+            imageEncoding: 'z85',
+            mimeType: 'image/gif',
+            byteLength: imageBytes.length,
+            fileName: file.name || 'image'
+        };
+    }
+
+    return {
+        imageEncoding: 'z85',
+        mimeType: 'image/gif',
+        byteLength: imageBytes.length,
+        encodedPayload,
+        fileName: file.name || 'image'
+    };
+}
+
 async function selectPostImageDataUrl() {
     const file = await selectUserImageFile();
     if (!file) {
@@ -889,12 +990,16 @@ async function selectPostImageDataUrl() {
         return { error: 'post: image must be png, jpg, jpeg, webp, or gif' };
     }
 
+    if (mimeType === 'image/gif') {
+        return buildCompactGifImageAttachment(file);
+    }
+
     if (dataUrl.length > BLOG_MAX_IMAGE_DATA_URL_LENGTH) {
         return { error: 'post: selected image is too large to store in blog.txt as base64' };
     }
 
     if (dataUrl.length > BLOG_DIRECT_POST_IMAGE_DATA_URL_LENGTH) {
-        const staged = await stageBlogImageDataUrl(dataUrl);
+        const staged = await stageBlogUploadPayload(dataUrl, 'image upload');
         if (!staged.ok) {
             return { error: staged.error };
         }
@@ -913,26 +1018,26 @@ async function selectPostImageDataUrl() {
     };
 }
 
-async function stageBlogImageDataUrl(dataUrl) {
-    const normalizedDataUrl = normalizeBlogImageDataUrl(dataUrl);
-    if (!normalizedDataUrl) {
+async function stageBlogUploadPayload(payload, payloadLabel = 'image upload') {
+    const normalizedPayload = typeof payload === 'string' ? payload : '';
+    if (!normalizedPayload) {
         return {
             ok: false,
-            error: 'post: image must be png, jpg, jpeg, webp, or gif'
+            error: `post: unable to prepare ${payloadLabel}`
         };
     }
 
     const uploadId = createBlogUploadId();
-    const totalChunks = Math.ceil(normalizedDataUrl.length / BLOG_STAGED_IMAGE_CHUNK_LENGTH);
+    const totalChunks = Math.ceil(normalizedPayload.length / BLOG_STAGED_IMAGE_CHUNK_LENGTH);
     if (totalChunks > BLOG_MAX_STAGED_IMAGE_CHUNKS) {
         return {
             ok: false,
-            error: 'post: selected image is too large to stage for upload right now'
+            error: `post: selected ${payloadLabel} is too large to stage for upload right now`
         };
     }
 
     for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
-        const chunk = normalizedDataUrl.slice(
+        const chunk = normalizedPayload.slice(
             chunkIndex * BLOG_STAGED_IMAGE_CHUNK_LENGTH,
             (chunkIndex + 1) * BLOG_STAGED_IMAGE_CHUNK_LENGTH
         );
@@ -954,7 +1059,7 @@ async function stageBlogImageDataUrl(dataUrl) {
         } catch (error) {
             return {
                 ok: false,
-                error: `post: unable to stage image upload chunk ${chunkIndex + 1} of ${totalChunks}`
+                error: `post: unable to stage ${payloadLabel} chunk ${chunkIndex + 1} of ${totalChunks}`
             };
         }
 
@@ -962,7 +1067,7 @@ async function stageBlogImageDataUrl(dataUrl) {
         if (!response.ok) {
             return {
                 ok: false,
-                error: payload.error || `post: unable to stage image upload chunk ${chunkIndex + 1} of ${totalChunks}`
+                error: payload.error || `post: unable to stage ${payloadLabel} chunk ${chunkIndex + 1} of ${totalChunks}`
             };
         }
     }

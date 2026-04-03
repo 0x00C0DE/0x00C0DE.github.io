@@ -670,6 +670,58 @@ function validateImageDataUrl(value, maxLength) {
     return { ok: true };
 }
 
+function validateCompactImagePayload({ mimeType, byteLength, encodedPayload, requirePayload = true }) {
+    const normalizedMimeType = String(mimeType || '').trim().toLowerCase();
+    const normalizedByteLength = Number.parseInt(byteLength, 10);
+    const normalizedEncodedPayload = typeof encodedPayload === 'string'
+        ? encodedPayload.trim()
+        : '';
+
+    if (!ALLOWED_BLOG_IMAGE_MIME_TYPES.has(normalizedMimeType)) {
+        return {
+            ok: false,
+            error: 'compact image payload must be png, jpg, jpeg, webp, or gif'
+        };
+    }
+
+    if (!Number.isInteger(normalizedByteLength) || normalizedByteLength <= 0) {
+        return {
+            ok: false,
+            error: 'compact image payload must include a positive byteLength'
+        };
+    }
+
+    if (!normalizedEncodedPayload && !requirePayload) {
+        return {
+            ok: true,
+            mimeType: normalizedMimeType,
+            byteLength: normalizedByteLength,
+            encodedPayload: ''
+        };
+    }
+
+    if (!normalizedEncodedPayload || normalizedEncodedPayload.length % 5 !== 0) {
+        return {
+            ok: false,
+            error: 'compact image payload must include a valid encodedPayload'
+        };
+    }
+
+    if (!/^[0-9a-zA-Z.\-:+=\^!/*?&<>()\[\]{}@%$#]+$/.test(normalizedEncodedPayload)) {
+        return {
+            ok: false,
+            error: 'compact image payload contains unsupported characters'
+        };
+    }
+
+    return {
+        ok: true,
+        mimeType: normalizedMimeType,
+        byteLength: normalizedByteLength,
+        encodedPayload: normalizedEncodedPayload
+    };
+}
+
 function normalizeImageDataUrl(value) {
     const match = /^data:([^;]+);base64,([A-Za-z0-9+/=\r\n]+)$/i.exec(String(value || '').trim());
     if (!match) {
@@ -904,6 +956,39 @@ function validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLeng
                 };
             }
 
+            if (block.imageEncoding === 'z85') {
+                const compactValidation = validateCompactImagePayload({
+                    mimeType: block.mimeType,
+                    byteLength: block.byteLength,
+                    encodedPayload: block.encodedPayload,
+                    requirePayload: !sanitizeUploadToken(block.stagedUploadToken)
+                });
+                if (!compactValidation.ok) {
+                    return compactValidation;
+                }
+
+                const stagedUploadToken = sanitizeUploadToken(block.stagedUploadToken);
+                if (stagedUploadToken) {
+                    normalized.push({
+                        type: 'image',
+                        stagedUploadToken,
+                        imageEncoding: 'z85',
+                        mimeType: compactValidation.mimeType,
+                        byteLength: compactValidation.byteLength
+                    });
+                    continue;
+                }
+
+                normalized.push({
+                    type: 'image',
+                    imageEncoding: 'z85',
+                    mimeType: compactValidation.mimeType,
+                    byteLength: compactValidation.byteLength,
+                    encodedPayload: compactValidation.encodedPayload
+                });
+                continue;
+            }
+
             const stagedUploadToken = sanitizeUploadToken(block.stagedUploadToken);
             if (stagedUploadToken) {
                 normalized.push({
@@ -959,6 +1044,26 @@ async function resolveStagedImageBlocks(blocks, maxImageDataUrlLength, env) {
         const stagedUpload = await consumeStagedImageUpload(env, block.stagedUploadToken);
         if (!stagedUpload.ok) {
             return stagedUpload;
+        }
+
+        if (block.imageEncoding === 'z85') {
+            const compactValidation = validateCompactImagePayload({
+                mimeType: block.mimeType,
+                byteLength: block.byteLength,
+                encodedPayload: stagedUpload.dataUrl
+            });
+            if (!compactValidation.ok) {
+                return compactValidation;
+            }
+
+            resolvedBlocks.push({
+                type: 'image',
+                imageEncoding: 'z85',
+                mimeType: compactValidation.mimeType,
+                byteLength: compactValidation.byteLength,
+                encodedPayload: compactValidation.encodedPayload
+            });
+            continue;
         }
 
         const imageValidation = validateImageDataUrl(stagedUpload.dataUrl, maxImageDataUrlLength);
