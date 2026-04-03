@@ -302,7 +302,7 @@ export class RateLimiter {
 const VISITOR_ONSITE_WINDOW_MS = 8000;
 const HEARTBEAT_PERSIST_INTERVAL_MS = 2000;
 const MIN_SNAPSHOT_FLUSH_INTERVAL_MS = 1000;
-const MAX_IMAGE_DATA_URL_LENGTH = 12000000;
+const MAX_IMAGE_DATA_URL_LENGTH = 100000000;
 const MAX_IMAGE_ATTACHMENTS = 4;
 const ALLOWED_BLOG_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 const BLOG_DEPLOY_PENDING_ERROR = 'site is still deploying previous changes; wait for blog.txt to go live before posting or deleting again';
