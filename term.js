@@ -32,6 +32,8 @@ const commandHandlers = new Map([
 ]);
 
 function appendPrompt(container) {
+    const prompt = document.createElement('span');
+    prompt.className = 'terminal-prompt';
     const parts = [
         ['prompt-user', PROMPT_USER],
         ['header', '@'],
@@ -45,8 +47,11 @@ function appendPrompt(container) {
         const span = document.createElement('span');
         span.className = className;
         span.textContent = text;
-        container.append(span);
+        prompt.append(span);
     });
+
+    container.append(prompt);
+    return prompt;
 }
 
 function getSafeHref(href) {
@@ -145,7 +150,13 @@ function renderOutputObject(container, line) {
 
         const description = document.createElement('span');
         description.className = 'terminal-help-description';
-        description.textContent = line.description || '';
+        if (typeof window.renderTerminalTextWithPretext === 'function') {
+            window.renderTerminalTextWithPretext(description, line.description || '', {
+                tokenizeLinks: false
+            });
+        } else {
+            description.textContent = line.description || '';
+        }
 
         entry.append(command, separator, description);
         container.append(entry);
@@ -242,6 +253,25 @@ function renderOutputLine(container, line) {
     }
 
     container.textContent = String(line ?? '');
+}
+
+function renderCommandEchoText(container, text) {
+    const safeText = typeof text === 'string' ? text : String(text ?? '');
+    if (!safeText) {
+        container.textContent = '';
+        return;
+    }
+
+    if (typeof window.renderTerminalTextWithPretext === 'function') {
+        const handled = window.renderTerminalTextWithPretext(container, safeText, {
+            tokenizeLinks: false
+        });
+        if (handled) {
+            return;
+        }
+    }
+
+    container.textContent = safeText;
 }
 
 function renderAsciiLines(element, asciiLines) {
@@ -644,10 +674,13 @@ async function executeCommand(commandLine) {
     const terminal = document.getElementById("terminal");
     const inputLine = terminal.querySelector(".input-line");
     const commandDiv = document.createElement("div");
-    commandDiv.className = "terminal-line";
+    commandDiv.className = "terminal-line terminal-command-line";
     appendPrompt(commandDiv);
-    commandDiv.append(document.createTextNode(commandLine));
     terminal.insertBefore(commandDiv, inputLine);
+    const commandText = document.createElement('span');
+    commandText.className = 'terminal-command-text';
+    commandDiv.append(commandText);
+    renderCommandEchoText(commandText, commandLine);
 
     const parts = commandLine.split(" ");
     const cmd = parts[0].toLowerCase();
@@ -677,8 +710,8 @@ async function executeCommand(commandLine) {
             if (typeof line === 'string' && (line.includes("not found") || line.includes("No such file") || line.includes("Unexpected"))) {
                 outputDiv.classList.add("error");
             }
-            renderOutputLine(outputDiv, line);
             terminal.insertBefore(outputDiv, inputLine);
+            renderOutputLine(outputDiv, line);
         });
     }
 
@@ -700,3 +733,15 @@ window.getPromptUser = () => PROMPT_USER;
 window.getPromptHost = () => PROMPT_HOST;
 window.showAsciiStill = showAsciiStill;
 window.showImageStill = showImageStill;
+window.bootTerminalSite = async defaultCommand => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const command = urlParams.get('command');
+
+    if (typeof window.ensureTerminalPretextReady === 'function') {
+        await window.ensureTerminalPretextReady();
+    }
+
+    setupTerminal();
+    initVisitorTracking();
+    executeCommand(command ? command : defaultCommand);
+};
