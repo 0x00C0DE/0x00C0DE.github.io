@@ -4,28 +4,49 @@
     box-sizing: border-box;
 }
 
+:root {
+    --terminal-red: #ff4d4d;
+    --terminal-red-soft: #ff8585;
+    --terminal-red-faint: #ffb0b0;
+    --terminal-red-deep: #7d0a12;
+    --terminal-red-glow: rgba(255, 77, 77, 0.42);
+    --terminal-root-red: #ff1f1f;
+    --terminal-path-gold: #ffd166;
+}
+
 body {
-    background-color: black;
-    background-image: radial-gradient(rgba(85, 10, 16, 0.82), black 120%);
+    position: relative;
+    background: #000;
     overflow: hidden;
     height: 100vh;
+    color: var(--terminal-red);
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+        radial-gradient(circle at top, rgba(110, 0, 0, 0.15), transparent 48%),
+        radial-gradient(circle at bottom, rgba(110, 0, 0, 0.18), transparent 54%),
+        linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(32, 0, 0, 0.26));
+    pointer-events: none;
+    z-index: 1;
 }
 
 body::after {
     content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
+    position: fixed;
+    inset: 0;
     background: repeating-linear-gradient(
         0deg,
-        rgba(0, 0, 0, 0.15),
-        rgba(0, 0, 0, 0.15) 1px,
+        rgba(255, 255, 255, 0.05),
+        rgba(255, 255, 255, 0.05) 1px,
         transparent 1px,
         transparent 2px
     );
     pointer-events: none;
+    z-index: 2;
 }
 
 body.terminal-theme-kali {
@@ -46,11 +67,13 @@ body.terminal-theme-kali::after {
 .terminal-container {
     font-family: "Courier New", monospace;
     font-size: clamp(15px, 1vw, 19px);
-    text-shadow: 0 0 0.4vw #c8c8c8;
+    text-shadow: 0 0 0.4vw rgba(255, 214, 214, 0.72);
     line-height: clamp(17px, 1vw, 21px);
     width: 100vw;
     height: 100vh;
-    color: #ff5f6d;
+    position: relative;
+    z-index: 3;
+    color: var(--terminal-red);
     padding: 1vw;
     overflow-y: auto;
     white-space: pre-wrap;
@@ -69,6 +92,45 @@ body.terminal-theme-kali::after {
 .terminal-container.terminal-theme-kali {
     color: #e6e6e6;
     text-shadow: 0 0 0.24vw rgba(196, 214, 255, 0.18);
+}
+
+.terminal-binary-rain {
+    position: fixed;
+    inset: -18vh 0 0 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.terminal-binary-column {
+    position: absolute;
+    top: 0;
+    transform: translate3d(-50%, -125%, 0);
+    white-space: pre;
+    line-height: 0.84;
+    font-family: "Courier New", monospace;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--terminal-red);
+    text-shadow:
+        0 0 0.4rem rgba(255, 77, 77, 0.92),
+        0 0 1.1rem rgba(164, 18, 18, 0.58);
+    filter: blur(var(--binary-blur, 0));
+    animation-name: binary-rain-fall;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    will-change: transform;
+    user-select: none;
+}
+
+@keyframes binary-rain-fall {
+    0% {
+        transform: translate3d(-50%, -125%, 0);
+    }
+
+    100% {
+        transform: translate3d(-50%, 135vh, 0);
+    }
 }
 
 .terminal-command-line {
@@ -248,13 +310,14 @@ body.terminal-theme-kali::after {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .banner-wave-glyph {
+    .banner-wave-glyph,
+    .terminal-binary-column {
         animation: none;
     }
 }
 
 A {
-    color: #ff8f99;
+    color: var(--terminal-red-soft);
 }
 
 body.terminal-theme-kali A {
@@ -262,20 +325,20 @@ body.terminal-theme-kali A {
 }
 
 .prompt {
-    color: #ff5f6d;
+    color: var(--terminal-red);
     font-weight: bold;
 }
 
 .prompt-user {
-    color: #ff5f6d;
+    color: var(--terminal-red);
 }
 
 .prompt-host {
-    color: #ffb3bb;
+    color: var(--terminal-red-faint);
 }
 
 .prompt-path {
-    color: #ffd166;
+    color: var(--terminal-path-gold);
 }
 
 .prompt-kali-bracket {
@@ -290,7 +353,10 @@ body.terminal-theme-kali A {
 
 .prompt-user-root,
 .prompt-host-root {
-    color: #ec0101;
+    color: var(--terminal-root-red);
+    text-shadow:
+        0 0 0.2rem rgba(255, 200, 200, 0.4),
+        0 0 0.45rem var(--terminal-red-glow);
 }
 
 .prompt-path-kali {
@@ -315,14 +381,14 @@ body.terminal-theme-kali-root .prompt-kali-icon {
     font-family: "Courier New", monospace;
     font-size: clamp(15px, 1vw, 19px);
     line-height: clamp(17px, 1vw, 21px);
-    text-shadow: 0 0 0.4vw #c8c8c8;
+    text-shadow: 0 0 0.4vw rgba(255, 214, 214, 0.72);
     background: transparent;
     border: none;
-    color: #ff5f6d;
+    color: var(--terminal-red);
     outline: none;
     flex: 1;
     margin-left: 0;
-    caret-color: #ff5f6d;
+    caret-color: var(--terminal-red);
 }
 
 body.terminal-theme-kali .terminal-input {
@@ -331,7 +397,7 @@ body.terminal-theme-kali .terminal-input {
 }
 
 .error {
-    color: #ff5555;
+    color: #ff6a6a;
 }
 
 body.terminal-theme-kali .error {
@@ -339,7 +405,7 @@ body.terminal-theme-kali .error {
 }
 
 .header {
-    color: #ffffff;
+    color: #fff1f1;
 }
 
 .terminal-container::-webkit-scrollbar {

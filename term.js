@@ -54,7 +54,7 @@ function appendPrompt(container, beforeNode = null) {
     const prompt = document.createElement('span');
     prompt.className = 'terminal-prompt';
     const parts = [
-        ['prompt-user', snapshot.user],
+        [getPromptUserClassName(snapshot), snapshot.user],
         ['header', '@'],
         ['prompt-host', snapshot.host],
         ['header', ':'],
@@ -75,6 +75,72 @@ function appendPrompt(container, beforeNode = null) {
         container.append(prompt);
     }
     return prompt;
+}
+
+function createBinaryRainColumnElement(column) {
+    const element = document.createElement('div');
+    element.className = 'terminal-binary-column';
+    element.textContent = column.stream || '';
+    element.style.left = `${column.leftPercent || 0}%`;
+    element.style.animationDuration = `${column.durationMs || 9000}ms`;
+    element.style.animationDelay = `${column.delayMs || 0}ms`;
+    element.style.fontSize = `${column.fontSizePx || 16}px`;
+    element.style.opacity = String(column.opacity || 0.2);
+    element.style.setProperty('--binary-blur', `${column.blurPx || 0}px`);
+    return element;
+}
+
+function renderBinaryRainBackground(layer) {
+    if (!layer) {
+        return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    const columns = createBinaryRainColumns({
+        height: window.innerHeight,
+        width: window.innerWidth
+    });
+
+    columns.forEach(column => {
+        fragment.append(createBinaryRainColumnElement(column));
+    });
+
+    layer.replaceChildren(fragment);
+}
+
+function queueBinaryRainBackgroundRefresh() {
+    if (binaryRainResizeTimeoutId !== null) {
+        window.clearTimeout(binaryRainResizeTimeoutId);
+    }
+
+    binaryRainResizeTimeoutId = window.setTimeout(() => {
+        const layer = document.getElementById(BINARY_RAIN_LAYER_ID);
+        renderBinaryRainBackground(layer);
+        binaryRainResizeTimeoutId = null;
+    }, 160);
+}
+
+function ensureBinaryRainBackground() {
+    if (!document.body) {
+        return null;
+    }
+
+    let layer = document.getElementById(BINARY_RAIN_LAYER_ID);
+    if (!layer) {
+        layer = document.createElement('div');
+        layer.id = BINARY_RAIN_LAYER_ID;
+        layer.className = 'terminal-binary-rain';
+        document.body.prepend(layer);
+    }
+
+    renderBinaryRainBackground(layer);
+
+    if (!binaryRainResizeBound) {
+        window.addEventListener('resize', queueBinaryRainBackgroundRefresh);
+        binaryRainResizeBound = true;
+    }
+
+    return layer;
 }
 
 function refreshPrompt(container) {
@@ -104,6 +170,11 @@ function refreshTerminalInputPrompt() {
 
 let bannerWaveReadyPromise = null;
 let bannerWaveModule = null;
+let terminalVisualsReadyPromise = null;
+let terminalVisualsModule = null;
+let binaryRainResizeTimeoutId = null;
+let binaryRainResizeBound = false;
+const BINARY_RAIN_LAYER_ID = 'terminal-binary-rain';
 
 function fallbackSplitBannerWaveGlyphs(text) {
     const safeText = typeof text === 'string' ? text : String(text ?? '');
@@ -128,12 +199,58 @@ function fallbackSplitBannerWaveGlyphs(text) {
     });
 }
 
+function fallbackGetPromptUserClassName(snapshot) {
+    return snapshot && snapshot.isRoot ? 'prompt-user prompt-user-root' : 'prompt-user';
+}
+
+function fallbackCreateBinaryRainColumns(options = {}) {
+    const width = Number.isFinite(options.width) ? options.width : 1280;
+    const height = Number.isFinite(options.height) ? options.height : 720;
+    const columnCount = Math.max(12, Math.min(36, Math.floor(width / 46)));
+    const columns = [];
+
+    for (let index = 0; index < columnCount; index += 1) {
+        const streamLength = Math.max(18, Math.floor(height / 18) + 8);
+        const digits = [];
+        for (let digitIndex = 0; digitIndex < streamLength; digitIndex += 1) {
+            digits.push((index + digitIndex) % 2 === 0 ? '1' : '0');
+        }
+        columns.push({
+            blurPx: index % 7 === 0 ? 0.9 : 0,
+            delayMs: -index * 320,
+            durationMs: 7200 + index * 170,
+            fontSizePx: 16 + (index % 6) * 2,
+            leftPercent: Math.min(100, (index / columnCount) * 100),
+            opacity: 0.18 + (index % 5) * 0.06,
+            stream: digits.join('\n')
+        });
+    }
+
+    return columns;
+}
+
 function splitBannerWaveGlyphs(text) {
     if (bannerWaveModule && typeof bannerWaveModule.splitBannerWaveGlyphs === 'function') {
         return bannerWaveModule.splitBannerWaveGlyphs(text);
     }
 
     return fallbackSplitBannerWaveGlyphs(text);
+}
+
+function getPromptUserClassName(snapshot) {
+    if (terminalVisualsModule && typeof terminalVisualsModule.getPromptUserClassName === 'function') {
+        return terminalVisualsModule.getPromptUserClassName(snapshot);
+    }
+
+    return fallbackGetPromptUserClassName(snapshot);
+}
+
+function createBinaryRainColumns(options = {}) {
+    if (terminalVisualsModule && typeof terminalVisualsModule.createBinaryRainColumns === 'function') {
+        return terminalVisualsModule.createBinaryRainColumns(options);
+    }
+
+    return fallbackCreateBinaryRainColumns(options);
 }
 
 function ensureBannerWaveReady() {
@@ -152,6 +269,24 @@ function ensureBannerWaveReady() {
         });
 
     return bannerWaveReadyPromise;
+}
+
+function ensureTerminalVisualsReady() {
+    if (terminalVisualsReadyPromise) {
+        return terminalVisualsReadyPromise;
+    }
+
+    terminalVisualsReadyPromise = import('./terminal-visuals-core.mjs')
+        .then(module => {
+            terminalVisualsModule = module;
+            return module;
+        })
+        .catch(error => {
+            console.error('terminal visuals failed to load', error);
+            return null;
+        });
+
+    return terminalVisualsReadyPromise;
 }
 
 function appendBannerWaveText(container, text, className) {
@@ -857,11 +992,13 @@ window.bootTerminalSite = async defaultCommand => {
     }
 
     await ensureBannerWaveReady();
+    await ensureTerminalVisualsReady();
 
     if (typeof window.ensureTerminalPretextReady === 'function') {
         await window.ensureTerminalPretextReady();
     }
 
+    ensureBinaryRainBackground();
     setupTerminal();
     initVisitorTracking();
     executeCommand(command ? command : defaultCommand);
