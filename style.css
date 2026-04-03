@@ -51,6 +51,32 @@ body::after {
     white-space: pre-wrap;
 }
 
+.terminal-command-line {
+    display: flex;
+    align-items: flex-start;
+}
+
+.terminal-prompt {
+    display: inline-flex;
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.terminal-command-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.terminal-pretext-enabled {
+    display: block;
+    white-space: normal;
+}
+
+.terminal-pretext-row {
+    display: block;
+    white-space: pre;
+}
+
 .terminal-help-entry {
     --help-command-width: 22ch;
     display: grid;
