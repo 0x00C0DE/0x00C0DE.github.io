@@ -413,6 +413,7 @@ const MAX_IMAGE_DATA_URL_LENGTH = 100000000;
 const MAX_IMAGE_ATTACHMENTS = 4;
 const MAX_STAGED_IMAGE_CHUNKS = 2048;
 const MAX_STAGED_IMAGE_CHUNK_LENGTH = 98304;
+const DEFAULT_GITHUB_CONTENTS_MAX_BASE64_BYTES = 95000000;
 const ALLOWED_BLOG_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 const BLOG_COMPACT_IMAGE_MIME_TYPES = new Set(['image/gif']);
 const BLOG_Z85_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#';
@@ -1301,6 +1302,10 @@ async function fetchGithubBlob(env, sha) {
 }
 
 async function updateGithubFile(env, content, sha, message = 'Append blog entry via terminal site') {
+    if (shouldUseGithubGitDataApi(content, env)) {
+        return updateGithubFileViaGitDataApi(env, content, message);
+    }
+
     const response = await fetch(githubContentsUrl(env), {
         method: 'PUT',
         headers: {
@@ -1322,6 +1327,167 @@ async function updateGithubFile(env, content, sha, message = 'Append blog entry 
 
     const payload = await response.json();
     return payload.commit;
+}
+
+async function updateGithubFileViaGitDataApi(env, content, message) {
+    const headCommitSha = await fetchGithubBranchHeadSha(env);
+    const headCommit = await fetchGithubCommit(env, headCommitSha);
+    const blobSha = await createGithubBlob(env, content);
+    const treeSha = await createGithubTree(env, headCommit.treeSha, blobSha);
+    const commitSha = await createGithubCommit(env, message, treeSha, headCommitSha);
+    await updateGithubBranchHead(env, commitSha);
+    return { sha: commitSha };
+}
+
+function shouldUseGithubGitDataApi(content, env) {
+    const contentBytes = new Blob([String(content || '')]).size;
+    const projectedBase64Bytes = Math.ceil(contentBytes / 3) * 4;
+    const limit = Number(env.GITHUB_CONTENTS_MAX_BASE64_BYTES || DEFAULT_GITHUB_CONTENTS_MAX_BASE64_BYTES);
+    return projectedBase64Bytes >= limit;
+}
+
+async function fetchGithubBranchHeadSha(env) {
+    const response = await fetch(githubRefUrl(env), {
+        headers: githubHeaders(env)
+    });
+
+    if (!response.ok) {
+        throw new Error(`github ref fetch failed with ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const commitSha = typeof payload?.object?.sha === 'string' ? payload.object.sha : '';
+    if (!commitSha) {
+        throw new Error('github ref response did not include a commit sha');
+    }
+
+    return commitSha;
+}
+
+async function fetchGithubCommit(env, sha) {
+    const response = await fetch(githubCommitUrl(env, sha), {
+        headers: githubHeaders(env)
+    });
+
+    if (!response.ok) {
+        throw new Error(`github commit fetch failed with ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const treeSha = typeof payload?.tree?.sha === 'string' ? payload.tree.sha : '';
+    if (!treeSha) {
+        throw new Error('github commit response did not include a tree sha');
+    }
+
+    return {
+        sha,
+        treeSha
+    };
+}
+
+async function createGithubBlob(env, content) {
+    const response = await fetch(githubBlobsUrl(env), {
+        method: 'POST',
+        headers: {
+            ...githubHeaders(env),
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            content,
+            encoding: 'utf-8'
+        })
+    });
+
+    if (!response.ok) {
+        const failureBody = await response.text();
+        throw new Error(`github blob create failed with ${response.status}: ${failureBody}`);
+    }
+
+    const payload = await response.json();
+    if (typeof payload?.sha !== 'string' || !payload.sha) {
+        throw new Error('github blob create response did not include a blob sha');
+    }
+
+    return payload.sha;
+}
+
+async function createGithubTree(env, baseTreeSha, blobSha) {
+    const response = await fetch(githubTreesUrl(env), {
+        method: 'POST',
+        headers: {
+            ...githubHeaders(env),
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            base_tree: baseTreeSha,
+            tree: [
+                {
+                    path: githubFilePath(env),
+                    mode: '100644',
+                    type: 'blob',
+                    sha: blobSha
+                }
+            ]
+        })
+    });
+
+    if (!response.ok) {
+        const failureBody = await response.text();
+        throw new Error(`github tree create failed with ${response.status}: ${failureBody}`);
+    }
+
+    const payload = await response.json();
+    if (typeof payload?.sha !== 'string' || !payload.sha) {
+        throw new Error('github tree create response did not include a tree sha');
+    }
+
+    return payload.sha;
+}
+
+async function createGithubCommit(env, message, treeSha, parentSha) {
+    const response = await fetch(githubCommitsUrl(env), {
+        method: 'POST',
+        headers: {
+            ...githubHeaders(env),
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            message,
+            tree: treeSha,
+            parents: [parentSha]
+        })
+    });
+
+    if (!response.ok) {
+        const failureBody = await response.text();
+        throw new Error(`github commit create failed with ${response.status}: ${failureBody}`);
+    }
+
+    const payload = await response.json();
+    if (typeof payload?.sha !== 'string' || !payload.sha) {
+        throw new Error('github commit create response did not include a commit sha');
+    }
+
+    return payload.sha;
+}
+
+async function updateGithubBranchHead(env, commitSha) {
+    const response = await fetch(githubRefUrl(env), {
+        method: 'PATCH',
+        headers: {
+            ...githubHeaders(env),
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            sha: commitSha,
+            force: false
+        })
+    });
+
+    if (!response.ok) {
+        const failureBody = await response.text();
+        throw new Error(`github ref update failed with ${response.status}: ${failureBody}`);
+    }
 }
 
 export function appendBlogEntry(currentContent, contentBlocks, timestamp = new Date().toISOString()) {
@@ -1896,14 +2062,18 @@ function isBlogEntryTimestampLine(line) {
 function githubContentsUrl(env) {
     const owner = env.GITHUB_OWNER;
     const repo = env.GITHUB_REPO;
-    const path = env.GITHUB_BLOG_PATH || 'blog.txt';
+    const path = githubFilePath(env);
     const branch = env.GITHUB_BRANCH || 'main';
     return `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(branch)}`;
 }
 
+function githubFilePath(env) {
+    return String(env.GITHUB_BLOG_PATH || 'blog.txt').trim().replace(/^\/+/g, '') || 'blog.txt';
+}
+
 function publishedBlogUrl(env) {
     const origin = String(env.ALLOWED_ORIGIN || '').trim().replace(/\/+$/g, '');
-    const path = String(env.GITHUB_BLOG_PATH || 'blog.txt').trim().replace(/^\/+/g, '');
+    const path = githubFilePath(env);
     if (!origin || !/^https?:\/\//i.test(origin)) {
         return '';
     }
@@ -1913,6 +2083,26 @@ function publishedBlogUrl(env) {
 
 function githubBlobUrl(env, sha) {
     return `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/blobs/${encodeURIComponent(sha)}`;
+}
+
+function githubBlobsUrl(env) {
+    return `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/blobs`;
+}
+
+function githubTreesUrl(env) {
+    return `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/trees`;
+}
+
+function githubCommitsUrl(env) {
+    return `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/commits`;
+}
+
+function githubCommitUrl(env, sha) {
+    return `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/commits/${encodeURIComponent(sha)}`;
+}
+
+function githubRefUrl(env) {
+    return `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/refs/heads/${encodeURIComponent(env.GITHUB_BRANCH || 'main')}`;
 }
 
 function githubHeaders(env) {

@@ -1347,6 +1347,201 @@ test('append endpoint preserves existing content when GitHub contents API return
     assert.equal((currentContent.match(/\nccccccc\n/g) || []).length, 2);
 });
 
+test('append endpoint uses the git data api when a blog update would exceed the contents api base64 threshold', async t => {
+    const originalFetch = globalThis.fetch;
+    let blobCreateBody = null;
+    let treeCreateBody = null;
+    let commitCreateBody = null;
+    let refUpdateBody = null;
+    let contentsPutCalls = 0;
+    const currentContent = [
+        '0x00C0DE Blog',
+        '=============',
+        '',
+        '[2026-04-02T09:00:00.000Z]',
+        'existing entry',
+        ''
+    ].join('\n');
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+        const method = options.method || 'GET';
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/contents/blog.txt?ref=main') {
+            if (method === 'PUT') {
+                contentsPutCalls += 1;
+                return new Response('unexpected contents put', { status: 500 });
+            }
+
+            return new Response(JSON.stringify({
+                sha: 'blobsha-old',
+                content: Buffer.from(currentContent, 'utf8').toString('base64')
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/git/refs/heads/main') {
+            if (method === 'PATCH') {
+                refUpdateBody = JSON.parse(options.body);
+                return new Response(JSON.stringify({
+                    object: {
+                        sha: 'newcommitsha'
+                    }
+                }), {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json; charset=utf-8'
+                    }
+                });
+            }
+
+            return new Response(JSON.stringify({
+                object: {
+                    sha: 'headcommitsha'
+                }
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/git/commits/headcommitsha') {
+            return new Response(JSON.stringify({
+                tree: {
+                    sha: 'basetreesha'
+                }
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/git/blobs') {
+            blobCreateBody = JSON.parse(options.body);
+            return new Response(JSON.stringify({
+                sha: 'newblobsha'
+            }), {
+                status: 201,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/git/trees') {
+            treeCreateBody = JSON.parse(options.body);
+            return new Response(JSON.stringify({
+                sha: 'newtreesha'
+            }), {
+                status: 201,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/git/commits' && method === 'POST') {
+            commitCreateBody = JSON.parse(options.body);
+            return new Response(JSON.stringify({
+                sha: 'newcommitsha'
+            }), {
+                status: 201,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response(currentContent, {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${method} ${urlString}`);
+    };
+
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        GITHUB_OWNER: 'owner',
+        GITHUB_REPO: 'repo',
+        GITHUB_PAT: 'token',
+        GITHUB_BRANCH: 'main',
+        GITHUB_CONTENTS_MAX_BASE64_BYTES: '10',
+        RATE_LIMITER: {
+            idFromName(name) {
+                return name;
+            },
+            get() {
+                return {
+                    async fetch() {
+                        return new Response(JSON.stringify({
+                            allowed: true
+                        }), {
+                            status: 200,
+                            headers: {
+                                'Content-Type': 'application/json; charset=utf-8'
+                            }
+                        });
+                    }
+                };
+            }
+        }
+    };
+
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            contentBlocks: [
+                { type: 'text', text: 'git data api post' }
+            ]
+        })
+    }), env);
+
+    assert.equal(response.status, 201);
+    assert.equal(contentsPutCalls, 0);
+    assert.equal(blobCreateBody.encoding, 'utf-8');
+    assert.match(blobCreateBody.content, /git data api post/);
+    assert.deepEqual(treeCreateBody, {
+        base_tree: 'basetreesha',
+        tree: [
+            {
+                path: 'blog.txt',
+                mode: '100644',
+                type: 'blob',
+                sha: 'newblobsha'
+            }
+        ]
+    });
+    assert.deepEqual(commitCreateBody, {
+        message: 'Append blog entry via terminal site',
+        tree: 'newtreesha',
+        parents: ['headcommitsha']
+    });
+    assert.deepEqual(refUpdateBody, {
+        sha: 'newcommitsha',
+        force: false
+    });
+});
+
 test('append endpoint blocks writes while the live site is still deploying the previous repo state', async t => {
     const originalFetch = globalThis.fetch;
     let githubUpdateCalls = 0;
