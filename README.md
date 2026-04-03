@@ -190,27 +190,37 @@ setupTerminal()
 
 ### `commands.js` — Shell Verbs
 
-Each exported function maps 1:1 to a terminal command. Key commands:
+The terminal command map in `term.js` routes each shell verb to its handler, with most command behavior implemented in `commands.js`. Active commands:
 
 | Command | Description |
 |---|---|
 | `banner` | Renders the ASCII art welcome screen (default on load) |
 | `cat <file>` | `fetch()`es a `.txt` file and streams it to the terminal |
-| `ls` | Lists available commands and files |
-| `projects` | Renders the projects index from `projects.txt` |
-| `resume` | Triggers download of `resume.pdf` |
-| `qr-totp ...` | Browser-side QR enrollment, QR export, and 6-digit TOTP generation/verification |
-| `post <text>` | POSTs to the Cloudflare Worker; appends a dated entry to `blog.txt` |
-| `fortune` | Async call to a fortune API; displays a random quote |
-| `whoami` | Prints owner bio block |
-| `links` | Fetches and renders `links.txt` |
-| `picture` | Renders a built-in ASCII portrait via `pictures.js` |
-| `movie` | Activates webcam → live glyph stream in the dedicated viewer |
-| `userpic` | Converts an uploaded or captured photo to ASCII art |
+| `clear` | Clears terminal output and rebuilds the prompt |
+| `date` | Prints the browser's current date/time string |
+| `echo <text>` | Prints the provided text back to the terminal |
+| `github` | Opens the GitHub profile in a new tab |
 | `help` | Prints the command reference |
-| `clear` | Clears terminal output |
+| `history` | Prints the recent command history |
+| `instagram` | Opens Instagram in a new tab |
+| `linkedin` | Opens LinkedIn in a new tab |
+| `ls` | Lists the available terminal-readable `.txt` files |
+| `projects` | Opens the dedicated projects terminal page |
+| `resume` | Opens `resume.pdf` in a new tab |
+| `qr-totp ...` | Browser-side QR enrollment, QR export, and 6-digit TOTP generation/verification |
+| `post <text>` | POSTs text-only content to the backend and appends a dated entry to `blog.txt` |
+| `post --image [text]` | Prompts for one `png/jpg/jpeg/webp/gif` image and appends it to the post |
+| `post ... [image] ...` | Prompts for one `png/jpg/jpeg/webp/gif` image and embeds it inline between text blocks |
+| `fortune` | Async call to a fortune API; displays a random quote |
+| `pwd` | Prints the simulated working directory |
+| `visitors` | Renders the live visitor stats widget |
+| `whoami` | Prints owner bio block |
+| `picture [w h]` | Renders a built-in ASCII portrait via `pictures.js` |
+| `movie` | Activates webcam → live glyph stream in the dedicated viewer |
+| `userpic [w h]` | Converts an uploaded or captured photo to ASCII art |
+| `youtube` | Opens YouTube in a new tab |
 
-Commands that require async I/O (`cat`, `post`, `fortune`, `movie`, `userpic`, `qr-totp`) return Promises and can be aborted mid-execution.
+Commands that require async I/O (`cat`, `post`, `fortune`, `movie`, `userpic`, `qr-totp`, `visitors`) return Promises and can be aborted mid-execution.
 
 ### `pictures.js` — ASCII / Glyph Renderer
 
@@ -375,21 +385,33 @@ Start at **[https://0x00c0de.github.io](https://0x00c0de.github.io)** — the te
 ╚══════════════════════════════════════════════════╝
 
   help                      List all commands
+  date                      Show current date and time
+  echo hello                Print text
+  history                   Show recent commands
   whoami                    About Braden / 0x00C0DE
+  pwd                       Print the simulated working directory
   cat blog.txt              Read the live blog
   cat projects.txt          Browse project list
   cat links.txt             View curated links
   cat readme.txt            In-terminal orientation
+  ls                        List available text files
+  github                    Open GitHub in a new tab
+  linkedin                  Open LinkedIn in a new tab
+  instagram                 Open Instagram in a new tab
+  youtube                   Open YouTube in a new tab
   projects                  Render project index
   resume                    Download résumé PDF
   qr-totp --generate-qr ... Enroll a QR/TOTP secret in-browser
   qr-totp --get-otp         Generate the current 6-digit code
   fortune                   Random quote (async)
   post <your message>       Append to blog.txt
+  post --image [caption]    Append one selected png/jpg/jpeg/webp/gif image
+  post hello [image] goodbye Insert one selected png/jpg/jpeg/webp/gif image inline
   picture                   ASCII portrait
   movie                     Live webcam → ASCII art
   userpic                   Uploaded/captured image → ASCII art
   clear                     Clear terminal output
+  visitors                  Show the live visitor widget
   banner                    Re-display welcome art
 ```
 

@@ -102,6 +102,7 @@ const BLOG_DIRECT_POST_IMAGE_DATA_URL_LENGTH = 4000000;
 const BLOG_STAGED_IMAGE_CHUNK_LENGTH = 98304;
 const BLOG_MAX_STAGED_IMAGE_CHUNKS = 2048;
 const BLOG_MAX_IMAGE_ATTACHMENTS = 4;
+const BLOG_SUPPORTED_IMAGE_TYPES_LABEL = 'png/jpg/jpeg/webp/gif';
 const BLOG_ALLOWED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 const BLOG_IMAGE_DATA_URL_PATTERN = /^data:([^;]+);base64,([A-Za-z0-9+/=\r\n]+)$/i;
 const BLOG_Z85_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#';
@@ -367,34 +368,39 @@ function banner_command() {
     ];
 }
 
+function formatHelpEntry(command, description, width) {
+    return `  ${command.padEnd(width)} - ${description}`;
+}
+
 function help_command() {
-    return [
-        'Available commands:',
-        '  cat         - Display file contents',
-        '  clear       - Clear the terminal screen',
-        '  date        - Display current date and time',
-        '  echo        - Display text',
-        '  fortune     - Display a live fortune',
-        '  github      - Open GitHub in a new tab',
-        '  help        - Show this help message',
-        '  history     - Show command history',
-        '  linkedin    - Open LinkedIn in a new tab',
-        '  ls          - List directory contents',
-        '  movie w h   - Display your live camera footage as ASCII art at size w x h (press any key to stop)',
-        '  picture w h - Display 0x00C0DE\'s picture as ASCII art at size w x h',
-        '  post text   - Append a blog entry through the backend API (may take a short time to appear)',
-        '  post --image [text] - Append a blog entry with an image attachment',
-        '  post hello [image] goodbye - Insert a chosen image inline between text blocks',
-        '  pwd         - Print working directory',
-        '  qr-totp     - Browser QR enrollment + TOTP generator for the cs370 project',
-        '  resume      - Open my resume PDF in a new tab',
-        '  userpic w h - Upload or take your own picture and display it as ASCII art',
-        '  visitors    - Display the live visitor stats widget',
-        '  whoami      - Print current username',
-        '  instagram   - Open Instagram in a new tab',
-        '  projects    - Open the projects terminal page',
-        '  youtube     - Open YouTube in a new tab'
+    const entries = [
+        ['cat', 'Display file contents'],
+        ['clear', 'Clear the terminal screen'],
+        ['date', 'Display current date and time'],
+        ['echo', 'Display text'],
+        ['fortune', 'Display a live fortune'],
+        ['github', 'Open GitHub in a new tab'],
+        ['help', 'Show this help message'],
+        ['history', 'Show command history'],
+        ['linkedin', 'Open LinkedIn in a new tab'],
+        ['ls', 'List directory contents'],
+        ['movie [w h]', 'Display your live camera footage as ASCII art at size w x h (press any key to stop)'],
+        ['picture [w h]', 'Display 0x00C0DE\'s picture as ASCII art at size w x h'],
+        ['post <text>', 'Append a blog entry through the backend API (may take a short time to appear)'],
+        ['post --image [text]', `Append a blog entry with a selected image (${BLOG_SUPPORTED_IMAGE_TYPES_LABEL})`],
+        ['post hello [image] goodbye', `Insert a selected inline image between text blocks (${BLOG_SUPPORTED_IMAGE_TYPES_LABEL})`],
+        ['pwd', 'Print working directory'],
+        ['qr-totp', 'Browser QR enrollment + TOTP generator for the cs370 project'],
+        ['resume', 'Open my resume PDF in a new tab'],
+        ['userpic [w h]', 'Upload or take your own picture and display it as ASCII art'],
+        ['visitors', 'Display the live visitor stats widget'],
+        ['whoami', 'Print current username'],
+        ['instagram', 'Open Instagram in a new tab'],
+        ['projects', 'Open the projects terminal page'],
+        ['youtube', 'Open YouTube in a new tab']
     ];
+    const width = Math.max(...entries.map(([command]) => command.length));
+    return ['Available commands:', ...entries.map(([command, description]) => formatHelpEntry(command, description, width))];
 }
 
 async function cat_command(args) {
@@ -987,7 +993,7 @@ async function selectPostImageDataUrl() {
     const dataUrl = await readFileAsDataUrl(file);
     const mimeType = getDataUrlMimeType(dataUrl);
     if (!BLOG_ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) {
-        return { error: 'post: image must be png, jpg, jpeg, webp, or gif' };
+        return { error: `post: image must be ${BLOG_SUPPORTED_IMAGE_TYPES_LABEL}` };
     }
 
     if (mimeType === 'image/gif') {
@@ -1175,7 +1181,8 @@ async function post_command(args) {
             'post: missing blog text',
             'usage: post Your blog entry goes here',
             '       post --image Optional caption text',
-            '       post hello [image] goodbye'
+            '       post hello [image] goodbye',
+            `       image types: ${BLOG_SUPPORTED_IMAGE_TYPES_LABEL}`
         ];
     }
 
