@@ -170,9 +170,9 @@ body.terminal-theme-kali::after {
 
 .banner-art {
     display: block;
-    margin: 0.4vw 0 0.15vw;
+    margin: 0.35vw 0 0.25vw;
     font-size: clamp(72px, 7.2vw, 144px);
-    line-height: 0.88;
+    line-height: 0.94;
     font-weight: 700;
     letter-spacing: 0.06em;
     color: #ff6b78;
@@ -181,16 +181,17 @@ body.terminal-theme-kali::after {
         0 0 0.7vw #ff6b78,
         0.12vw 0.12vw 0 #6a101c,
         0.24vw 0.24vw 0 #9a1c2d;
-    --banner-wave-distance: 0.22em;
-    --banner-wave-duration: 2.8s;
-    --banner-wave-stagger: 95ms;
+    padding-bottom: 0.06em;
+    --banner-wave-distance: 0.11em;
+    --banner-wave-duration: 3.1s;
+    --banner-wave-stagger: 88ms;
 }
 
 .banner-subtitle {
     display: block;
     margin: 0 0 0.95vw 0.2vw;
     font-size: clamp(18px, 1.65vw, 34px);
-    line-height: 1;
+    line-height: 1.08;
     font-weight: 700;
     letter-spacing: 0.04em;
     color: #ff6b78;
@@ -199,9 +200,10 @@ body.terminal-theme-kali::after {
         0 0 0.45vw #ff6b78,
         0.08vw 0.08vw 0 #6a101c,
         0.16vw 0.16vw 0 #9a1c2d;
-    --banner-wave-distance: 0.12em;
-    --banner-wave-duration: 3.4s;
-    --banner-wave-stagger: 70ms;
+    padding-bottom: 0.02em;
+    --banner-wave-distance: 0.05em;
+    --banner-wave-duration: 3.7s;
+    --banner-wave-stagger: 62ms;
 }
 
 .banner-wave-glyph,
@@ -229,19 +231,19 @@ body.terminal-theme-kali::after {
         filter: brightness(1);
     }
 
-    25% {
-        transform: translateY(calc(var(--banner-wave-distance, 0.18em) * -1)) skewX(-4deg);
+    20% {
+        transform: translateY(calc(var(--banner-wave-distance, 0.18em) * -0.35)) skewX(-1deg);
+        filter: brightness(1.02);
+    }
+
+    45% {
+        transform: translateY(calc(var(--banner-wave-distance, 0.18em) * -1)) skewX(-3deg);
         filter: brightness(1.08);
     }
 
-    50% {
-        transform: translateY(0) skewX(0deg);
-        filter: brightness(1);
-    }
-
-    75% {
-        transform: translateY(var(--banner-wave-distance, 0.18em)) skewX(3deg);
-        filter: brightness(0.95);
+    72% {
+        transform: translateY(calc(var(--banner-wave-distance, 0.18em) * -0.42)) skewX(2deg);
+        filter: brightness(0.98);
     }
 }
 

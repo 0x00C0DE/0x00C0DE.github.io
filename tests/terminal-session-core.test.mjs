@@ -29,7 +29,7 @@ test('default terminal session keeps the original guest prompt', () => {
     });
 });
 
-test('su without arguments switches the session into a root kali prompt', () => {
+test('su without arguments switches the session into a root localhost prompt', () => {
     const session = applyTerminalSessionCommand(
         createDefaultTerminalSession(),
         'su',
@@ -37,24 +37,24 @@ test('su without arguments switches the session into a root kali prompt', () => 
     );
 
     assert.deepEqual(session, {
-        shell: 'kali',
+        shell: 'default',
         user: 'root'
     });
     assert.deepEqual(getTerminalPromptSnapshot(session), {
-        documentTitle: 'root@kali: ~',
-        host: 'kali',
+        documentTitle: null,
+        host: 'localhost',
         isRoot: true,
-        mode: 'kali',
-        path: '~',
-        promptSymbol: '#',
-        theme: 'kali-root',
+        mode: 'default',
+        path: '/home/0x00C0DE/Unkn0wn',
+        promptSymbol: '$',
+        theme: 'default',
         user: 'root'
     });
     assert.equal(getTerminalSessionUsername(session), 'root');
-    assert.equal(getTerminalSessionPwd(session), '~');
+    assert.equal(getTerminalSessionPwd(session), '/home/0x00C0DE/Unkn0wn');
 });
 
-test('su with a username keeps the kali shell but stays non-root', () => {
+test('su with a username keeps the localhost shell but changes user', () => {
     const session = applyTerminalSessionCommand(
         createDefaultTerminalSession(),
         'su',
@@ -62,13 +62,13 @@ test('su with a username keeps the kali shell but stays non-root', () => {
     );
 
     assert.deepEqual(getTerminalPromptSnapshot(session), {
-        documentTitle: 'analyst@kali: ~',
-        host: 'kali',
+        documentTitle: null,
+        host: 'localhost',
         isRoot: false,
-        mode: 'kali',
-        path: '~',
+        mode: 'default',
+        path: '/home/0x00C0DE/Unkn0wn',
         promptSymbol: '$',
-        theme: 'kali-user',
+        theme: 'default',
         user: 'analyst'
     });
     assert.equal(getTerminalSessionUsername(session), 'analyst');
