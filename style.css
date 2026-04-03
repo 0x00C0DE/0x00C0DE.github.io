@@ -191,7 +191,7 @@ body.terminal-theme-kali::after {
     display: block;
     margin: 0 0 0.95vw 0.2vw;
     font-size: clamp(18px, 1.65vw, 34px);
-    line-height: 1.08;
+    line-height: 1.14;
     font-weight: 700;
     letter-spacing: 0.04em;
     color: #ff6b78;
@@ -200,10 +200,10 @@ body.terminal-theme-kali::after {
         0 0 0.45vw #ff6b78,
         0.08vw 0.08vw 0 #6a101c,
         0.16vw 0.16vw 0 #9a1c2d;
-    padding-bottom: 0.02em;
-    --banner-wave-distance: 0.05em;
-    --banner-wave-duration: 3.7s;
-    --banner-wave-stagger: 62ms;
+    padding-bottom: 0.04em;
+    --banner-wave-distance: 0.11em;
+    --banner-wave-duration: 2.7s;
+    --banner-wave-stagger: 46ms;
 }
 
 .banner-wave-glyph,
