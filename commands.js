@@ -369,7 +369,12 @@ function banner_command() {
 }
 
 function formatHelpEntry(command, description, width) {
-    return `  ${command.padEnd(width)} - ${description}`;
+    return {
+        type: 'help-entry',
+        command,
+        description,
+        commandWidth: width
+    };
 }
 
 function help_command() {

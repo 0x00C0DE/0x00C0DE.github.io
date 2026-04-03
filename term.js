@@ -126,6 +126,31 @@ function renderOutputObject(container, line) {
         return;
     }
 
+    if (line.type === 'help-entry') {
+        const entry = document.createElement('div');
+        entry.className = 'terminal-help-entry';
+
+        if (Number.isFinite(line.commandWidth) && line.commandWidth > 0) {
+            entry.style.setProperty('--help-command-width', `${Math.round(line.commandWidth)}ch`);
+        }
+
+        const command = document.createElement('span');
+        command.className = 'terminal-help-command';
+        command.textContent = line.command || '';
+
+        const separator = document.createElement('span');
+        separator.className = 'terminal-help-separator';
+        separator.textContent = '-';
+
+        const description = document.createElement('span');
+        description.className = 'terminal-help-description';
+        description.textContent = line.description || '';
+
+        entry.append(command, separator, description);
+        container.append(entry);
+        return;
+    }
+
     if (line.type === 'inline-image') {
         const isSafeSource = typeof window.isSafeBlogImageSource === 'function'
             ? window.isSafeBlogImageSource(line.src)
