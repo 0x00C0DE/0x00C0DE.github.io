@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { VisitorCounter, appendBlogEntry, createBlogImageKey, removeImageBlock } from './index.js';
+import blogWorker, { VisitorCounter, appendBlogEntry, createBlogImageKey, removeImageBlock } from './index.js';
 
 class FakeStorage {
     constructor() {
@@ -278,4 +278,233 @@ test('appendBlogEntry and removeImageBlock use the same blog file serialization'
         'testing image post',
         ''
     ].join('\n'));
+});
+
+test('append endpoint accepts gif image data urls and commits them to blog.txt', async t => {
+    const originalFetch = globalThis.fetch;
+    let githubUpdateBody = null;
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+        const method = options.method || 'GET';
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/contents/blog.txt?ref=main') {
+            if (method === 'PUT') {
+                githubUpdateBody = JSON.parse(options.body);
+                return new Response(JSON.stringify({
+                    commit: {
+                        sha: 'newsha123'
+                    }
+                }), {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json; charset=utf-8'
+                    }
+                });
+            }
+
+            return new Response(JSON.stringify({
+                sha: 'oldsha456',
+                content: Buffer.from([
+                    '0x00C0DE Blog',
+                    '=============',
+                    ''
+                ].join('\n'), 'utf8').toString('base64')
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${method} ${urlString}`);
+    };
+
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        GITHUB_OWNER: 'owner',
+        GITHUB_REPO: 'repo',
+        GITHUB_PAT: 'token',
+        GITHUB_BRANCH: 'main',
+        RATE_LIMITER: {
+            idFromName(name) {
+                return name;
+            },
+            get() {
+                return {
+                    async fetch() {
+                        return new Response(JSON.stringify({
+                            allowed: true
+                        }), {
+                            status: 200,
+                            headers: {
+                                'Content-Type': 'application/json; charset=utf-8'
+                            }
+                        });
+                    }
+                };
+            }
+        }
+    };
+
+    const gifDataUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBA==';
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            contentBlocks: [
+                { type: 'text', text: 'gif post' },
+                { type: 'image', imageDataUrl: gifDataUrl }
+            ]
+        })
+    }), env);
+
+    assert.equal(response.status, 201);
+    assert.deepEqual(await response.json(), {
+        ok: true,
+        commitSha: 'newsha123',
+        commitUrl: 'https://github.com/owner/repo/commit/newsha123'
+    });
+    assert.ok(githubUpdateBody, 'expected append request to update GitHub');
+    assert.equal(githubUpdateBody.message, 'Append blog entry via terminal site');
+
+    const updatedBlogContent = Buffer.from(githubUpdateBody.content, 'base64').toString('utf8');
+    assert.match(updatedBlogContent, /\[image-base64\]/);
+    assert.match(updatedBlogContent, /data:image\/gif;base64,R0lGODlhAQABAIAAAAUEBA==/);
+    assert.match(updatedBlogContent, /\[\/image-base64\]/);
+});
+
+test('append endpoint preserves existing content when GitHub contents API returns metadata-only for a large blog.txt', async t => {
+    const originalFetch = globalThis.fetch;
+    let currentSha = 'sha-1';
+    let currentContent = [
+        '0x00C0DE Blog',
+        '=============',
+        'Header line',
+        '',
+        '[2026-04-02T09:00:00.000Z]',
+        'existing entry',
+        ''
+    ].join('\n');
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+        const method = options.method || 'GET';
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/contents/blog.txt?ref=main') {
+            if (method === 'PUT') {
+                const body = JSON.parse(options.body);
+                currentContent = Buffer.from(body.content, 'base64').toString('utf8');
+                currentSha = `sha-${Number(currentSha.split('-')[1]) + 1}`;
+                return new Response(JSON.stringify({
+                    commit: {
+                        sha: currentSha
+                    }
+                }), {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json; charset=utf-8'
+                    }
+                });
+            }
+
+            return new Response(JSON.stringify({
+                sha: currentSha,
+                encoding: 'none',
+                content: ''
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === `https://api.github.com/repos/owner/repo/git/blobs/${currentSha}`) {
+            return new Response(JSON.stringify({
+                encoding: 'base64',
+                content: Buffer.from(currentContent, 'utf8').toString('base64')
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${method} ${urlString}`);
+    };
+
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        GITHUB_OWNER: 'owner',
+        GITHUB_REPO: 'repo',
+        GITHUB_PAT: 'token',
+        GITHUB_BRANCH: 'main',
+        RATE_LIMITER: {
+            idFromName(name) {
+                return name;
+            },
+            get() {
+                return {
+                    async fetch() {
+                        return new Response(JSON.stringify({
+                            allowed: true
+                        }), {
+                            status: 200,
+                            headers: {
+                                'Content-Type': 'application/json; charset=utf-8'
+                            }
+                        });
+                    }
+                };
+            }
+        }
+    };
+
+    const requestBody = {
+        contentBlocks: [
+            { type: 'text', text: 'aaaa' },
+            { type: 'image', imageDataUrl: 'data:image/png;base64,AAAA' },
+            { type: 'text', text: 'bbbb' },
+            { type: 'image', imageDataUrl: 'data:image/png;base64,BBBB' },
+            { type: 'text', text: 'ccccccc' }
+        ]
+    };
+
+    const firstResponse = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+    }), env);
+
+    const secondResponse = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+    }), env);
+
+    assert.equal(firstResponse.status, 201);
+    assert.equal(secondResponse.status, 201);
+    assert.match(currentContent, /^0x00C0DE Blog\n=============\nHeader line\n/m);
+    assert.match(currentContent, /\[2026-04-02T09:00:00.000Z]\nexisting entry\n/);
+    assert.equal((currentContent.match(/\naaaa\n/g) || []).length, 2);
+    assert.equal((currentContent.match(/data:image\/png;base64,AAAA/g) || []).length, 2);
+    assert.equal((currentContent.match(/data:image\/png;base64,BBBB/g) || []).length, 2);
+    assert.equal((currentContent.match(/\nccccccc\n/g) || []).length, 2);
 });

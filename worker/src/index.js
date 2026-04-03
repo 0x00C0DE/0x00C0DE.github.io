@@ -763,10 +763,40 @@ async function fetchGithubFile(env) {
     }
 
     const payload = await response.json();
-    return {
-        sha: payload.sha,
-        content: decodeBase64(payload.content)
-    };
+    const payloadEncoding = typeof payload.encoding === 'string' ? payload.encoding.toLowerCase() : 'base64';
+    if (typeof payload.content === 'string' && payload.content.trim() && payloadEncoding === 'base64') {
+        return {
+            sha: payload.sha,
+            content: decodeBase64(payload.content)
+        };
+    }
+
+    if (typeof payload.sha === 'string' && payload.sha) {
+        const blobContent = await fetchGithubBlob(env, payload.sha);
+        return {
+            sha: payload.sha,
+            content: blobContent
+        };
+    }
+
+    throw new Error('github contents response did not include readable file content');
+}
+
+async function fetchGithubBlob(env, sha) {
+    const response = await fetch(githubBlobUrl(env, sha), {
+        headers: githubHeaders(env)
+    });
+
+    if (!response.ok) {
+        throw new Error(`github blob fetch failed with ${response.status}`);
+    }
+
+    const payload = await response.json();
+    if (typeof payload.content !== 'string' || payload.encoding !== 'base64') {
+        throw new Error('github blob response did not include base64 content');
+    }
+
+    return decodeBase64(payload.content);
 }
 
 async function updateGithubFile(env, content, sha, message = 'Append blog entry via terminal site') {
@@ -1207,6 +1237,10 @@ function githubContentsUrl(env) {
     const path = env.GITHUB_BLOG_PATH || 'blog.txt';
     const branch = env.GITHUB_BRANCH || 'main';
     return `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(branch)}`;
+}
+
+function githubBlobUrl(env, sha) {
+    return `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/blobs/${encodeURIComponent(sha)}`;
 }
 
 function githubHeaders(env) {
