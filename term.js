@@ -49,7 +49,7 @@ function getPromptSnapshot() {
     return DEFAULT_PROMPT_SNAPSHOT;
 }
 
-function appendPrompt(container) {
+function appendPrompt(container, beforeNode = null) {
     const snapshot = getPromptSnapshot();
     const prompt = document.createElement('span');
     prompt.className = 'terminal-prompt';
@@ -69,7 +69,11 @@ function appendPrompt(container) {
         prompt.append(span);
     });
 
-    container.append(prompt);
+    if (beforeNode) {
+        container.insertBefore(prompt, beforeNode);
+    } else {
+        container.append(prompt);
+    }
     return prompt;
 }
 
@@ -78,12 +82,14 @@ function refreshPrompt(container) {
         return null;
     }
 
+    const firstChild = container.firstChild;
     const existingPrompt = container.querySelector(':scope > .terminal-prompt');
     if (existingPrompt) {
         existingPrompt.remove();
     }
 
-    return appendPrompt(container);
+    const insertBeforeNode = firstChild && firstChild.isConnected ? firstChild : container.firstChild;
+    return appendPrompt(container, insertBeforeNode);
 }
 
 function refreshTerminalInputPrompt() {
