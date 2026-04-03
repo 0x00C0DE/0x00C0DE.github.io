@@ -902,6 +902,203 @@ test('append endpoint can consume a staged compact gif payload without convertin
     assert.match(updatedBlogContent, /\[image-z85\]\nmime:image\/gif\nbytes:4\nabcde\n\[\/image-z85\]/);
 });
 
+test('append endpoint streams large staged compact gif payloads directly into blog.txt without extra repo files', async t => {
+    const originalFetch = globalThis.fetch;
+    let blobCreateBodyText = '';
+    let contentsPutCalls = 0;
+    let refUpdateBody = null;
+    const uploadBinding = createUploadSessionBinding();
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+        const method = options.method || 'GET';
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/contents/blog.txt?ref=main') {
+            if (method === 'PUT') {
+                contentsPutCalls += 1;
+                return new Response('unexpected contents put', { status: 500 });
+            }
+
+            return new Response(JSON.stringify({
+                sha: 'streamold456',
+                content: Buffer.from([
+                    '0x00C0DE Blog',
+                    '=============',
+                    ''
+                ].join('\n'), 'utf8').toString('base64')
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/git/ref/heads/main') {
+            return new Response(JSON.stringify({
+                object: {
+                    sha: 'headcommitsha'
+                }
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/git/commits/headcommitsha') {
+            return new Response(JSON.stringify({
+                tree: {
+                    sha: 'basetreesha'
+                }
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/git/blobs') {
+            blobCreateBodyText = await new Response(options.body).text();
+            return new Response(JSON.stringify({
+                sha: 'streamblobsha'
+            }), {
+                status: 201,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/git/trees') {
+            return new Response(JSON.stringify({
+                sha: 'streamtreesha'
+            }), {
+                status: 201,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/git/commits' && method === 'POST') {
+            return new Response(JSON.stringify({
+                sha: 'streamcommitsha'
+            }), {
+                status: 201,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/git/refs/heads/main' && method === 'PATCH') {
+            refUpdateBody = JSON.parse(options.body);
+            return new Response(JSON.stringify({
+                object: {
+                    sha: 'streamcommitsha'
+                }
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response([
+                '0x00C0DE Blog',
+                '=============',
+                ''
+            ].join('\n'), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${method} ${urlString}`);
+    };
+
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        GITHUB_OWNER: 'owner',
+        GITHUB_REPO: 'repo',
+        GITHUB_PAT: 'token',
+        GITHUB_BRANCH: 'main',
+        BLOG_UPLOAD_SESSION: uploadBinding,
+        RATE_LIMITER: {
+            idFromName(name) {
+                return name;
+            },
+            get() {
+                return {
+                    async fetch() {
+                        return new Response(JSON.stringify({
+                            allowed: true
+                        }), {
+                            status: 200,
+                            headers: {
+                                'Content-Type': 'application/json; charset=utf-8'
+                            }
+                        });
+                    }
+                };
+            }
+        }
+    };
+
+    const uploadId = 'upload-stream-compact-gif';
+    const chunks = ['ab', 'cde'];
+
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+        const stageResponse = await blogWorker.fetch(new Request('https://example.com/api/blog/upload-chunk', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                uploadId,
+                chunkIndex,
+                totalChunks: chunks.length,
+                chunk: chunks[chunkIndex]
+            })
+        }), env);
+        assert.equal(stageResponse.status, 200);
+    }
+
+    const appendResponse = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            contentBlocks: [
+                { type: 'text', text: 'streamed compact gif post' },
+                { type: 'image', stagedUploadToken: uploadId, imageEncoding: 'z85', mimeType: 'image/gif', byteLength: 4000000 }
+            ]
+        })
+    }), env);
+
+    assert.equal(appendResponse.status, 201);
+    assert.equal(contentsPutCalls, 0);
+    assert.match(blobCreateBodyText, /"encoding":"utf-8"}/);
+    assert.match(blobCreateBodyText, /streamed compact gif post/);
+    assert.match(blobCreateBodyText, /\[image-z85\]\\nmime:image\/gif\\nbytes:4000000\\nabcde\\n\[\/image-z85\]/);
+    assert.deepEqual(refUpdateBody, {
+        sha: 'streamcommitsha',
+        force: false
+    });
+});
+
 test('upload-chunk endpoint accepts high chunk counts needed for large staged uploads', async () => {
     const env = {
         ALLOWED_ORIGIN: 'https://0x00c0de.github.io',

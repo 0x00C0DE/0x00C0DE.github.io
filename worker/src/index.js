@@ -378,6 +378,50 @@ export class BlogUploadSession {
             });
         }
 
+        if (request.method === 'POST' && url.pathname === '/meta') {
+            const meta = await this.state.storage.get('meta');
+            const totalChunks = Number(meta?.totalChunks || 0);
+            if (!Number.isInteger(totalChunks) || totalChunks <= 0) {
+                return this.jsonErrorResponse('staged upload not found', 404);
+            }
+
+            return this.jsonSuccessResponse({
+                totalChunks
+            });
+        }
+
+        if (request.method === 'POST' && url.pathname === '/chunk') {
+            const meta = await this.state.storage.get('meta');
+            const totalChunks = Number(meta?.totalChunks || 0);
+            if (!Number.isInteger(totalChunks) || totalChunks <= 0) {
+                return this.jsonErrorResponse('staged upload not found', 404);
+            }
+
+            const body = await request.json().catch(() => null);
+            const chunkIndex = Number.parseInt(body?.chunkIndex, 10);
+            if (!Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex >= totalChunks) {
+                return this.jsonErrorResponse('chunkIndex must be within range', 400);
+            }
+
+            const chunk = await this.state.storage.get(`chunk:${chunkIndex}`);
+            if (typeof chunk !== 'string' || !chunk) {
+                return this.jsonErrorResponse('staged upload is incomplete', 409);
+            }
+
+            return this.jsonSuccessResponse({
+                chunk,
+                chunkIndex,
+                totalChunks
+            });
+        }
+
+        if (request.method === 'POST' && url.pathname === '/clear') {
+            await clearBlogUploadSessionStorage(this.state.storage);
+            return this.jsonSuccessResponse({
+                cleared: true
+            });
+        }
+
         return this.jsonErrorResponse('not found', 404);
     }
 
@@ -414,6 +458,7 @@ const MAX_IMAGE_ATTACHMENTS = 4;
 const MAX_STAGED_IMAGE_CHUNKS = 2048;
 const MAX_STAGED_IMAGE_CHUNK_LENGTH = 98304;
 const DEFAULT_GITHUB_CONTENTS_MAX_BASE64_BYTES = 95000000;
+const LARGE_STAGED_COMPACT_IMAGE_BYTE_LENGTH = 4000000;
 const ALLOWED_BLOG_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 const BLOG_COMPACT_IMAGE_MIME_TYPES = new Set(['image/gif']);
 const BLOG_Z85_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#';
@@ -546,8 +591,16 @@ async function handleAppend(request, env) {
             return jsonResponse({ error: deploymentStatus.error }, 409, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
-        const nextContent = appendBlogEntry(githubFile.content, normalizedBlocks.blocks);
-        const commit = await updateGithubFile(env, nextContent, githubFile.sha);
+        const hasLargeStagedCompactImage = normalizedBlocks.blocks.some(block =>
+            block?.type === 'image' &&
+            block.imageEncoding === 'z85' &&
+            block.stagedUploadToken &&
+            Number(block.byteLength || 0) >= LARGE_STAGED_COMPACT_IMAGE_BYTE_LENGTH
+        );
+
+        const commit = hasLargeStagedCompactImage
+            ? await appendBlogEntryViaStream(env, githubFile.content, normalizedBlocks.blocks)
+            : await updateGithubFile(env, appendBlogEntry(githubFile.content, normalizedBlocks.blocks), githubFile.sha);
 
         return jsonResponse({
             ok: true,
@@ -1042,12 +1095,17 @@ async function resolveStagedImageBlocks(blocks, maxImageDataUrlLength, env) {
             continue;
         }
 
-        const stagedUpload = await consumeStagedImageUpload(env, block.stagedUploadToken);
-        if (!stagedUpload.ok) {
-            return stagedUpload;
-        }
-
         if (block.imageEncoding === 'z85') {
+            if (Number(block.byteLength || 0) >= LARGE_STAGED_COMPACT_IMAGE_BYTE_LENGTH) {
+                resolvedBlocks.push(block);
+                continue;
+            }
+
+            const stagedUpload = await consumeStagedImageUpload(env, block.stagedUploadToken);
+            if (!stagedUpload.ok) {
+                return stagedUpload;
+            }
+
             const compactValidation = validateCompactImagePayload({
                 mimeType: block.mimeType,
                 byteLength: block.byteLength,
@@ -1065,6 +1123,11 @@ async function resolveStagedImageBlocks(blocks, maxImageDataUrlLength, env) {
                 encodedPayload: compactValidation.encodedPayload
             });
             continue;
+        }
+
+        const stagedUpload = await consumeStagedImageUpload(env, block.stagedUploadToken);
+        if (!stagedUpload.ok) {
+            return stagedUpload;
         }
 
         const imageValidation = validateImageDataUrl(stagedUpload.dataUrl, maxImageDataUrlLength);
@@ -1113,6 +1176,47 @@ async function consumeStagedImageUpload(env, uploadToken) {
         ok: true,
         dataUrl: payload.dataUrl
     };
+}
+
+async function fetchStagedUploadMeta(env, uploadToken) {
+    const stub = getBlogUploadSessionStub(env, uploadToken);
+    const response = await stub.fetch('https://blog-upload-session/meta', {
+        method: 'POST'
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !Number.isInteger(payload?.totalChunks) || payload.totalChunks <= 0) {
+        throw new Error(payload?.error || 'unable to inspect staged image upload');
+    }
+
+    return {
+        totalChunks: payload.totalChunks
+    };
+}
+
+async function fetchStagedUploadChunk(env, uploadToken, chunkIndex) {
+    const stub = getBlogUploadSessionStub(env, uploadToken);
+    const response = await stub.fetch('https://blog-upload-session/chunk', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            chunkIndex
+        })
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || typeof payload?.chunk !== 'string') {
+        throw new Error(payload?.error || `unable to read staged upload chunk ${chunkIndex}`);
+    }
+
+    return payload.chunk;
+}
+
+async function clearStagedUpload(env, uploadToken) {
+    const stub = getBlogUploadSessionStub(env, uploadToken);
+    await stub.fetch('https://blog-upload-session/clear', {
+        method: 'POST'
+    });
 }
 
 function sanitizeVisitorId(value) {
@@ -1337,6 +1441,116 @@ async function updateGithubFileViaGitDataApi(env, content, message) {
     const commitSha = await createGithubCommit(env, message, treeSha, headCommitSha);
     await updateGithubBranchHead(env, commitSha);
     return { sha: commitSha };
+}
+
+async function appendBlogEntryViaStream(env, currentContent, contentBlocks, message = 'Append blog entry via terminal site') {
+    const headCommitSha = await fetchGithubBranchHeadSha(env);
+    const headCommit = await fetchGithubCommit(env, headCommitSha);
+    const blobSha = await createGithubBlobFromAppendStream(env, currentContent, contentBlocks);
+    const treeSha = await createGithubTree(env, headCommit.treeSha, blobSha);
+    const commitSha = await createGithubCommit(env, message, treeSha, headCommitSha);
+    await updateGithubBranchHead(env, commitSha);
+    return { sha: commitSha };
+}
+
+async function createGithubBlobFromAppendStream(env, currentContent, contentBlocks, timestamp = new Date().toISOString()) {
+    const response = await fetch(githubBlobsUrl(env), {
+        method: 'POST',
+        headers: {
+            ...githubHeaders(env),
+            'Content-Type': 'application/json'
+        },
+        body: createGithubBlobAppendRequestBodyStream(env, currentContent, contentBlocks, timestamp)
+    });
+
+    if (!response.ok) {
+        const failureBody = await response.text();
+        throw new Error(`github blob create failed with ${response.status}: ${failureBody}`);
+    }
+
+    const payload = await response.json();
+    if (typeof payload?.sha !== 'string' || !payload.sha) {
+        throw new Error('github blob create response did not include a blob sha');
+    }
+
+    return payload.sha;
+}
+
+function createGithubBlobAppendRequestBodyStream(env, currentContent, contentBlocks, timestamp) {
+    const encoder = new TextEncoder();
+    const entryTimestampLine = toBlogEntryTimestampLine(timestamp);
+    const prefixPieces = [];
+    const normalizedCurrentContent = normalizeComparableBlogContent(currentContent);
+
+    if (normalizedCurrentContent) {
+        prefixPieces.push(normalizedCurrentContent);
+        if (!normalizedCurrentContent.endsWith('\n')) {
+            prefixPieces.push('\n');
+        }
+        if (!normalizedCurrentContent.endsWith('\n\n')) {
+            prefixPieces.push('\n');
+        }
+    }
+
+    prefixPieces.push(entryTimestampLine, '\n');
+
+    return new ReadableStream({
+        async start(controller) {
+            controller.enqueue(encoder.encode('{"content":"'));
+
+            for (const piece of prefixPieces) {
+                controller.enqueue(encoder.encode(escapeJsonString(piece)));
+            }
+
+            for (let index = 0; index < contentBlocks.length; index += 1) {
+                const block = contentBlocks[index];
+
+                if (block.type === 'text') {
+                    const lines = Array.isArray(block.lines)
+                        ? block.lines
+                        : String(block.text || '').replace(/\r\n/g, '\n').split('\n');
+                    const textContent = `${lines.join('\n')}\n`;
+                    controller.enqueue(encoder.encode(escapeJsonString(textContent)));
+                    continue;
+                }
+
+                if (block.type === 'image' && block.imageEncoding === 'z85' && block.stagedUploadToken) {
+                    controller.enqueue(encoder.encode(escapeJsonString(`[image-z85]\nmime:${block.mimeType}\nbytes:${block.byteLength}\n`)));
+                    const meta = await fetchStagedUploadMeta(env, block.stagedUploadToken);
+                    for (let chunkIndex = 0; chunkIndex < meta.totalChunks; chunkIndex += 1) {
+                        const chunk = await fetchStagedUploadChunk(env, block.stagedUploadToken, chunkIndex);
+                        controller.enqueue(encoder.encode(escapeJsonString(chunk)));
+                    }
+                    controller.enqueue(encoder.encode(escapeJsonString('\n[/image-z85]\n')));
+                    await clearStagedUpload(env, block.stagedUploadToken);
+                    continue;
+                }
+
+                if (block.type === 'image' && block.imageEncoding === 'z85') {
+                    controller.enqueue(encoder.encode(escapeJsonString(`[image-z85]\nmime:${block.mimeType}\nbytes:${block.byteLength}\n${block.encodedPayload}\n[/image-z85]\n`)));
+                    continue;
+                }
+
+                if (block.type === 'image' && block.imageDataUrl) {
+                    controller.enqueue(encoder.encode(escapeJsonString(`[image-base64]\n${block.imageDataUrl}\n[/image-base64]\n`)));
+                }
+            }
+
+            controller.enqueue(encoder.encode('","encoding":"utf-8"}'));
+            controller.close();
+        }
+    });
+}
+
+function escapeJsonString(value) {
+    return String(value || '')
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/\u0008/g, '\\b')
+        .replace(/\u000C/g, '\\f')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\t/g, '\\t');
 }
 
 function shouldUseGithubGitDataApi(content, env) {
@@ -1715,7 +1929,8 @@ function normalizeBlogEntryBlocks(contentBlocks) {
                 const encodedPayload = typeof block.encodedPayload === 'string'
                     ? block.encodedPayload.trim()
                     : '';
-                if (!ALLOWED_BLOG_IMAGE_MIME_TYPES.has(mimeType) || !Number.isInteger(byteLength) || byteLength <= 0 || !encodedPayload) {
+                const stagedUploadToken = sanitizeUploadToken(block.stagedUploadToken);
+                if (!ALLOWED_BLOG_IMAGE_MIME_TYPES.has(mimeType) || !Number.isInteger(byteLength) || byteLength <= 0 || (!encodedPayload && !stagedUploadToken)) {
                     continue;
                 }
 
@@ -1724,7 +1939,8 @@ function normalizeBlogEntryBlocks(contentBlocks) {
                     imageEncoding: 'z85',
                     mimeType,
                     byteLength,
-                    encodedPayload
+                    ...(encodedPayload ? { encodedPayload } : {}),
+                    ...(stagedUploadToken ? { stagedUploadToken } : {})
                 });
                 continue;
             }
