@@ -50,6 +50,8 @@ The design philosophy is **file-system-first**: documentation lives as real `.tx
 
 The latest terminal update integrates **Pretext** directly into the live render path. Plain text output, echoed commands, wrapped links, and the `help` descriptions now reflow through a link-aware layout engine that behaves correctly on mobile and on browser resize, while the standalone Pretext lab remains available for isolated experiments.
 
+Credit to Cheng Lou for the original [Pretext](https://github.com/chenglou/pretext) project, the pure JavaScript/TypeScript multiline text measurement and layout library this terminal integration builds on.
+
 ---
 
 ## Architecture
