@@ -54,12 +54,13 @@ test('su without arguments switches the session into a root localhost prompt', (
     assert.equal(getTerminalSessionPwd(session), '/home/0x00C0DE/Unkn0wn');
 });
 
-test('su with a username keeps the localhost shell but changes user', () => {
-    const session = applyTerminalSessionCommand(
+test('su guest switches back to the guest localhost prompt', () => {
+    const rootSession = applyTerminalSessionCommand(
         createDefaultTerminalSession(),
         'su',
-        ['analyst']
+        []
     );
+    const session = applyTerminalSessionCommand(rootSession, 'su', ['guest']);
 
     assert.deepEqual(getTerminalPromptSnapshot(session), {
         documentTitle: null,
@@ -69,9 +70,26 @@ test('su with a username keeps the localhost shell but changes user', () => {
         path: '/home/0x00C0DE/Unkn0wn',
         promptSymbol: '$',
         theme: 'default',
-        user: 'analyst'
+        user: 'guest'
     });
-    assert.equal(getTerminalSessionUsername(session), 'analyst');
+    assert.equal(getTerminalSessionUsername(session), 'guest');
+});
+
+test('unsupported su usernames leave the current shell profile unchanged', () => {
+    const rootSession = applyTerminalSessionCommand(
+        createDefaultTerminalSession(),
+        'su',
+        []
+    );
+
+    assert.deepEqual(
+        applyTerminalSessionCommand(rootSession, 'su', ['analyst']),
+        rootSession
+    );
+    assert.deepEqual(
+        applyTerminalSessionCommand(rootSession, 'su', ['root']),
+        rootSession
+    );
 });
 
 test('non-session commands do not change the current shell profile', () => {
