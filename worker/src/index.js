@@ -1347,7 +1347,7 @@ function shouldUseGithubGitDataApi(content, env) {
 }
 
 async function fetchGithubBranchHeadSha(env) {
-    const response = await fetch(githubRefUrl(env), {
+    const response = await fetch(githubGetRefUrl(env), {
         headers: githubHeaders(env)
     });
 
@@ -2103,6 +2103,10 @@ function githubCommitUrl(env, sha) {
 
 function githubRefUrl(env) {
     return `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/refs/heads/${encodeURIComponent(env.GITHUB_BRANCH || 'main')}`;
+}
+
+function githubGetRefUrl(env) {
+    return `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/ref/heads/${encodeURIComponent(env.GITHUB_BRANCH || 'main')}`;
 }
 
 function githubHeaders(env) {

@@ -1388,6 +1388,19 @@ test('append endpoint uses the git data api when a blog update would exceed the 
             });
         }
 
+        if (urlString === 'https://api.github.com/repos/owner/repo/git/ref/heads/main') {
+            return new Response(JSON.stringify({
+                object: {
+                    sha: 'headcommitsha'
+                }
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
         if (urlString === 'https://api.github.com/repos/owner/repo/git/refs/heads/main') {
             if (method === 'PATCH') {
                 refUpdateBody = JSON.parse(options.body);
@@ -1403,16 +1416,7 @@ test('append endpoint uses the git data api when a blog update would exceed the 
                 });
             }
 
-            return new Response(JSON.stringify({
-                object: {
-                    sha: 'headcommitsha'
-                }
-            }), {
-                status: 200,
-                headers: {
-                    'Content-Type': 'application/json; charset=utf-8'
-                }
-            });
+            throw new Error(`unexpected fetch: ${method} ${urlString}`);
         }
 
         if (urlString === 'https://api.github.com/repos/owner/repo/git/commits/headcommitsha') {
