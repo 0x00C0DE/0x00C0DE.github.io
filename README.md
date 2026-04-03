@@ -58,24 +58,24 @@ The latest terminal update integrates **Pretext** directly into the live render 
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                                 BROWSER                                      │
 │                                                                              │
-│  ┌──────────────┐      ┌──────────────┐      ┌───────────────┐              │
-│  │  index.html  │─────→│   term.js    │─────→│  commands.js  │              │
-│  │ projects.html│      │  (loop/REPL) │      │ (shell verbs) │              │
-│  └──────────────┘      └──────┬───────┘      └──────┬────────┘              │
-│                               │                     │                       │
-│                     ┌─────────▼─────┐     ┌─────────▼──────────────────┐    │
-│                     │  style.css    │     │ terminal-pretext-runtime   │    │
-│                     │ (CRT palette) │     │ (DOM wrapping + reflow)    │    │
-│                     └───────────────┘     └─────────┬──────────────────┘    │
-│                                                     │                       │
-│                                   ┌─────────────────▼─────────────────┐     │
-│                                   │ terminal-pretext-core.mjs         │     │
-│                                   │ vendor/pretext/layout.js          │     │
-│                                   │ (tokenization + wrapped lines)    │     │
-│                                   └─────────────────┬─────────────────┘     │
-│                                                     │                       │
+│  ┌──────────────┐      ┌──────────────┐      ┌───────────────┐               │
+│  │  index.html  │─────→│   term.js    │─────→│  commands.js  │               │
+│  │ projects.html│      │  (loop/REPL) │      │ (shell verbs) │               │
+│  └──────────────┘      └──────┬───────┘      └──────┬────────┘               │
+│                               │                     │                        │
+│                     ┌─────────▼─────┐     ┌─────────▼──────────────────┐     │
+│                     │  style.css    │     │ terminal-pretext-runtime   │     │
+│                     │ (CRT palette) │     │ (DOM wrapping + reflow)    │     │
+│                     └───────────────┘     └─────────┬──────────────────┘     │
+│                                                     │                        │
+│                                   ┌─────────────────▼─────────────────┐      │
+│                                   │ terminal-pretext-core.mjs         │      │
+│                                   │ vendor/pretext/layout.js          │      │
+│                                   │ (tokenization + wrapped lines)    │      │
+│                                   └─────────────────┬─────────────────┘      │
+│                                                     │                        │
 │                     ┌───────────────┐      ┌────────▼────────┐               │
-│                     │ pictures.js   │      │ <canvas> / DOM │               │
+│                     │ pictures.js   │      │ <canvas> / DOM  │               │
 │                     │ (ASCII/video) │      │ rendered output │               │
 │                     └───────────────┘      └─────────────────┘               │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -308,15 +308,15 @@ The site has **no database**. Persistent content lives in versioned `.txt` files
 │ File         │ Contents                                                    │
 ├──────────────┼─────────────────────────────────────────────────────────────┤
 │ blog.txt     │ Chronological blog entries appended by Worker               │
-│ projects.txt │ Project index with names, blurbs, and links                │
-│ links.txt    │ Curated URL list with descriptions                         │
-│ bloom.txt    │ Full Bloom filter project write-up                         │
-│ smallsh.txt  │ Unix shell project documentation                           │
-│ shellcode.txt│ Shellcode template notes                                   │
-│ qr-totp.txt  │ QR and TOTP implementation notes                           │
-│ proprts.txt  │ Property system project notes                              │
-│ amr.txt      │ AMR-related project documentation                          │
-│ readme.txt   │ In-terminal orientation file                               │
+│ projects.txt │ Project index with names, blurbs, and links                 │
+│ links.txt    │ Curated URL list with descriptions                          │
+│ bloom.txt    │ Full Bloom filter project write-up                          │
+│ smallsh.txt  │ Unix shell project documentation                            │
+│ shellcode.txt│ Shellcode template notes                                    │
+│ qr-totp.txt  │ QR and TOTP implementation notes                            │
+│ proprts.txt  │ Property system project notes                               │
+│ amr.txt      │ AMR-related project documentation                           │
+│ readme.txt   │ In-terminal orientation file                                │
 └──────────────┴─────────────────────────────────────────────────────────────┘
 ```
 
@@ -437,7 +437,7 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
 
 ```text
 ╔══════════════════════════════════════════════════╗
-║  guest@localhost:/home/0x00C0DE/Unkn0wn$        ║
+║  guest@localhost:/home/0x00C0DE/Unkn0wn$         ║
 ╚══════════════════════════════════════════════════╝
 
   help                       List all commands
@@ -506,7 +506,7 @@ Full text: [LICENSE](./LICENSE)
 
 ```text
 ┌─────────────────────────────────────────────┐
-│  guest@localhost:/home/0x00C0DE/Unkn0wn$ █ │
+│  guest@localhost:/home/0x00C0DE/Unkn0wn$ █  │
 └─────────────────────────────────────────────┘
 ```
 
