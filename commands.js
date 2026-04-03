@@ -228,23 +228,29 @@ function syncTerminalDocumentTitle() {
 function syncTerminalThemeClasses() {
     const snapshot = getTerminalPromptSnapshot();
     const isKali = snapshot.mode === 'kali';
+    const isRoot = snapshot.isRoot;
     const body = document.body;
     const terminal = document.getElementById('terminal');
 
     if (body) {
         body.classList.toggle('terminal-theme-kali', isKali);
-        body.classList.toggle('terminal-theme-kali-root', isKali && snapshot.isRoot);
+        body.classList.toggle('terminal-theme-kali-root', isKali && isRoot);
+        body.classList.toggle('terminal-theme-root', isRoot);
     }
 
     if (terminal) {
         terminal.classList.toggle('terminal-theme-kali', isKali);
-        terminal.classList.toggle('terminal-theme-kali-root', isKali && snapshot.isRoot);
+        terminal.classList.toggle('terminal-theme-kali-root', isKali && isRoot);
+        terminal.classList.toggle('terminal-theme-root', isRoot);
     }
 }
 
 function refreshTerminalSessionUi() {
     syncTerminalDocumentTitle();
     syncTerminalThemeClasses();
+    if (typeof window.syncTerminalVisualEffects === 'function') {
+        window.syncTerminalVisualEffects();
+    }
     if (typeof window.refreshTerminalInputPrompt === 'function') {
         window.refreshTerminalInputPrompt();
     }

@@ -16,7 +16,8 @@
 
 body {
     position: relative;
-    background: #000;
+    background-color: black;
+    background-image: radial-gradient(rgba(85, 10, 16, 0.82), black 120%);
     overflow: hidden;
     height: 100vh;
     color: var(--terminal-red);
@@ -32,6 +33,7 @@ body::before {
         linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(32, 0, 0, 0.26));
     pointer-events: none;
     z-index: 1;
+    opacity: 0;
 }
 
 body::after {
@@ -40,13 +42,31 @@ body::after {
     inset: 0;
     background: repeating-linear-gradient(
         0deg,
-        rgba(255, 255, 255, 0.05),
-        rgba(255, 255, 255, 0.05) 1px,
+        rgba(0, 0, 0, 0.15),
+        rgba(0, 0, 0, 0.15) 1px,
         transparent 1px,
         transparent 2px
     );
     pointer-events: none;
     z-index: 2;
+}
+
+body.terminal-theme-root {
+    background: #000;
+}
+
+body.terminal-theme-root::before {
+    opacity: 1;
+}
+
+body.terminal-theme-root::after {
+    background: repeating-linear-gradient(
+        0deg,
+        rgba(255, 255, 255, 0.05),
+        rgba(255, 255, 255, 0.05) 1px,
+        transparent 1px,
+        transparent 2px
+    );
 }
 
 body.terminal-theme-kali {
@@ -100,6 +120,12 @@ body.terminal-theme-kali::after {
     overflow: hidden;
     pointer-events: none;
     z-index: 0;
+    opacity: 0;
+    transition: opacity 180ms ease;
+}
+
+body.terminal-theme-root .terminal-binary-rain {
+    opacity: 1;
 }
 
 .terminal-binary-column {
