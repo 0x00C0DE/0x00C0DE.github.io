@@ -168,7 +168,8 @@ function renderOutputObject(container, line) {
                         typeof line.src === 'string' ? line.src : '',
                         typeof line.entryTimestamp === 'string' ? line.entryTimestamp : '',
                         Number.isInteger(line.entryImageIndex) ? line.entryImageIndex : null,
-                        typeof line.previousTextLine === 'string' ? line.previousTextLine : ''
+                        typeof line.previousTextLine === 'string' ? line.previousTextLine : '',
+                        typeof line.nextTextLine === 'string' ? line.nextTextLine : ''
                     );
                     if (!result.ok) {
                         status.textContent = ` ${result.error}`;

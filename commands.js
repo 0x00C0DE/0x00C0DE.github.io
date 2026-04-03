@@ -256,6 +256,7 @@ function parseBlogTextFile(lines) {
         }
 
         const dataUrl = imageLines.join('');
+        const nextTextLine = findNextBlogTextLine(lines, index + 1);
         if (isSafeBlogImageDataUrl(dataUrl)) {
             output.push({
                 type: 'inline-image',
@@ -266,7 +267,8 @@ function parseBlogTextFile(lines) {
                 imageKey: createBlogImageKey(dataUrl),
                 entryTimestamp: currentEntryTimestamp,
                 entryImageIndex: currentEntryImageIndex,
-                previousTextLine
+                previousTextLine,
+                nextTextLine
             });
         } else {
             output.push('[image-base64]');
@@ -281,6 +283,29 @@ function parseBlogTextFile(lines) {
     }
 
     return output;
+}
+
+function findNextBlogTextLine(lines, startIndex) {
+    for (let index = startIndex; index < lines.length; index += 1) {
+        const line = lines[index];
+        if (isBlogEntryTimestampLine(line)) {
+            return '';
+        }
+
+        if (line === '[image-base64]') {
+            index += 1;
+            while (index < lines.length && lines[index] !== '[/image-base64]') {
+                index += 1;
+            }
+            continue;
+        }
+
+        if (String(line || '').trim()) {
+            return String(line);
+        }
+    }
+
+    return '';
 }
 
 function banner_command() {
@@ -630,13 +655,16 @@ async function deleteBlogImageByBlockIndex(
     imageDataUrl = '',
     entryTimestamp = '',
     entryImageIndex = null,
-    previousTextLine = ''
+    previousTextLine = '',
+    nextTextLine = ''
 ) {
     const normalizedEntryTimestamp = isBlogEntryTimestampLine(entryTimestamp) ? entryTimestamp.trim() : '';
     const normalizedEntryImageIndex = Number.isInteger(entryImageIndex)
         ? entryImageIndex
         : Number.parseInt(entryImageIndex, 10);
     const normalizedPreviousTextLine = typeof previousTextLine === 'string' ? previousTextLine.trim() : '';
+    const normalizedImageDataUrl = normalizeBlogImageDataUrl(imageDataUrl);
+    const normalizedNextTextLine = typeof nextTextLine === 'string' ? nextTextLine.trim() : '';
 
     if ((!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) && !imageKey && !normalizedEntryTimestamp && !normalizedPreviousTextLine) {
         return {
@@ -653,11 +681,13 @@ async function deleteBlogImageByBlockIndex(
         body: JSON.stringify({
             imageBlockIndex,
             imageKey,
+            imageDataUrl: normalizedImageDataUrl,
             entryTimestamp: normalizedEntryTimestamp,
             entryImageIndex: Number.isInteger(normalizedEntryImageIndex) && normalizedEntryImageIndex >= 0
                 ? normalizedEntryImageIndex
                 : null,
             previousTextLine: normalizedPreviousTextLine,
+            nextTextLine: normalizedNextTextLine,
             password
         })
     });
