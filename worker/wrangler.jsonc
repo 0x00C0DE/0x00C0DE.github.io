@@ -13,6 +13,10 @@
       {
         "name": "RATE_LIMITER",
         "class_name": "RateLimiter"
+      },
+      {
+        "name": "BLOG_UPLOAD_SESSION",
+        "class_name": "BlogUploadSession"
       }
     ]
   },
@@ -27,6 +31,12 @@
       "tag": "v2",
       "new_sqlite_classes": [
         "RateLimiter"
+      ]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": [
+        "BlogUploadSession"
       ]
     }
   ],

@@ -29,6 +29,10 @@ export default {
             return handleAppend(request, env);
         }
 
+        if (request.method === 'POST' && url.pathname === '/api/blog/upload-chunk') {
+            return handleStageImageChunk(request, env);
+        }
+
         if (request.method === 'POST' && url.pathname === '/api/blog/delete-image') {
             return handleDeleteImage(request, env);
         }
@@ -296,6 +300,105 @@ export class RateLimiter {
     }
 }
 
+export class BlogUploadSession {
+    constructor(state) {
+        this.state = state;
+    }
+
+    async fetch(request) {
+        const url = new URL(request.url);
+
+        if (request.method === 'POST' && url.pathname === '/stage') {
+            const body = await request.json().catch(() => null);
+            const totalChunks = Number.parseInt(body?.totalChunks, 10);
+            const chunkIndex = Number.parseInt(body?.chunkIndex, 10);
+            const chunk = typeof body?.chunk === 'string' ? body.chunk : '';
+
+            if (!Number.isInteger(totalChunks) || totalChunks <= 0 || totalChunks > 1000) {
+                return this.jsonErrorResponse('totalChunks must be a positive integer', 400);
+            }
+
+            if (!Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex >= totalChunks) {
+                return this.jsonErrorResponse('chunkIndex must be within range', 400);
+            }
+
+            if (!chunk) {
+                return this.jsonErrorResponse('chunk is required', 400);
+            }
+
+            const meta = await this.state.storage.get('meta');
+            if (meta && Number(meta.totalChunks) !== totalChunks) {
+                return this.jsonErrorResponse('upload chunk count mismatch', 409);
+            }
+
+            await this.state.storage.put({
+                meta: {
+                    totalChunks,
+                    updatedAt: Date.now()
+                },
+                [`chunk:${chunkIndex}`]: chunk
+            });
+
+            return this.jsonSuccessResponse({
+                staged: true,
+                chunkIndex
+            });
+        }
+
+        if (request.method === 'POST' && url.pathname === '/consume') {
+            const meta = await this.state.storage.get('meta');
+            const totalChunks = Number(meta?.totalChunks || 0);
+            if (!Number.isInteger(totalChunks) || totalChunks <= 0) {
+                return this.jsonErrorResponse('staged upload not found', 404);
+            }
+
+            const chunkKeys = [];
+            for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+                chunkKeys.push(`chunk:${chunkIndex}`);
+            }
+
+            const storedChunks = await this.state.storage.get(chunkKeys);
+            const chunks = [];
+            for (const key of chunkKeys) {
+                const chunk = storedChunks?.[key];
+                if (typeof chunk !== 'string' || !chunk) {
+                    return this.jsonErrorResponse('staged upload is incomplete', 409);
+                }
+                chunks.push(chunk);
+            }
+
+            await clearBlogUploadSessionStorage(this.state.storage);
+
+            return this.jsonSuccessResponse({
+                dataUrl: chunks.join('')
+            });
+        }
+
+        return this.jsonErrorResponse('not found', 404);
+    }
+
+    jsonSuccessResponse(payload) {
+        return new Response(JSON.stringify({
+            ok: true,
+            ...payload
+        }), {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/json; charset=utf-8'
+            }
+        });
+    }
+
+    jsonErrorResponse(error, status) {
+        return new Response(JSON.stringify({ error }), {
+            status,
+            headers: {
+                'Content-Type': 'application/json; charset=utf-8'
+            }
+        });
+    }
+}
+
 // Keep the timeout comfortably above the persisted heartbeat cadence so
 // active visitors do not disappear if the Durable Object is reloaded
 // between storage flushes.
@@ -361,6 +464,33 @@ async function handleVisitorLeave(request, env) {
     return proxyJsonResponse(response, env.ALLOWED_ORIGIN);
 }
 
+async function handleStageImageChunk(request, env) {
+    if (!env.BLOG_UPLOAD_SESSION) {
+        return jsonResponse({ error: 'blog upload session binding not configured' }, 500, env.ALLOWED_ORIGIN);
+    }
+
+    const body = await request.json().catch(() => null);
+    const uploadId = sanitizeUploadToken(body?.uploadId);
+    if (!uploadId) {
+        return jsonResponse({ error: 'uploadId is required' }, 400, env.ALLOWED_ORIGIN);
+    }
+
+    const stub = getBlogUploadSessionStub(env, uploadId);
+    const response = await stub.fetch('https://blog-upload-session/stage', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            chunkIndex: body?.chunkIndex,
+            totalChunks: body?.totalChunks,
+            chunk: body?.chunk
+        })
+    });
+
+    return proxyJsonResponse(response, env.ALLOWED_ORIGIN);
+}
+
 async function handleAppend(request, env) {
     try {
         const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
@@ -376,12 +506,13 @@ async function handleAppend(request, env) {
         const turnstileToken = typeof body?.turnstileToken === 'string' ? body.turnstileToken : '';
         const maxPostLength = Number(env.MAX_POST_LENGTH || 500);
         const maxImageDataUrlLength = Number(env.MAX_IMAGE_DATA_URL_LENGTH || MAX_IMAGE_DATA_URL_LENGTH);
-        const normalizedBlocks = normalizeAppendContentBlocks({
+        const normalizedBlocks = await normalizeAppendContentBlocks({
             contentBlocks,
             text,
             imageDataUrl,
             maxPostLength,
-            maxImageDataUrlLength
+            maxImageDataUrlLength,
+            env
         });
 
         if (!normalizedBlocks.ok) {
@@ -570,9 +701,13 @@ function timingSafeStringEqual(left, right) {
     return mismatch === 0;
 }
 
-function normalizeAppendContentBlocks({ contentBlocks, text, imageDataUrl, maxPostLength, maxImageDataUrlLength }) {
+async function normalizeAppendContentBlocks({ contentBlocks, text, imageDataUrl, maxPostLength, maxImageDataUrlLength, env }) {
     if (contentBlocks) {
-        return validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLength);
+        const validated = validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLength);
+        if (!validated.ok) {
+            return validated;
+        }
+        return resolveStagedImageBlocks(validated.blocks, maxImageDataUrlLength, env);
     }
 
     const blocks = [];
@@ -583,7 +718,11 @@ function normalizeAppendContentBlocks({ contentBlocks, text, imageDataUrl, maxPo
         blocks.push({ type: 'image', imageDataUrl });
     }
 
-    return validateContentBlocks(blocks, maxPostLength, maxImageDataUrlLength);
+    const validated = validateContentBlocks(blocks, maxPostLength, maxImageDataUrlLength);
+    if (!validated.ok) {
+        return validated;
+    }
+    return resolveStagedImageBlocks(validated.blocks, maxImageDataUrlLength, env);
 }
 
 function validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLength) {
@@ -646,6 +785,15 @@ function validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLeng
                 };
             }
 
+            const stagedUploadToken = sanitizeUploadToken(block.stagedUploadToken);
+            if (stagedUploadToken) {
+                normalized.push({
+                    type: 'image',
+                    stagedUploadToken
+                });
+                continue;
+            }
+
             const imageValidation = validateImageDataUrl(String(block.imageDataUrl || '').trim(), maxImageDataUrlLength);
             if (!imageValidation.ok) {
                 return {
@@ -680,6 +828,66 @@ function validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLeng
     };
 }
 
+async function resolveStagedImageBlocks(blocks, maxImageDataUrlLength, env) {
+    const resolvedBlocks = [];
+
+    for (const block of blocks) {
+        if (block.type !== 'image' || !block.stagedUploadToken) {
+            resolvedBlocks.push(block);
+            continue;
+        }
+
+        const stagedUpload = await consumeStagedImageUpload(env, block.stagedUploadToken);
+        if (!stagedUpload.ok) {
+            return stagedUpload;
+        }
+
+        const imageValidation = validateImageDataUrl(stagedUpload.dataUrl, maxImageDataUrlLength);
+        if (!imageValidation.ok) {
+            return {
+                ok: false,
+                error: imageValidation.error
+            };
+        }
+
+        resolvedBlocks.push({
+            type: 'image',
+            imageDataUrl: stagedUpload.dataUrl
+        });
+    }
+
+    return {
+        ok: true,
+        blocks: resolvedBlocks
+    };
+}
+
+async function consumeStagedImageUpload(env, uploadToken) {
+    if (!env.BLOG_UPLOAD_SESSION) {
+        return {
+            ok: false,
+            error: 'staged upload binding not configured'
+        };
+    }
+
+    const stub = getBlogUploadSessionStub(env, uploadToken);
+    const response = await stub.fetch('https://blog-upload-session/consume', {
+        method: 'POST'
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || typeof payload?.dataUrl !== 'string') {
+        return {
+            ok: false,
+            error: payload?.error || 'unable to complete staged image upload'
+        };
+    }
+
+    return {
+        ok: true,
+        dataUrl: payload.dataUrl
+    };
+}
+
 function sanitizeVisitorId(value) {
     if (typeof value !== 'string') {
         return '';
@@ -694,6 +902,19 @@ function sanitizeVisitorId(value) {
 }
 
 function sanitizeVisitId(value) {
+    if (typeof value !== 'string') {
+        return '';
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed || trimmed.length > 128) {
+        return '';
+    }
+
+    return trimmed.replace(/[^a-zA-Z0-9:_-]/g, '');
+}
+
+function sanitizeUploadToken(value) {
     if (typeof value !== 'string') {
         return '';
     }
@@ -793,6 +1014,13 @@ async function fetchGithubFile(env) {
     }
 
     throw new Error('github contents response did not include readable file content');
+}
+
+async function clearBlogUploadSessionStorage(storage) {
+    const stored = await storage.list();
+    for (const key of stored.keys()) {
+        await storage.delete(key);
+    }
 }
 
 async function ensurePublishedBlogIsCurrent(env, githubContent) {
@@ -1395,6 +1623,11 @@ function getVisitorCounterStub(env) {
 function getRateLimiterStub(env, ip) {
     const id = env.RATE_LIMITER.idFromName(`rate:${ip}`);
     return env.RATE_LIMITER.get(id);
+}
+
+function getBlogUploadSessionStub(env, uploadId) {
+    const id = env.BLOG_UPLOAD_SESSION.idFromName(`upload:${uploadId}`);
+    return env.BLOG_UPLOAD_SESSION.get(id);
 }
 
 function jsonResponse(payload, status, origin, extraHeaders = {}) {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import blogWorker, { VisitorCounter, appendBlogEntry, createBlogImageKey, removeImageBlock } from './index.js';
+import blogWorker, { BlogUploadSession, VisitorCounter, appendBlogEntry, createBlogImageKey, removeImageBlock } from './index.js';
 
 class FakeStorage {
     constructor() {
@@ -30,6 +30,10 @@ class FakeStorage {
         this.data.set(key, value);
     }
 
+    async delete(key) {
+        this.data.delete(key);
+    }
+
     async list({ prefix } = {}) {
         const result = new Map();
         for (const [key, value] of this.data.entries()) {
@@ -46,6 +50,26 @@ function createCounter() {
     return {
         counter: new VisitorCounter({ storage }),
         storage
+    };
+}
+
+function createUploadSessionBinding() {
+    const sessions = new Map();
+    return {
+        idFromName(name) {
+            return name;
+        },
+        get(id) {
+            if (!sessions.has(id)) {
+                const session = new BlogUploadSession({ storage: new FakeStorage() });
+                sessions.set(id, {
+                    async fetch(url, options) {
+                        return session.fetch(new Request(url, options));
+                    }
+                });
+            }
+            return sessions.get(id);
+        }
     };
 }
 
@@ -429,6 +453,142 @@ test('append endpoint accepts gif image data urls and commits them to blog.txt',
     assert.match(updatedBlogContent, /\[image-base64\]/);
     assert.match(updatedBlogContent, /data:image\/gif;base64,R0lGODlhAQABAIAAAAUEBA==/);
     assert.match(updatedBlogContent, /\[\/image-base64\]/);
+});
+
+test('append endpoint can consume a staged image upload assembled from chunks', async t => {
+    const originalFetch = globalThis.fetch;
+    let githubUpdateBody = null;
+    const uploadBinding = createUploadSessionBinding();
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+        const method = options.method || 'GET';
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/contents/blog.txt?ref=main') {
+            if (method === 'PUT') {
+                githubUpdateBody = JSON.parse(options.body);
+                return new Response(JSON.stringify({
+                    commit: {
+                        sha: 'chunksha123'
+                    }
+                }), {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json; charset=utf-8'
+                    }
+                });
+            }
+
+            return new Response(JSON.stringify({
+                sha: 'chunkold456',
+                content: Buffer.from([
+                    '0x00C0DE Blog',
+                    '=============',
+                    ''
+                ].join('\n'), 'utf8').toString('base64')
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response([
+                '0x00C0DE Blog',
+                '=============',
+                ''
+            ].join('\n'), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${method} ${urlString}`);
+    };
+
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        GITHUB_OWNER: 'owner',
+        GITHUB_REPO: 'repo',
+        GITHUB_PAT: 'token',
+        GITHUB_BRANCH: 'main',
+        BLOG_UPLOAD_SESSION: uploadBinding,
+        RATE_LIMITER: {
+            idFromName(name) {
+                return name;
+            },
+            get() {
+                return {
+                    async fetch() {
+                        return new Response(JSON.stringify({
+                            allowed: true
+                        }), {
+                            status: 200,
+                            headers: {
+                                'Content-Type': 'application/json; charset=utf-8'
+                            }
+                        });
+                    }
+                };
+            }
+        }
+    };
+
+    const uploadId = 'upload-test-1';
+    const dataUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBA==';
+    const chunks = [
+        dataUrl.slice(0, 12),
+        dataUrl.slice(12, 24),
+        dataUrl.slice(24)
+    ];
+
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+        const stageResponse = await blogWorker.fetch(new Request('https://example.com/api/blog/upload-chunk', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                uploadId,
+                chunkIndex,
+                totalChunks: chunks.length,
+                chunk: chunks[chunkIndex]
+            })
+        }), env);
+        assert.equal(stageResponse.status, 200);
+    }
+
+    const appendResponse = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            contentBlocks: [
+                { type: 'text', text: 'chunked gif post' },
+                { type: 'image', stagedUploadToken: uploadId }
+            ]
+        })
+    }), env);
+
+    assert.equal(appendResponse.status, 201);
+    assert.deepEqual(await appendResponse.json(), {
+        ok: true,
+        commitSha: 'chunksha123',
+        commitUrl: 'https://github.com/owner/repo/commit/chunksha123'
+    });
+
+    const updatedBlogContent = Buffer.from(githubUpdateBody.content, 'base64').toString('utf8');
+    assert.match(updatedBlogContent, /chunked gif post/);
+    assert.match(updatedBlogContent, /data:image\/gif;base64,R0lGODlhAQABAIAAAAUEBA==/);
 });
 
 test('append endpoint preserves existing content when GitHub contents API returns metadata-only for a large blog.txt', async t => {

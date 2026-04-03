@@ -91,12 +91,15 @@ const ASTROLOGY_FORTUNE_SOURCES = [
     }
 ];
 const BLOG_POST_API_URL = window.BLOG_POST_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/append';
+const BLOG_STAGE_IMAGE_API_URL = window.BLOG_STAGE_IMAGE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/upload-chunk';
 const BLOG_DELETE_IMAGE_API_URL = window.BLOG_DELETE_IMAGE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/delete-image';
 const VISITOR_COUNT_API_URL = window.VISITOR_COUNT_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors';
 const VISITOR_TRACK_API_URL = window.VISITOR_TRACK_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/track';
 const VISITOR_LEAVE_API_URL = window.VISITOR_LEAVE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/leave';
 const BLOG_MAX_POST_LENGTH = 500;
 const BLOG_MAX_IMAGE_DATA_URL_LENGTH = 100000000;
+const BLOG_DIRECT_POST_IMAGE_DATA_URL_LENGTH = 4000000;
+const BLOG_STAGED_IMAGE_CHUNK_LENGTH = 2000000;
 const BLOG_MAX_IMAGE_ATTACHMENTS = 4;
 const BLOG_ALLOWED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 const BLOG_IMAGE_DATA_URL_PATTERN = /^data:([^;]+);base64,([A-Za-z0-9+/=\r\n]+)$/i;
@@ -615,7 +618,9 @@ async function resolvePostContentBlocks(templateBlocks) {
 
             contentBlocks.push({
                 type: 'image',
-                imageDataUrl: imageAttachment.dataUrl,
+                ...(imageAttachment.stagedUploadToken
+                    ? { stagedUploadToken: imageAttachment.stagedUploadToken }
+                    : { imageDataUrl: imageAttachment.dataUrl }),
                 fileName: imageAttachment.fileName
             });
             continue;
@@ -775,11 +780,77 @@ async function selectPostImageDataUrl() {
         return { error: 'post: selected image is too large to store in blog.txt as base64' };
     }
 
+    if (dataUrl.length > BLOG_DIRECT_POST_IMAGE_DATA_URL_LENGTH) {
+        const staged = await stageBlogImageDataUrl(dataUrl);
+        if (!staged.ok) {
+            return { error: staged.error };
+        }
+
+        return {
+            stagedUploadToken: staged.token,
+            mimeType,
+            fileName: file.name || 'image'
+        };
+    }
+
     return {
         dataUrl,
         mimeType,
         fileName: file.name || 'image'
     };
+}
+
+async function stageBlogImageDataUrl(dataUrl) {
+    const normalizedDataUrl = normalizeBlogImageDataUrl(dataUrl);
+    if (!normalizedDataUrl) {
+        return {
+            ok: false,
+            error: 'post: image must be png, jpg, jpeg, webp, or gif'
+        };
+    }
+
+    const uploadId = createBlogUploadId();
+    const totalChunks = Math.ceil(normalizedDataUrl.length / BLOG_STAGED_IMAGE_CHUNK_LENGTH);
+
+    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+        const chunk = normalizedDataUrl.slice(
+            chunkIndex * BLOG_STAGED_IMAGE_CHUNK_LENGTH,
+            (chunkIndex + 1) * BLOG_STAGED_IMAGE_CHUNK_LENGTH
+        );
+        const response = await fetch(BLOG_STAGE_IMAGE_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                uploadId,
+                chunkIndex,
+                totalChunks,
+                chunk
+            })
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            return {
+                ok: false,
+                error: payload.error || 'post: unable to stage large image upload right now'
+            };
+        }
+    }
+
+    return {
+        ok: true,
+        token: uploadId
+    };
+}
+
+function createBlogUploadId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID();
+    }
+
+    return `upload-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function date_command() {
