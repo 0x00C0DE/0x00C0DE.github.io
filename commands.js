@@ -99,7 +99,8 @@ const VISITOR_LEAVE_API_URL = window.VISITOR_LEAVE_API_URL || 'https://0x00c0de-
 const BLOG_MAX_POST_LENGTH = 500;
 const BLOG_MAX_IMAGE_DATA_URL_LENGTH = 100000000;
 const BLOG_DIRECT_POST_IMAGE_DATA_URL_LENGTH = 4000000;
-const BLOG_STAGED_IMAGE_CHUNK_LENGTH = 2000000;
+const BLOG_STAGED_IMAGE_CHUNK_LENGTH = 98304;
+const BLOG_MAX_STAGED_IMAGE_CHUNKS = 2048;
 const BLOG_MAX_IMAGE_ATTACHMENTS = 4;
 const BLOG_ALLOWED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 const BLOG_IMAGE_DATA_URL_PATTERN = /^data:([^;]+);base64,([A-Za-z0-9+/=\r\n]+)$/i;
@@ -923,30 +924,45 @@ async function stageBlogImageDataUrl(dataUrl) {
 
     const uploadId = createBlogUploadId();
     const totalChunks = Math.ceil(normalizedDataUrl.length / BLOG_STAGED_IMAGE_CHUNK_LENGTH);
+    if (totalChunks > BLOG_MAX_STAGED_IMAGE_CHUNKS) {
+        return {
+            ok: false,
+            error: 'post: selected image is too large to stage for upload right now'
+        };
+    }
 
     for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
         const chunk = normalizedDataUrl.slice(
             chunkIndex * BLOG_STAGED_IMAGE_CHUNK_LENGTH,
             (chunkIndex + 1) * BLOG_STAGED_IMAGE_CHUNK_LENGTH
         );
-        const response = await fetch(BLOG_STAGE_IMAGE_API_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                uploadId,
-                chunkIndex,
-                totalChunks,
-                chunk
-            })
-        });
+        let response;
+
+        try {
+            response = await fetch(BLOG_STAGE_IMAGE_API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    uploadId,
+                    chunkIndex,
+                    totalChunks,
+                    chunk
+                })
+            });
+        } catch (error) {
+            return {
+                ok: false,
+                error: `post: unable to stage image upload chunk ${chunkIndex + 1} of ${totalChunks}`
+            };
+        }
 
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
             return {
                 ok: false,
-                error: payload.error || 'post: unable to stage large image upload right now'
+                error: payload.error || `post: unable to stage image upload chunk ${chunkIndex + 1} of ${totalChunks}`
             };
         }
     }
@@ -1097,7 +1113,10 @@ async function post_command(args) {
         return output;
     } catch (error) {
         console.error('post failed', error);
-        return ['post: backend unavailable right now'];
+        const message = typeof error?.message === 'string' && error.message.trim()
+            ? error.message.trim()
+            : 'backend unavailable right now';
+        return [`post: ${message}`];
     }
 }
 

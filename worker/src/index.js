@@ -314,7 +314,7 @@ export class BlogUploadSession {
             const chunkIndex = Number.parseInt(body?.chunkIndex, 10);
             const chunk = typeof body?.chunk === 'string' ? body.chunk : '';
 
-            if (!Number.isInteger(totalChunks) || totalChunks <= 0 || totalChunks > 1000) {
+            if (!Number.isInteger(totalChunks) || totalChunks <= 0 || totalChunks > MAX_STAGED_IMAGE_CHUNKS) {
                 return this.jsonErrorResponse('totalChunks must be a positive integer', 400);
             }
 
@@ -324,6 +324,10 @@ export class BlogUploadSession {
 
             if (!chunk) {
                 return this.jsonErrorResponse('chunk is required', 400);
+            }
+
+            if (chunk.length > MAX_STAGED_IMAGE_CHUNK_LENGTH) {
+                return this.jsonErrorResponse(`chunk must be ${MAX_STAGED_IMAGE_CHUNK_LENGTH} characters or fewer`, 400);
             }
 
             const meta = await this.state.storage.get('meta');
@@ -407,6 +411,8 @@ const HEARTBEAT_PERSIST_INTERVAL_MS = 2000;
 const MIN_SNAPSHOT_FLUSH_INTERVAL_MS = 1000;
 const MAX_IMAGE_DATA_URL_LENGTH = 100000000;
 const MAX_IMAGE_ATTACHMENTS = 4;
+const MAX_STAGED_IMAGE_CHUNKS = 2048;
+const MAX_STAGED_IMAGE_CHUNK_LENGTH = 98304;
 const ALLOWED_BLOG_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 const BLOG_COMPACT_IMAGE_MIME_TYPES = new Set(['image/gif']);
 const BLOG_Z85_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#';
@@ -467,30 +473,35 @@ async function handleVisitorLeave(request, env) {
 }
 
 async function handleStageImageChunk(request, env) {
-    if (!env.BLOG_UPLOAD_SESSION) {
-        return jsonResponse({ error: 'blog upload session binding not configured' }, 500, env.ALLOWED_ORIGIN);
+    try {
+        if (!env.BLOG_UPLOAD_SESSION) {
+            return jsonResponse({ error: 'blog upload session binding not configured' }, 500, env.ALLOWED_ORIGIN);
+        }
+
+        const body = await request.json().catch(() => null);
+        const uploadId = sanitizeUploadToken(body?.uploadId);
+        if (!uploadId) {
+            return jsonResponse({ error: 'uploadId is required' }, 400, env.ALLOWED_ORIGIN);
+        }
+
+        const stub = getBlogUploadSessionStub(env, uploadId);
+        const response = await stub.fetch('https://blog-upload-session/stage', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                chunkIndex: body?.chunkIndex,
+                totalChunks: body?.totalChunks,
+                chunk: body?.chunk
+            })
+        });
+
+        return proxyJsonResponse(response, env.ALLOWED_ORIGIN);
+    } catch (error) {
+        console.error('stage image chunk failed', error);
+        return jsonResponse({ error: 'unable to stage image upload right now' }, 500, env.ALLOWED_ORIGIN);
     }
-
-    const body = await request.json().catch(() => null);
-    const uploadId = sanitizeUploadToken(body?.uploadId);
-    if (!uploadId) {
-        return jsonResponse({ error: 'uploadId is required' }, 400, env.ALLOWED_ORIGIN);
-    }
-
-    const stub = getBlogUploadSessionStub(env, uploadId);
-    const response = await stub.fetch('https://blog-upload-session/stage', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            chunkIndex: body?.chunkIndex,
-            totalChunks: body?.totalChunks,
-            chunk: body?.chunk
-        })
-    });
-
-    return proxyJsonResponse(response, env.ALLOWED_ORIGIN);
 }
 
 async function handleAppend(request, env) {

@@ -106,6 +106,21 @@ function createUploadSessionBindingWithMapReads() {
     };
 }
 
+function createThrowingUploadSessionBinding() {
+    return {
+        idFromName(name) {
+            return name;
+        },
+        get() {
+            return {
+                async fetch() {
+                    throw new Error('simulated durable object staging failure');
+                }
+            };
+        }
+    };
+}
+
 test('trackVisitor persists totals and increments visits only on "visit" action', async () => {
     const { counter, storage } = createCounter();
 
@@ -656,6 +671,58 @@ test('append endpoint can consume a staged image upload assembled from chunks', 
     assert.match(updatedBlogContent, /\[image-z85\]/);
     assert.match(updatedBlogContent, /mime:image\/gif/);
     assert.doesNotMatch(updatedBlogContent, /data:image\/gif;base64,R0lGODlhAQABAIAAAAUEBA==/);
+});
+
+test('upload-chunk endpoint accepts high chunk counts needed for large staged uploads', async () => {
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        BLOG_UPLOAD_SESSION: createUploadSessionBinding()
+    };
+
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/upload-chunk', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            uploadId: 'upload-many-chunks',
+            chunkIndex: 1536,
+            totalChunks: 1537,
+            chunk: 'data:image/gif;base64,AAAA'
+        })
+    }), env);
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+        ok: true,
+        staged: true,
+        chunkIndex: 1536
+    });
+});
+
+test('upload-chunk endpoint returns a json error when staged upload storage throws', async () => {
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        BLOG_UPLOAD_SESSION: createThrowingUploadSessionBinding()
+    };
+
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/upload-chunk', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            uploadId: 'upload-throws',
+            chunkIndex: 0,
+            totalChunks: 1,
+            chunk: 'data:image/gif;base64,AAAA'
+        })
+    }), env);
+
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), {
+        error: 'unable to stage image upload right now'
+    });
 });
 
 test('append endpoint can consume a staged image upload when chunk reads come back as a map', async t => {
