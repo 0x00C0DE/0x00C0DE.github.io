@@ -377,6 +377,15 @@ function formatHelpEntry(command, description, width) {
     };
 }
 
+function buildPretextLabHref(text) {
+    const trimmed = typeof text === 'string' ? text.trim() : '';
+    if (!trimmed) {
+        return 'pretext-lab.html';
+    }
+
+    return `pretext-lab.html?${new URLSearchParams({ text: trimmed }).toString()}`;
+}
+
 function help_command() {
     const entries = [
         ['cat', 'Display file contents'],
@@ -391,6 +400,7 @@ function help_command() {
         ['ls', 'List directory contents'],
         ['movie [w h]', 'Display your live camera footage as ASCII art at size w x h (press any key to stop)'],
         ['picture [w h]', 'Display 0x00C0DE\'s picture as ASCII art at size w x h'],
+        ['pretext [text]', 'Open the Pretext layout lab with optional sample text'],
         ['post <text>', 'Append a blog entry through the backend API (may take a short time to appear)'],
         ['post --image [text]', `Append a blog entry with a selected image (${BLOG_SUPPORTED_IMAGE_TYPES_LABEL})`],
         ['post hello [image] goodbye', `Insert a selected inline image between text blocks (${BLOG_SUPPORTED_IMAGE_TYPES_LABEL})`],
@@ -1177,6 +1187,11 @@ async function picture_command(args) {
     img.setAttribute('crossOrigin', 'anonymous');
     await img.decode();
     return renderImageToAscii(img, width, height);
+}
+
+function pretext_command(args) {
+    window.open(buildPretextLabHref(args.join(' ')), '_self');
+    return [];
 }
 
 async function post_command(args) {

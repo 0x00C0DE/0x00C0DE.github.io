@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Interactive Pretext layout lab for 0x00C0DE.">
+    <title>Pretext Lab | 0x00C0DE</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #060001;
+            --panel: rgba(26, 0, 5, 0.88);
+            --panel-strong: rgba(34, 0, 7, 0.96);
+            --border: rgba(255, 143, 153, 0.36);
+            --text: #ffd9dd;
+            --muted: #ff9aa4;
+            --accent: #ff5f6d;
+            --accent-soft: rgba(255, 95, 109, 0.16);
+            --glow: rgba(255, 95, 109, 0.22);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            min-height: 100%;
+            background:
+                radial-gradient(circle at top, rgba(115, 12, 24, 0.3), transparent 42%),
+                linear-gradient(180deg, #100103 0%, var(--bg) 62%);
+            color: var(--text);
+            font-family: "Courier New", monospace;
+        }
+
+        body::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(255, 255, 255, 0.025),
+                rgba(255, 255, 255, 0.025) 1px,
+                transparent 1px,
+                transparent 3px
+            );
+            opacity: 0.3;
+        }
+
+        a {
+            color: var(--muted);
+        }
+
+        .shell {
+            position: relative;
+            z-index: 1;
+            max-width: 1220px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .hero {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            margin-bottom: 18px;
+        }
+
+        .eyebrow {
+            margin: 0 0 8px;
+            color: var(--muted);
+            font-size: 0.86rem;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(2rem, 4vw, 3.4rem);
+            line-height: 0.92;
+            color: #fff1f3;
+            text-shadow: 0 0 20px var(--glow);
+        }
+
+        .hero-copy {
+            max-width: 46rem;
+            margin: 12px 0 0;
+            color: var(--muted);
+            line-height: 1.55;
+        }
+
+        .hero-links {
+            display: flex;
+            gap: 0.8rem;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .link-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.72rem 0.95rem;
+            border: 1px solid var(--border);
+            background: var(--panel);
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .panels {
+            display: grid;
+            grid-template-columns: minmax(18rem, 24rem) minmax(0, 1fr);
+            gap: 18px;
+        }
+
+        .panel {
+            border: 1px solid var(--border);
+            background:
+                linear-gradient(180deg, rgba(35, 0, 6, 0.94), rgba(13, 0, 3, 0.92));
+            box-shadow:
+                inset 0 0 0 1px rgba(108, 11, 25, 0.72),
+                0 18px 42px rgba(0, 0, 0, 0.28);
+            backdrop-filter: blur(8px);
+        }
+
+        .panel-section {
+            padding: 18px;
+            border-top: 1px solid rgba(255, 143, 153, 0.14);
+        }
+
+        .panel-section:first-child {
+            border-top: 0;
+        }
+
+        .panel-title {
+            margin: 0 0 12px;
+            color: #fff1f3;
+            font-size: 1rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 14px;
+            color: var(--muted);
+            font-size: 0.92rem;
+        }
+
+        .label-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 0.75rem;
+            margin-bottom: 8px;
+        }
+
+        textarea,
+        input,
+        select,
+        button {
+            width: 100%;
+            border: 1px solid rgba(255, 143, 153, 0.3);
+            background: rgba(12, 0, 2, 0.9);
+            color: var(--text);
+            font: inherit;
+        }
+
+        textarea,
+        input,
+        select {
+            padding: 0.78rem 0.85rem;
+        }
+
+        textarea {
+            min-height: 14rem;
+            resize: vertical;
+            line-height: 1.5;
+        }
+
+        button {
+            cursor: pointer;
+            padding: 0.78rem 0.9rem;
+        }
+
+        .control-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .sample-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .sample-button,
+        .reset-button {
+            background: linear-gradient(180deg, rgba(61, 0, 12, 0.95), rgba(24, 0, 5, 0.96));
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .metric {
+            padding: 12px;
+            border: 1px solid rgba(255, 143, 153, 0.2);
+            background: rgba(255, 95, 109, 0.06);
+        }
+
+        .metric-label {
+            display: block;
+            margin-bottom: 6px;
+            color: var(--muted);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .metric-value {
+            color: #fff1f3;
+            font-size: clamp(1rem, 2vw, 1.4rem);
+        }
+
+        .preview-shell {
+            overflow: auto;
+            padding: 14px;
+            border: 1px solid rgba(255, 143, 153, 0.18);
+            background:
+                linear-gradient(180deg, rgba(255, 95, 109, 0.06), rgba(255, 95, 109, 0.02)),
+                rgba(7, 0, 1, 0.92);
+        }
+
+        .preview-width {
+            margin: 0 0 10px;
+            color: var(--muted);
+            font-size: 0.88rem;
+        }
+
+        .preview-frame {
+            min-width: fit-content;
+            border: 1px dashed rgba(255, 143, 153, 0.34);
+            background: rgba(19, 0, 4, 0.96);
+            box-shadow: inset 0 0 0 1px rgba(88, 10, 21, 0.6);
+        }
+
+        .preview-lines {
+            display: grid;
+            align-content: start;
+            white-space: pre;
+        }
+
+        .preview-line {
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            border-top: 1px solid rgba(255, 143, 153, 0.06);
+        }
+
+        .preview-line:first-child {
+            border-top: 0;
+        }
+
+        .preview-line-number {
+            display: inline-block;
+            width: 3ch;
+            margin-right: 1rem;
+            color: rgba(255, 154, 164, 0.7);
+        }
+
+        .line-list {
+            display: grid;
+            gap: 8px;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .line-list-item {
+            display: grid;
+            grid-template-columns: 4ch minmax(0, 1fr) auto;
+            gap: 0.9rem;
+            padding: 10px 12px;
+            border: 1px solid rgba(255, 143, 153, 0.14);
+            background: rgba(255, 95, 109, 0.04);
+        }
+
+        .line-list-width {
+            color: var(--muted);
+        }
+
+        .footnote {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        @media (max-width: 980px) {
+            .panels {
+                grid-template-columns: 1fr;
+            }
+
+            .hero {
+                flex-direction: column;
+            }
+
+            .hero-links {
+                justify-content: flex-start;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .shell {
+                padding: 16px;
+            }
+
+            .control-grid,
+            .metrics,
+            .sample-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .line-list-item {
+                grid-template-columns: 4ch minmax(0, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="shell">
+        <header class="hero">
+            <div>
+                <p class="eyebrow">US-19 / Pretext Integration</p>
+                <h1>Pretext Lab</h1>
+                <p class="hero-copy">
+                    This page is the first in-repo Pretext integration: a live measurement lab that routes text through
+                    the real library, reports line metrics, and renders the exact wrapped lines without asking the DOM
+                    to measure paragraph height for us.
+                </p>
+            </div>
+            <div class="hero-links">
+                <a class="link-chip" href="index.html?command=banner">Back to terminal</a>
+                <a class="link-chip" href="https://github.com/chenglou/pretext" target="_blank" rel="noreferrer">Pretext repo</a>
+            </div>
+        </header>
+
+        <section class="panels">
+            <aside class="panel">
+                <div class="panel-section">
+                    <h2 class="panel-title">Controls</h2>
+                    <label for="pretext-text">
+                        <span class="label-row">
+                            <span>Text sample</span>
+                            <span id="char-count">0 chars</span>
+                        </span>
+                        <textarea id="pretext-text" spellcheck="false"></textarea>
+                    </label>
+                    <div class="control-grid">
+                        <label for="pretext-width">
+                            <span class="label-row">
+                                <span>Width</span>
+                                <span>px</span>
+                            </span>
+                            <input id="pretext-width" type="number" min="80" max="960" step="10">
+                        </label>
+                        <label for="pretext-font-size">
+                            <span class="label-row">
+                                <span>Font size</span>
+                                <span>px</span>
+                            </span>
+                            <input id="pretext-font-size" type="number" min="12" max="36" step="1">
+                        </label>
+                        <label for="pretext-line-height">
+                            <span class="label-row">
+                                <span>Line height</span>
+                                <span>px</span>
+                            </span>
+                            <input id="pretext-line-height" type="number" min="16" max="72" step="1">
+                        </label>
+                        <label for="pretext-white-space">
+                            <span class="label-row">
+                                <span>Whitespace</span>
+                                <span>mode</span>
+                            </span>
+                            <select id="pretext-white-space">
+                                <option value="pre-wrap">pre-wrap</option>
+                                <option value="normal">normal</option>
+                            </select>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <h2 class="panel-title">Samples</h2>
+                    <div class="sample-grid">
+                        <button class="sample-button" type="button" data-sample="terminal">Terminal copy</button>
+                        <button class="sample-button" type="button" data-sample="multilingual">Mixed script</button>
+                        <button class="sample-button" type="button" data-sample="hardbreaks">Hard breaks</button>
+                        <button class="reset-button" id="reset-button" type="button">Reset defaults</button>
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <p class="footnote">
+                        The preview uses the same font shorthand that Pretext sees, so the reported height and line count stay aligned with the rendered sample.
+                    </p>
+                </div>
+            </aside>
+
+            <section class="panel">
+                <div class="panel-section">
+                    <h2 class="panel-title">Metrics</h2>
+                    <div class="metrics">
+                        <div class="metric">
+                            <span class="metric-label">Lines</span>
+                            <strong class="metric-value" id="metric-lines">0</strong>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Height</span>
+                            <strong class="metric-value" id="metric-height">0px</strong>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Widest line</span>
+                            <strong class="metric-value" id="metric-widest">0px</strong>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Mode</span>
+                            <strong class="metric-value" id="metric-mode">pre-wrap</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <h2 class="panel-title">Measured Preview</h2>
+                    <div class="preview-shell">
+                        <p class="preview-width" id="preview-width-label"></p>
+                        <div class="preview-frame" id="preview-frame">
+                            <div class="preview-lines" id="preview-lines"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <h2 class="panel-title">Line Inventory</h2>
+                    <ol class="line-list" id="line-list"></ol>
+                </div>
+            </section>
+        </section>
+    </main>
+
+    <script type="module" src="pretext-lab.mjs"></script>
+</body>
+</html>
