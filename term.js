@@ -1,6 +1,15 @@
 ﻿const PROMPT_USER = "guest";
 const PROMPT_HOST = "localhost";
 const PROMPT_PATH = "/home/0x00C0DE/Unkn0wn";
+const DEFAULT_PROMPT_SNAPSHOT = Object.freeze({
+    host: 'localhost',
+    isRoot: false,
+    mode: 'default',
+    path: PROMPT_PATH,
+    promptSymbol: '$',
+    theme: 'default',
+    user: PROMPT_USER
+});
 
 let commandHistory = [];
 let historyIndex = -1;
@@ -25,23 +34,44 @@ const commandHandlers = new Map([
     ['pwd', pwd_command],
     ['qr-totp', qr_totp_command],
     ['resume', resume_command],
+    ['su', su_command],
     ['userpic', userpic_command],
     ['visitors', visitors_command],
     ['whoami', whoami_command],
     ['youtube', youtube_command]
 ]);
 
+function getPromptSnapshot() {
+    if (typeof window.getTerminalPromptSnapshot === 'function') {
+        return window.getTerminalPromptSnapshot();
+    }
+
+    return DEFAULT_PROMPT_SNAPSHOT;
+}
+
 function appendPrompt(container) {
+    const snapshot = getPromptSnapshot();
     const prompt = document.createElement('span');
     prompt.className = 'terminal-prompt';
-    const parts = [
-        ['prompt-user', PROMPT_USER],
-        ['header', '@'],
-        ['prompt-host', PROMPT_HOST],
-        ['header', ':'],
-        ['prompt-path', PROMPT_PATH],
-        ['header', '$ ']
-    ];
+    const parts = snapshot.mode === 'kali'
+        ? [
+            ['prompt-kali-bracket', '('],
+            [snapshot.isRoot ? 'prompt-user-root' : 'prompt-user-kali', snapshot.user],
+            ['prompt-kali-icon', snapshot.isRoot ? '\u2620' : '\u2726'],
+            [snapshot.isRoot ? 'prompt-host-root' : 'prompt-host-kali', snapshot.host],
+            ['prompt-kali-bracket', ')-['],
+            ['prompt-path-kali', snapshot.path],
+            ['prompt-kali-bracket', ']'],
+            [snapshot.isRoot ? 'prompt-user-root' : 'prompt-user-kali', `${snapshot.promptSymbol} `]
+        ]
+        : [
+            ['prompt-user', snapshot.user],
+            ['header', '@'],
+            ['prompt-host', snapshot.host],
+            ['header', ':'],
+            ['prompt-path', snapshot.path],
+            ['header', `${snapshot.promptSymbol} `]
+        ];
 
     parts.forEach(([className, text]) => {
         const span = document.createElement('span');
@@ -52,6 +82,29 @@ function appendPrompt(container) {
 
     container.append(prompt);
     return prompt;
+}
+
+function refreshPrompt(container) {
+    if (!container) {
+        return null;
+    }
+
+    const existingPrompt = container.querySelector(':scope > .terminal-prompt');
+    if (existingPrompt) {
+        existingPrompt.remove();
+    }
+
+    return appendPrompt(container);
+}
+
+function refreshTerminalInputPrompt() {
+    const terminal = document.getElementById('terminal');
+    const inputLine = terminal ? terminal.querySelector('.input-line') : null;
+    if (!inputLine) {
+        return null;
+    }
+
+    return refreshPrompt(inputLine);
 }
 
 function getSafeHref(href) {
@@ -728,14 +781,19 @@ document.addEventListener("click", () => {
 
 window.setupTerminal = setupTerminal;
 window.executeCommand = executeCommand;
-window.getPromptPath = () => PROMPT_PATH;
-window.getPromptUser = () => PROMPT_USER;
-window.getPromptHost = () => PROMPT_HOST;
+window.getPromptPath = () => getPromptSnapshot().path;
+window.getPromptUser = () => getPromptSnapshot().user;
+window.getPromptHost = () => getPromptSnapshot().host;
+window.refreshTerminalInputPrompt = refreshTerminalInputPrompt;
 window.showAsciiStill = showAsciiStill;
 window.showImageStill = showImageStill;
 window.bootTerminalSite = async defaultCommand => {
     const urlParams = new URLSearchParams(window.location.search);
     const command = urlParams.get('command');
+
+    if (typeof window.ensureTerminalSessionReady === 'function') {
+        await window.ensureTerminalSessionReady();
+    }
 
     if (typeof window.ensureTerminalPretextReady === 'function') {
         await window.ensureTerminalPretextReady();
