@@ -237,6 +237,43 @@ test('removeImageBlock can remove the image block that follows a specific text l
     assert.doesNotMatch(removal.content, /data:image\/png;base64,BBBB/);
 });
 
+test('removeImageBlock does not delete a different image when retrying a stale delete after the original image is already gone', () => {
+    const imageA = 'data:image/png;base64,AAAA';
+    const imageB = 'data:image/png;base64,BBBB';
+    const currentContent = [
+        '[2026-04-02T10:17:04.041Z]',
+        'testing image post',
+        '[image-base64]',
+        imageA,
+        '[/image-base64]',
+        '[image-base64]',
+        imageB,
+        '[/image-base64]',
+        ''
+    ].join('\n');
+
+    const firstRemoval = removeImageBlock(currentContent, {
+        targetEntryTimestamp: '[2026-04-02T10:17:04.041Z]',
+        targetEntryImageIndex: 0,
+        targetPreviousTextLine: 'testing image post',
+        targetImageDataUrl: imageA
+    });
+
+    assert.equal(firstRemoval.removed, true);
+    assert.doesNotMatch(firstRemoval.content, /data:image\/png;base64,AAAA/);
+    assert.match(firstRemoval.content, /data:image\/png;base64,BBBB/);
+
+    const secondRemoval = removeImageBlock(firstRemoval.content, {
+        targetEntryTimestamp: '[2026-04-02T10:17:04.041Z]',
+        targetEntryImageIndex: 0,
+        targetPreviousTextLine: 'testing image post',
+        targetImageDataUrl: imageA
+    });
+
+    assert.equal(secondRemoval.removed, false);
+    assert.match(secondRemoval.content, /data:image\/png;base64,BBBB/);
+});
+
 test('appendBlogEntry and removeImageBlock use the same blog file serialization', () => {
     const initialContent = [
         '0x00C0DE Blog',
@@ -318,6 +355,19 @@ test('append endpoint accepts gif image data urls and commits them to blog.txt',
                 status: 200,
                 headers: {
                     'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response([
+                '0x00C0DE Blog',
+                '=============',
+                ''
+            ].join('\n'), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
                 }
             });
         }
@@ -443,6 +493,28 @@ test('append endpoint preserves existing content when GitHub contents API return
             });
         }
 
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response(currentContent, {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response([
+                '0x00C0DE Blog',
+                '=============',
+                ''
+            ].join('\n'), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            });
+        }
+
         throw new Error(`unexpected fetch: ${method} ${urlString}`);
     };
 
@@ -507,4 +579,223 @@ test('append endpoint preserves existing content when GitHub contents API return
     assert.equal((currentContent.match(/data:image\/png;base64,AAAA/g) || []).length, 2);
     assert.equal((currentContent.match(/data:image\/png;base64,BBBB/g) || []).length, 2);
     assert.equal((currentContent.match(/\nccccccc\n/g) || []).length, 2);
+});
+
+test('append endpoint blocks writes while the live site is still deploying the previous repo state', async t => {
+    const originalFetch = globalThis.fetch;
+    let githubUpdateCalls = 0;
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+        const method = options.method || 'GET';
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/contents/blog.txt?ref=main') {
+            if (method === 'PUT') {
+                githubUpdateCalls += 1;
+            }
+
+            return new Response(JSON.stringify({
+                sha: 'oldsha456',
+                content: Buffer.from([
+                    '0x00C0DE Blog',
+                    '=============',
+                    '',
+                    '[2026-04-02T09:00:00.000Z]',
+                    'repo is ahead',
+                    ''
+                ].join('\n'), 'utf8').toString('base64')
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response([
+                '0x00C0DE Blog',
+                '=============',
+                '',
+                '[2026-04-02T08:59:00.000Z]',
+                'site is still behind',
+                ''
+            ].join('\n'), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response([
+                '0x00C0DE Blog',
+                '=============',
+                ''
+            ].join('\n'), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${method} ${urlString}`);
+    };
+
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        GITHUB_OWNER: 'owner',
+        GITHUB_REPO: 'repo',
+        GITHUB_PAT: 'token',
+        GITHUB_BRANCH: 'main',
+        RATE_LIMITER: {
+            idFromName(name) {
+                return name;
+            },
+            get() {
+                return {
+                    async fetch() {
+                        return new Response(JSON.stringify({
+                            allowed: true
+                        }), {
+                            status: 200,
+                            headers: {
+                                'Content-Type': 'application/json; charset=utf-8'
+                            }
+                        });
+                    }
+                };
+            }
+        }
+    };
+
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            contentBlocks: [
+                { type: 'text', text: 'blocked post' }
+            ]
+        })
+    }), env);
+
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), {
+        error: 'site is still deploying previous changes; wait for blog.txt to go live before posting or deleting again'
+    });
+    assert.equal(githubUpdateCalls, 0);
+});
+
+test('delete endpoint blocks writes while the live site is still deploying the previous repo state', async t => {
+    const originalFetch = globalThis.fetch;
+    let githubUpdateCalls = 0;
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+        const method = options.method || 'GET';
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/contents/blog.txt?ref=main') {
+            if (method === 'PUT') {
+                githubUpdateCalls += 1;
+            }
+
+            return new Response(JSON.stringify({
+                sha: 'oldsha456',
+                content: Buffer.from([
+                    '0x00C0DE Blog',
+                    '=============',
+                    '',
+                    '[2026-04-02T10:17:04.041Z]',
+                    'testing image post',
+                    '[image-base64]',
+                    'data:image/png;base64,AAAA',
+                    '[/image-base64]',
+                    ''
+                ].join('\n'), 'utf8').toString('base64')
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response([
+                '0x00C0DE Blog',
+                '=============',
+                '',
+                '[2026-04-02T10:16:00.000Z]',
+                'older deployed site',
+                ''
+            ].join('\n'), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${method} ${urlString}`);
+    };
+
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        BLOG_IMAGE_DELETE_PASSWORD: 'secret',
+        GITHUB_OWNER: 'owner',
+        GITHUB_REPO: 'repo',
+        GITHUB_PAT: 'token',
+        GITHUB_BRANCH: 'main',
+        RATE_LIMITER: {
+            idFromName(name) {
+                return name;
+            },
+            get() {
+                return {
+                    async fetch() {
+                        return new Response(JSON.stringify({
+                            allowed: true
+                        }), {
+                            status: 200,
+                            headers: {
+                                'Content-Type': 'application/json; charset=utf-8'
+                            }
+                        });
+                    }
+                };
+            }
+        }
+    };
+
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/delete-image', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            password: 'secret',
+            entryTimestamp: '[2026-04-02T10:17:04.041Z]',
+            entryImageIndex: 0,
+            previousTextLine: 'testing image post',
+            imageDataUrl: 'data:image/png;base64,AAAA'
+        })
+    }), env);
+
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), {
+        error: 'site is still deploying previous changes; wait for blog.txt to go live before posting or deleting again'
+    });
+    assert.equal(githubUpdateCalls, 0);
 });

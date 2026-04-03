@@ -305,6 +305,7 @@ const MIN_SNAPSHOT_FLUSH_INTERVAL_MS = 1000;
 const MAX_IMAGE_DATA_URL_LENGTH = 12000000;
 const MAX_IMAGE_ATTACHMENTS = 4;
 const ALLOWED_BLOG_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
+const BLOG_DEPLOY_PENDING_ERROR = 'site is still deploying previous changes; wait for blog.txt to go live before posting or deleting again';
 
 function normalizeSnapshot(snapshot) {
     return {
@@ -395,6 +396,11 @@ async function handleAppend(request, env) {
         }
 
         const githubFile = await fetchGithubFile(env);
+        const deploymentStatus = await ensurePublishedBlogIsCurrent(env, githubFile.content);
+        if (!deploymentStatus.ok) {
+            return jsonResponse({ error: deploymentStatus.error }, 409, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
         const nextContent = appendBlogEntry(githubFile.content, normalizedBlocks.blocks);
         const commit = await updateGithubFile(env, nextContent, githubFile.sha);
 
@@ -429,6 +435,7 @@ async function handleDeleteImage(request, env) {
         const entryImageIndex = Number.isInteger(body?.entryImageIndex) ? body.entryImageIndex : Number.parseInt(body?.entryImageIndex, 10);
         const imageBlockIndex = Number.isInteger(body?.imageBlockIndex) ? body.imageBlockIndex : Number.parseInt(body?.imageBlockIndex, 10);
         const previousTextLine = typeof body?.previousTextLine === 'string' ? body.previousTextLine.trim() : '';
+        const nextTextLine = typeof body?.nextTextLine === 'string' ? body.nextTextLine.trim() : '';
 
         if (!timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD)) {
             return jsonResponse({ error: 'invalid password' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
@@ -444,13 +451,19 @@ async function handleDeleteImage(request, env) {
         }
 
         const githubFile = await fetchGithubFile(env);
+        const deploymentStatus = await ensurePublishedBlogIsCurrent(env, githubFile.content);
+        if (!deploymentStatus.ok) {
+            return jsonResponse({ error: deploymentStatus.error }, 409, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
         const removal = removeImageBlock(githubFile.content, {
             targetImageBlockIndex: Number.isInteger(imageBlockIndex) && imageBlockIndex >= 0 ? imageBlockIndex : null,
             targetImageKey: imageKey,
             targetImageDataUrl: imageDataUrl,
             targetEntryTimestamp: entryTimestamp,
             targetEntryImageIndex: Number.isInteger(entryImageIndex) && entryImageIndex >= 0 ? entryImageIndex : null,
-            targetPreviousTextLine: previousTextLine
+            targetPreviousTextLine: previousTextLine,
+            targetNextTextLine: nextTextLine
         });
         if (!removal.removed) {
             return jsonResponse({ error: 'image not found in blog.txt' }, 404, env.ALLOWED_ORIGIN, rateCheck.headers);
@@ -782,6 +795,40 @@ async function fetchGithubFile(env) {
     throw new Error('github contents response did not include readable file content');
 }
 
+async function ensurePublishedBlogIsCurrent(env, githubContent) {
+    const blogUrl = publishedBlogUrl(env);
+    if (!blogUrl) {
+        return { ok: true };
+    }
+
+    try {
+        const response = await fetch(blogUrl, {
+            headers: {
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+            }
+        });
+        if (!response.ok) {
+            return {
+                ok: false,
+                error: BLOG_DEPLOY_PENDING_ERROR
+            };
+        }
+
+        const publishedContent = await response.text();
+        return {
+            ok: normalizeComparableBlogContent(publishedContent) === normalizeComparableBlogContent(githubContent),
+            error: BLOG_DEPLOY_PENDING_ERROR
+        };
+    } catch (error) {
+        console.warn('published blog verification failed', error);
+        return {
+            ok: false,
+            error: BLOG_DEPLOY_PENDING_ERROR
+        };
+    }
+}
+
 async function fetchGithubBlob(env, sha) {
     const response = await fetch(githubBlobUrl(env, sha), {
         headers: githubHeaders(env)
@@ -838,7 +885,8 @@ export function removeImageBlock(currentContent, {
     targetImageDataUrl = '',
     targetEntryTimestamp = '',
     targetEntryImageIndex = null,
-    targetPreviousTextLine = ''
+    targetPreviousTextLine = '',
+    targetNextTextLine = ''
 } = {}) {
     const blogDocument = parseBlogDocument(currentContent);
     const target = findImageBlockTarget(blogDocument.entries, {
@@ -847,7 +895,8 @@ export function removeImageBlock(currentContent, {
         targetImageDataUrl,
         targetEntryTimestamp,
         targetEntryImageIndex,
-        targetPreviousTextLine
+        targetPreviousTextLine,
+        targetNextTextLine
     });
 
     if (!target) {
@@ -1046,7 +1095,8 @@ function findImageBlockTarget(entries, {
     targetImageDataUrl,
     targetEntryTimestamp,
     targetEntryImageIndex,
-    targetPreviousTextLine
+    targetPreviousTextLine,
+    targetNextTextLine
 }) {
     const normalizedTargetEntryTimestamp = normalizeBlogEntryTimestamp(targetEntryTimestamp);
     const normalizedTargetEntryImageIndex = Number.isInteger(targetEntryImageIndex)
@@ -1054,6 +1104,7 @@ function findImageBlockTarget(entries, {
         : Number.parseInt(targetEntryImageIndex, 10);
     const normalizedTargetImageDataUrl = normalizeImageDataUrl(targetImageDataUrl);
     const normalizedTargetPreviousTextLine = String(targetPreviousTextLine || '').trim();
+    const normalizedTargetNextTextLine = String(targetNextTextLine || '').trim();
 
     if (normalizedTargetEntryTimestamp) {
         const entryIndex = entries.findIndex(entry => entry.timestampLine === normalizedTargetEntryTimestamp);
@@ -1062,7 +1113,8 @@ function findImageBlockTarget(entries, {
                 targetImageKey,
                 targetImageDataUrl: normalizedTargetImageDataUrl,
                 targetEntryImageIndex: normalizedTargetEntryImageIndex,
-                targetPreviousTextLine: normalizedTargetPreviousTextLine
+                targetPreviousTextLine: normalizedTargetPreviousTextLine,
+                targetNextTextLine: normalizedTargetNextTextLine
             });
             if (match) {
                 return {
@@ -1071,6 +1123,8 @@ function findImageBlockTarget(entries, {
                 };
             }
         }
+
+        return null;
     }
 
     const globalMatch = findImageBlockAcrossEntries(entries, {
@@ -1095,7 +1149,8 @@ function findImageBlockInEntry(entry, {
     targetImageKey,
     targetImageDataUrl,
     targetEntryImageIndex,
-    targetPreviousTextLine
+    targetPreviousTextLine,
+    targetNextTextLine
 }) {
     const imageBlocks = [];
     let lastNonEmptyTextLine = '';
@@ -1117,49 +1172,119 @@ function findImageBlockInEntry(entry, {
 
         imageBlocks.push({
             blockIndex,
+            imageIndex: imageBlocks.length,
             imageDataUrl: block.imageDataUrl,
             imageKey: createBlogImageKey(block.imageDataUrl),
-            previousTextLine: lastNonEmptyTextLine
+            previousTextLine: lastNonEmptyTextLine,
+            nextTextLine: findNextNonEmptyTextLineInEntry(entry.blocks, blockIndex)
         });
     }
 
-    if (targetPreviousTextLine) {
-        const byPreviousTextLine = imageBlocks.filter(block => block.previousTextLine.trim() === targetPreviousTextLine);
-        if (Number.isInteger(targetEntryImageIndex) && targetEntryImageIndex >= 0) {
-            const byPreviousTextAndIndex = byPreviousTextLine.find(block => imageBlocks.indexOf(block) === targetEntryImageIndex);
-            if (byPreviousTextAndIndex) {
-                return byPreviousTextAndIndex;
-            }
-        }
-
-        if (byPreviousTextLine.length > 0) {
-            return byPreviousTextLine[0];
-        }
-    }
-
-    if (Number.isInteger(targetEntryImageIndex) && targetEntryImageIndex >= 0 && imageBlocks[targetEntryImageIndex]) {
-        return imageBlocks[targetEntryImageIndex];
-    }
-
     if (targetImageDataUrl) {
-        const byDataUrl = imageBlocks.find(block => block.imageDataUrl === targetImageDataUrl);
-        if (byDataUrl) {
-            return byDataUrl;
-        }
+        return selectExactImageBlockMatch(imageBlocks.filter(block => block.imageDataUrl === targetImageDataUrl), {
+            targetEntryImageIndex,
+            targetPreviousTextLine,
+            targetNextTextLine
+        });
     }
 
     if (targetImageKey) {
-        const byKey = imageBlocks.find(block => block.imageKey === targetImageKey);
-        if (byKey) {
-            return byKey;
+        const keyMatch = selectExactImageBlockMatch(imageBlocks.filter(block => block.imageKey === targetImageKey), {
+            targetEntryImageIndex,
+            targetPreviousTextLine,
+            targetNextTextLine
+        });
+        if (keyMatch) {
+            return keyMatch;
         }
     }
 
-    if (imageBlocks.length === 1) {
-        return imageBlocks[0];
+    return selectContextualImageBlockMatch(imageBlocks, {
+        targetEntryImageIndex,
+        targetPreviousTextLine,
+        targetNextTextLine
+    });
+}
+
+function findNextNonEmptyTextLineInEntry(entryBlocks, startBlockIndex) {
+    for (let blockIndex = startBlockIndex + 1; blockIndex < entryBlocks.length; blockIndex += 1) {
+        const block = entryBlocks[blockIndex];
+        if (block.type !== 'text') {
+            continue;
+        }
+
+        for (const line of block.lines) {
+            if (String(line || '').trim()) {
+                return String(line);
+            }
+        }
     }
 
-    return null;
+    return '';
+}
+
+function selectExactImageBlockMatch(imageBlocks, {
+    targetEntryImageIndex,
+    targetPreviousTextLine,
+    targetNextTextLine
+}) {
+    if (imageBlocks.length === 0) {
+        return null;
+    }
+
+    let candidates = imageBlocks;
+
+    if (targetPreviousTextLine) {
+        candidates = candidates.filter(block => block.previousTextLine.trim() === targetPreviousTextLine);
+        if (candidates.length === 0) {
+            return null;
+        }
+    }
+
+    if (targetNextTextLine) {
+        candidates = candidates.filter(block => block.nextTextLine.trim() === targetNextTextLine);
+        if (candidates.length === 0) {
+            return null;
+        }
+    }
+
+    if (Number.isInteger(targetEntryImageIndex) && targetEntryImageIndex >= 0) {
+        return candidates.find(block => block.imageIndex === targetEntryImageIndex) || null;
+    }
+
+    return candidates.length === 1 ? candidates[0] : null;
+}
+
+function selectContextualImageBlockMatch(imageBlocks, {
+    targetEntryImageIndex,
+    targetPreviousTextLine,
+    targetNextTextLine
+}) {
+    let candidates = imageBlocks;
+
+    if (targetPreviousTextLine) {
+        candidates = candidates.filter(block => block.previousTextLine.trim() === targetPreviousTextLine);
+        if (candidates.length === 0) {
+            return null;
+        }
+    }
+
+    if (targetNextTextLine) {
+        candidates = candidates.filter(block => block.nextTextLine.trim() === targetNextTextLine);
+        if (candidates.length === 0) {
+            return null;
+        }
+    }
+
+    if (Number.isInteger(targetEntryImageIndex) && targetEntryImageIndex >= 0) {
+        return candidates.find(block => block.imageIndex === targetEntryImageIndex) || null;
+    }
+
+    if (targetPreviousTextLine || targetNextTextLine) {
+        return candidates[0] || null;
+    }
+
+    return candidates.length === 1 ? candidates[0] : null;
 }
 
 function findImageBlockByGlobalIndex(entries, targetImageBlockIndex) {
@@ -1239,6 +1364,16 @@ function githubContentsUrl(env) {
     return `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(branch)}`;
 }
 
+function publishedBlogUrl(env) {
+    const origin = String(env.ALLOWED_ORIGIN || '').trim().replace(/\/+$/g, '');
+    const path = String(env.GITHUB_BLOG_PATH || 'blog.txt').trim().replace(/^\/+/g, '');
+    if (!origin || !/^https?:\/\//i.test(origin)) {
+        return '';
+    }
+
+    return `${origin}/${path}?t=${Date.now()}`;
+}
+
 function githubBlobUrl(env, sha) {
     return `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/git/blobs/${encodeURIComponent(sha)}`;
 }
@@ -1298,4 +1433,8 @@ function decodeBase64(value) {
 
 function encodeBase64(value) {
     return btoa(unescape(encodeURIComponent(value)));
+}
+
+function normalizeComparableBlogContent(value) {
+    return String(value || '').replace(/\r\n/g, '\n');
 }
