@@ -107,6 +107,78 @@ function refreshTerminalInputPrompt() {
     return refreshPrompt(inputLine);
 }
 
+let bannerWaveReadyPromise = null;
+let bannerWaveModule = null;
+
+function fallbackSplitBannerWaveGlyphs(text) {
+    const safeText = typeof text === 'string' ? text : String(text ?? '');
+    let waveIndex = 0;
+
+    return Array.from(safeText).map(glyph => {
+        if (/^\s+$/.test(glyph)) {
+            return {
+                isAnimated: false,
+                text: glyph,
+                waveIndex: null
+            };
+        }
+
+        const output = {
+            isAnimated: true,
+            text: glyph,
+            waveIndex
+        };
+        waveIndex += 1;
+        return output;
+    });
+}
+
+function splitBannerWaveGlyphs(text) {
+    if (bannerWaveModule && typeof bannerWaveModule.splitBannerWaveGlyphs === 'function') {
+        return bannerWaveModule.splitBannerWaveGlyphs(text);
+    }
+
+    return fallbackSplitBannerWaveGlyphs(text);
+}
+
+function ensureBannerWaveReady() {
+    if (bannerWaveReadyPromise) {
+        return bannerWaveReadyPromise;
+    }
+
+    bannerWaveReadyPromise = import('./banner-wave-core.mjs')
+        .then(module => {
+            bannerWaveModule = module;
+            return module;
+        })
+        .catch(error => {
+            console.error('banner wave failed to load', error);
+            return null;
+        });
+
+    return bannerWaveReadyPromise;
+}
+
+function appendBannerWaveText(container, text, className) {
+    const wrapper = document.createElement('div');
+    wrapper.className = className;
+
+    splitBannerWaveGlyphs(text).forEach(glyph => {
+        const span = document.createElement('span');
+        span.className = glyph.isAnimated ? 'banner-wave-glyph' : 'banner-wave-gap';
+        span.textContent = glyph.text;
+        if (glyph.isAnimated) {
+            span.style.setProperty('--wave-index', String(glyph.waveIndex));
+        } else {
+            span.textContent = '\u00A0';
+        }
+        wrapper.append(span);
+    });
+
+    container.append(wrapper);
+    return wrapper;
+}
+
 function getSafeHref(href) {
     try {
         const parsed = new URL(href, window.location.href);
@@ -151,16 +223,10 @@ function renderOutputObject(container, line) {
     }
 
     if (line.type === 'banner') {
-        const banner = document.createElement('div');
-        banner.className = 'banner-art';
-        banner.textContent = line.title || '';
-        container.append(banner);
+        appendBannerWaveText(container, line.title || '', 'banner-art');
 
         if (line.subtitle) {
-            const subtitle = document.createElement('div');
-            subtitle.className = 'banner-subtitle';
-            subtitle.textContent = line.subtitle;
-            container.append(subtitle);
+            appendBannerWaveText(container, line.subtitle, 'banner-subtitle');
         }
         return;
     }
@@ -794,6 +860,8 @@ window.bootTerminalSite = async defaultCommand => {
     if (typeof window.ensureTerminalSessionReady === 'function') {
         await window.ensureTerminalSessionReady();
     }
+
+    await ensureBannerWaveReady();
 
     if (typeof window.ensureTerminalPretextReady === 'function') {
         await window.ensureTerminalPretextReady();
