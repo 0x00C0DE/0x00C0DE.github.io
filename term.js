@@ -80,13 +80,18 @@ function appendPrompt(container, beforeNode = null) {
 function createBinaryRainColumnElement(column) {
     const element = document.createElement('div');
     element.className = 'terminal-binary-column';
-    element.textContent = column.stream || '';
-    element.style.left = `${column.leftPercent || 0}%`;
-    element.style.animationDuration = `${column.durationMs || 9000}ms`;
-    element.style.animationDelay = `${column.delayMs || 0}ms`;
-    element.style.fontSize = `${column.fontSizePx || 16}px`;
-    element.style.opacity = String(column.opacity || 0.2);
-    element.style.setProperty('--binary-blur', `${column.blurPx || 0}px`);
+    const state = {
+        ...column,
+        nextMutationAt: 0
+    };
+    element._binaryRainState = state;
+    element.textContent = state.stream || '';
+    element.style.left = `${state.leftPercent || 0}%`;
+    element.style.animationDuration = `${state.durationMs || 9000}ms`;
+    element.style.animationDelay = `${state.delayMs || 0}ms`;
+    element.style.fontSize = `${state.fontSizePx || 16}px`;
+    element.style.opacity = String(state.opacity || 0.2);
+    element.style.setProperty('--binary-blur', `${state.blurPx || 0}px`);
     return element;
 }
 
@@ -108,12 +113,57 @@ function renderBinaryRainBackground(layer) {
     layer.replaceChildren(fragment);
 }
 
+function mutateBinaryRainColumns(now = Date.now()) {
+    const layer = document.getElementById(BINARY_RAIN_LAYER_ID);
+    if (!layer || layer.hidden) {
+        return;
+    }
+
+    const columns = layer.querySelectorAll('.terminal-binary-column');
+    columns.forEach(columnElement => {
+        const state = columnElement._binaryRainState;
+        if (!state) {
+            return;
+        }
+
+        if (state.nextMutationAt > now) {
+            return;
+        }
+
+        const updatedState = advanceBinaryRainColumn(state);
+        updatedState.nextMutationAt = now + (updatedState.mutationIntervalMs || 120);
+        columnElement._binaryRainState = updatedState;
+        columnElement.textContent = updatedState.stream || '';
+    });
+}
+
+function stopBinaryRainMutationLoop() {
+    if (binaryRainMutationIntervalId !== null) {
+        window.clearInterval(binaryRainMutationIntervalId);
+        binaryRainMutationIntervalId = null;
+    }
+}
+
+function startBinaryRainMutationLoop() {
+    if (binaryRainMutationIntervalId !== null) {
+        return;
+    }
+
+    binaryRainMutationIntervalId = window.setInterval(() => {
+        mutateBinaryRainColumns(Date.now());
+    }, 90);
+}
+
 function queueBinaryRainBackgroundRefresh() {
     if (binaryRainResizeTimeoutId !== null) {
         window.clearTimeout(binaryRainResizeTimeoutId);
     }
 
     binaryRainResizeTimeoutId = window.setTimeout(() => {
+        if (!shouldUseRootTerminalVisuals(getPromptSnapshot())) {
+            binaryRainResizeTimeoutId = null;
+            return;
+        }
         const layer = document.getElementById(BINARY_RAIN_LAYER_ID);
         renderBinaryRainBackground(layer);
         binaryRainResizeTimeoutId = null;
@@ -132,8 +182,7 @@ function ensureBinaryRainBackground() {
         layer.className = 'terminal-binary-rain';
         document.body.prepend(layer);
     }
-
-    renderBinaryRainBackground(layer);
+    layer.hidden = true;
 
     if (!binaryRainResizeBound) {
         window.addEventListener('resize', queueBinaryRainBackgroundRefresh);
@@ -141,6 +190,29 @@ function ensureBinaryRainBackground() {
     }
 
     return layer;
+}
+
+function syncBinaryRainVisualState() {
+    const snapshot = getPromptSnapshot();
+    const enabled = shouldUseRootTerminalVisuals(snapshot);
+    const layer = ensureBinaryRainBackground();
+    if (!layer) {
+        return;
+    }
+
+    layer.hidden = !enabled;
+
+    if (!enabled) {
+        stopBinaryRainMutationLoop();
+        layer.replaceChildren();
+        return;
+    }
+
+    if (!layer.firstChild) {
+        renderBinaryRainBackground(layer);
+    }
+    mutateBinaryRainColumns(Date.now());
+    startBinaryRainMutationLoop();
 }
 
 function refreshPrompt(container) {
@@ -174,6 +246,7 @@ let terminalVisualsReadyPromise = null;
 let terminalVisualsModule = null;
 let binaryRainResizeTimeoutId = null;
 let binaryRainResizeBound = false;
+let binaryRainMutationIntervalId = null;
 const BINARY_RAIN_LAYER_ID = 'terminal-binary-rain';
 
 function fallbackSplitBannerWaveGlyphs(text) {
@@ -203,30 +276,74 @@ function fallbackGetPromptUserClassName(snapshot) {
     return snapshot && snapshot.isRoot ? 'prompt-user prompt-user-root' : 'prompt-user';
 }
 
+function fallbackShouldUseRootTerminalVisuals(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') {
+        return false;
+    }
+
+    return Boolean(snapshot.isRoot) || String(snapshot.user || '').trim().toLowerCase() === 'root';
+}
+
 function fallbackCreateBinaryRainColumns(options = {}) {
     const width = Number.isFinite(options.width) ? options.width : 1280;
     const height = Number.isFinite(options.height) ? options.height : 720;
     const columnCount = Math.max(12, Math.min(36, Math.floor(width / 46)));
+    const glyphs = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!?@#$%&*+-=<>[]{}';
     const columns = [];
 
     for (let index = 0; index < columnCount; index += 1) {
         const streamLength = Math.max(18, Math.floor(height / 18) + 8);
         const digits = [];
         for (let digitIndex = 0; digitIndex < streamLength; digitIndex += 1) {
-            digits.push((index + digitIndex) % 2 === 0 ? '1' : '0');
+            digits.push(glyphs.charAt((index + digitIndex) % glyphs.length));
         }
         columns.push({
             blurPx: index % 7 === 0 ? 0.9 : 0,
+            cells: digits,
             delayMs: -index * 320,
             durationMs: 7200 + index * 170,
             fontSizePx: 16 + (index % 6) * 2,
+            glyphs,
             leftPercent: Math.min(100, (index / columnCount) * 100),
+            mutationIntervalMs: 120 + (index % 5) * 18,
             opacity: 0.18 + (index % 5) * 0.06,
             stream: digits.join('\n')
         });
     }
 
     return columns;
+}
+
+function fallbackAdvanceBinaryRainColumn(column) {
+    const glyphs = typeof column?.glyphs === 'string' && column.glyphs
+        ? column.glyphs
+        : '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!?@#$%&*+-=<>[]{}';
+    const cells = Array.isArray(column?.cells)
+        ? [...column.cells]
+        : String(column?.stream || '')
+            .split('\n')
+            .filter(entry => entry.length > 0);
+
+    if (cells.length === 0) {
+        return {
+            ...column,
+            cells,
+            stream: ''
+        };
+    }
+
+    const mutationCount = Math.max(1, Math.round(cells.length * 0.14));
+    for (let index = 0; index < mutationCount; index += 1) {
+        const cellIndex = Math.floor(Math.random() * cells.length);
+        const glyphIndex = Math.floor(Math.random() * glyphs.length);
+        cells[cellIndex] = glyphs.charAt(glyphIndex);
+    }
+
+    return {
+        ...column,
+        cells,
+        stream: cells.join('\n')
+    };
 }
 
 function splitBannerWaveGlyphs(text) {
@@ -245,12 +362,28 @@ function getPromptUserClassName(snapshot) {
     return fallbackGetPromptUserClassName(snapshot);
 }
 
+function shouldUseRootTerminalVisuals(snapshot) {
+    if (terminalVisualsModule && typeof terminalVisualsModule.shouldUseRootTerminalVisuals === 'function') {
+        return terminalVisualsModule.shouldUseRootTerminalVisuals(snapshot);
+    }
+
+    return fallbackShouldUseRootTerminalVisuals(snapshot);
+}
+
 function createBinaryRainColumns(options = {}) {
     if (terminalVisualsModule && typeof terminalVisualsModule.createBinaryRainColumns === 'function') {
         return terminalVisualsModule.createBinaryRainColumns(options);
     }
 
     return fallbackCreateBinaryRainColumns(options);
+}
+
+function advanceBinaryRainColumn(column) {
+    if (terminalVisualsModule && typeof terminalVisualsModule.advanceBinaryRainColumn === 'function') {
+        return terminalVisualsModule.advanceBinaryRainColumn(column);
+    }
+
+    return fallbackAdvanceBinaryRainColumn(column);
 }
 
 function ensureBannerWaveReady() {
@@ -981,6 +1114,7 @@ window.getPromptPath = () => getPromptSnapshot().path;
 window.getPromptUser = () => getPromptSnapshot().user;
 window.getPromptHost = () => getPromptSnapshot().host;
 window.refreshTerminalInputPrompt = refreshTerminalInputPrompt;
+window.syncTerminalVisualEffects = syncBinaryRainVisualState;
 window.showAsciiStill = showAsciiStill;
 window.showImageStill = showImageStill;
 window.bootTerminalSite = async defaultCommand => {
@@ -999,6 +1133,7 @@ window.bootTerminalSite = async defaultCommand => {
     }
 
     ensureBinaryRainBackground();
+    syncBinaryRainVisualState();
     setupTerminal();
     initVisitorTracking();
     executeCommand(command ? command : defaultCommand);

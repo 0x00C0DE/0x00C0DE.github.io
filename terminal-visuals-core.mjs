@@ -1,4 +1,4 @@
-const DEFAULT_BINARY_GLYPHS = '01';
+const DEFAULT_BINARY_GLYPHS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!?@#$%&*+-=<>[]{}';
 
 function clamp(value, minimum, maximum) {
     return Math.max(minimum, Math.min(maximum, value));
@@ -20,17 +20,49 @@ function pickGlyph(glyphs, rng) {
     return glyphs.charAt(clamp(index, 0, glyphs.length - 1));
 }
 
-function createBinaryRainStream(length, glyphs, rng) {
+function pickDifferentGlyph(currentGlyph, glyphs, rng) {
+    if (glyphs.length <= 1) {
+        return glyphs.charAt(0);
+    }
+
+    let nextGlyph = pickGlyph(glyphs, rng);
+    if (nextGlyph === currentGlyph) {
+        const currentIndex = glyphs.indexOf(currentGlyph);
+        const nextIndex = currentIndex >= 0
+            ? (currentIndex + 1 + Math.floor(rng() * (glyphs.length - 1))) % glyphs.length
+            : Math.floor(rng() * glyphs.length);
+        nextGlyph = glyphs.charAt(clamp(nextIndex, 0, glyphs.length - 1));
+    }
+    return nextGlyph;
+}
+
+function createBinaryRainCells(length, glyphs, rng) {
     const output = [];
     for (let index = 0; index < length; index += 1) {
         output.push(pickGlyph(glyphs, rng));
     }
-    return output.join('\n');
+    return output;
+}
+
+function createBinaryRainStream(cells) {
+    return cells.join('\n');
 }
 
 export function getPromptUserClassName(snapshot) {
     const isRoot = Boolean(snapshot && typeof snapshot === 'object' && snapshot.isRoot);
     return isRoot ? 'prompt-user prompt-user-root' : 'prompt-user';
+}
+
+export function shouldUseRootTerminalVisuals(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') {
+        return false;
+    }
+
+    if (snapshot.isRoot) {
+        return true;
+    }
+
+    return String(snapshot.user || '').trim().toLowerCase() === 'root';
 }
 
 export function createBinaryRainColumns(options = {}) {
@@ -60,17 +92,58 @@ export function createBinaryRainColumns(options = {}) {
             16,
             60
         );
+        const cells = createBinaryRainCells(streamLength, glyphs, rng);
 
         columns.push({
             blurPx: roundTo(rng() < 0.2 ? 0.5 + rng() * 1.8 : 0, 1),
             delayMs: -Math.round(rng() * 12000),
             durationMs: Math.round(6000 + rng() * 10000),
             fontSizePx,
+            glyphs,
             leftPercent: roundTo(leftPercent, 2),
+            mutationIntervalMs: Math.round(70 + rng() * 170),
             opacity: roundTo(0.16 + rng() * 0.38, 2),
-            stream: createBinaryRainStream(streamLength, glyphs, rng)
+            cells,
+            stream: createBinaryRainStream(cells)
         });
     }
 
     return columns.sort((left, right) => left.leftPercent - right.leftPercent);
+}
+
+export function advanceBinaryRainColumn(column, options = {}) {
+    const rng = typeof options.rng === 'function' ? options.rng : Math.random;
+    const glyphs = normalizeGlyphs(options.glyphs ?? column?.glyphs);
+    const cells = Array.isArray(column?.cells)
+        ? [...column.cells]
+        : String(column?.stream || '')
+            .split('\n')
+            .filter(entry => entry.length > 0);
+
+    if (cells.length === 0) {
+        return {
+            ...column,
+            cells,
+            glyphs,
+            stream: ''
+        };
+    }
+
+    const mutationCount = clamp(
+        Math.round(cells.length * (0.08 + rng() * 0.2)),
+        1,
+        cells.length
+    );
+
+    for (let index = 0; index < mutationCount; index += 1) {
+        const cellIndex = clamp(Math.floor(rng() * cells.length), 0, cells.length - 1);
+        cells[cellIndex] = pickDifferentGlyph(cells[cellIndex], glyphs, rng);
+    }
+
+    return {
+        ...column,
+        cells,
+        glyphs,
+        stream: createBinaryRainStream(cells)
+    };
 }
