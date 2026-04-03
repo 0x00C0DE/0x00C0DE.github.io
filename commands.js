@@ -155,36 +155,25 @@ let terminalSessionModule = null;
 let terminalSessionState = { ...FALLBACK_TERMINAL_SESSION };
 
 function getFallbackPromptSnapshot() {
-    if (terminalSessionState.shell === 'kali') {
-        const isRoot = String(terminalSessionState.user || '').toLowerCase() === 'root';
-        return {
-            documentTitle: `${terminalSessionState.user}@kali: ~`,
-            host: 'kali',
-            isRoot,
-            mode: 'kali',
-            path: '~',
-            promptSymbol: isRoot ? '#' : '$',
-            theme: isRoot ? 'kali-root' : 'kali-user',
-            user: terminalSessionState.user
-        };
-    }
-
+    const username = typeof terminalSessionState.user === 'string' && terminalSessionState.user.trim()
+        ? terminalSessionState.user.trim()
+        : 'guest';
     return {
         documentTitle: null,
         host: 'localhost',
-        isRoot: false,
+        isRoot: username.toLowerCase() === 'root',
         mode: 'default',
         path: '/home/0x00C0DE/Unkn0wn',
         promptSymbol: '$',
         theme: 'default',
-        user: 'guest'
+        user: username
     };
 }
 
 function normalizeFallbackTerminalSession(session) {
     const safeSession = session && typeof session === 'object' ? session : FALLBACK_TERMINAL_SESSION;
     return {
-        shell: safeSession.shell === 'kali' ? 'kali' : 'default',
+        shell: 'default',
         user: typeof safeSession.user === 'string' && safeSession.user.trim()
             ? safeSession.user.trim()
             : 'guest'
@@ -279,7 +268,7 @@ function applyTerminalSessionCommand(command, args = []) {
 
     const username = typeof args[0] === 'string' && args[0].trim() ? args[0].trim() : 'root';
     return {
-        shell: 'kali',
+        shell: 'default',
         user: username
     };
 }
@@ -613,7 +602,7 @@ function help_command() {
         ['pwd', 'Print working directory'],
         ['qr-totp', 'Browser QR enrollment + TOTP generator for the cs370 project'],
         ['resume', 'Open my resume PDF in a new tab'],
-        ['su [user]', 'Switch to the Kali-style shell prompt (defaults to root)'],
+        ['su [user]', 'Switch the current terminal user (defaults to root)'],
         ['userpic [w h]', 'Upload or take your own picture and display it as ASCII art'],
         ['visitors', 'Display the live visitor stats widget'],
         ['whoami', 'Print current username'],

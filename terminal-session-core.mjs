@@ -30,9 +30,8 @@ export function normalizeTerminalSession(session) {
         return createDefaultTerminalSession();
     }
 
-    const shell = session.shell === 'kali' ? 'kali' : 'default';
     return {
-        shell,
+        shell: 'default',
         user: sanitizeUsername(session.user)
     };
 }
@@ -52,28 +51,23 @@ export function applyTerminalSessionCommand(session, command, args = []) {
     }
 
     return {
-        shell: 'kali',
+        shell: 'default',
         user: resolveSuTarget(args)
     };
 }
 
 export function getTerminalPromptSnapshot(session) {
     const normalized = normalizeTerminalSession(session);
-    if (normalized.shell !== 'kali') {
-        return {
-            ...DEFAULT_PROMPT_SNAPSHOT
-        };
-    }
-
     const isRoot = normalized.user.toLowerCase() === 'root';
     return {
-        documentTitle: `${normalized.user}@kali: ~`,
-        host: 'kali',
+        ...DEFAULT_PROMPT_SNAPSHOT,
+        documentTitle: null,
+        host: 'localhost',
         isRoot,
-        mode: 'kali',
-        path: '~',
-        promptSymbol: isRoot ? '#' : '$',
-        theme: isRoot ? 'kali-root' : 'kali-user',
+        mode: 'default',
+        path: '/home/0x00C0DE/Unkn0wn',
+        promptSymbol: '$',
+        theme: 'default',
         user: normalized.user
     };
 }

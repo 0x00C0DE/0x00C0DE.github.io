@@ -53,25 +53,14 @@ function appendPrompt(container) {
     const snapshot = getPromptSnapshot();
     const prompt = document.createElement('span');
     prompt.className = 'terminal-prompt';
-    const parts = snapshot.mode === 'kali'
-        ? [
-            ['prompt-kali-bracket', '('],
-            [snapshot.isRoot ? 'prompt-user-root' : 'prompt-user-kali', snapshot.user],
-            ['prompt-kali-icon', snapshot.isRoot ? '\u2620' : '\u2726'],
-            [snapshot.isRoot ? 'prompt-host-root' : 'prompt-host-kali', snapshot.host],
-            ['prompt-kali-bracket', ')-['],
-            ['prompt-path-kali', snapshot.path],
-            ['prompt-kali-bracket', ']'],
-            [snapshot.isRoot ? 'prompt-user-root' : 'prompt-user-kali', `${snapshot.promptSymbol} `]
-        ]
-        : [
-            ['prompt-user', snapshot.user],
-            ['header', '@'],
-            ['prompt-host', snapshot.host],
-            ['header', ':'],
-            ['prompt-path', snapshot.path],
-            ['header', `${snapshot.promptSymbol} `]
-        ];
+    const parts = [
+        ['prompt-user', snapshot.user],
+        ['header', '@'],
+        ['prompt-host', snapshot.host],
+        ['header', ':'],
+        ['prompt-path', snapshot.path],
+        ['header', `${snapshot.promptSymbol} `]
+    ];
 
     parts.forEach(([className, text]) => {
         const span = document.createElement('span');
