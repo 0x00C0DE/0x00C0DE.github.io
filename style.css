@@ -28,6 +28,21 @@ body::after {
     pointer-events: none;
 }
 
+body.terminal-theme-kali {
+    background-color: #0d1018;
+    background-image: radial-gradient(rgba(33, 49, 84, 0.72), #06070c 125%);
+}
+
+body.terminal-theme-kali::after {
+    background: repeating-linear-gradient(
+        0deg,
+        rgba(255, 255, 255, 0.04),
+        rgba(255, 255, 255, 0.04) 1px,
+        transparent 1px,
+        transparent 2px
+    );
+}
+
 .terminal-container {
     font-family: "Courier New", monospace;
     font-size: clamp(15px, 1vw, 19px);
@@ -49,6 +64,11 @@ body::after {
 .terminal-line {
     margin-bottom: 0;
     white-space: pre-wrap;
+}
+
+.terminal-container.terminal-theme-kali {
+    color: #e6e6e6;
+    text-shadow: 0 0 0.24vw rgba(196, 214, 255, 0.18);
 }
 
 .terminal-command-line {
@@ -182,6 +202,10 @@ A {
     color: #ff8f99;
 }
 
+body.terminal-theme-kali A {
+    color: #49aee6;
+}
+
 .prompt {
     color: #ff5f6d;
     font-weight: bold;
@@ -197,6 +221,33 @@ A {
 
 .prompt-path {
     color: #ffd166;
+}
+
+.prompt-kali-bracket {
+    color: #47d4b9;
+}
+
+.prompt-user-kali,
+.prompt-host-kali,
+.prompt-kali-icon {
+    color: #05a1f7;
+}
+
+.prompt-user-root,
+.prompt-host-root {
+    color: #ec0101;
+}
+
+.prompt-path-kali {
+    color: #e6e6e6;
+}
+
+body.terminal-theme-kali-root .prompt-kali-bracket {
+    color: #277fff;
+}
+
+body.terminal-theme-kali-root .prompt-kali-icon {
+    color: #ec0101;
 }
 
 .input-line {
@@ -219,8 +270,17 @@ A {
     caret-color: #ff5f6d;
 }
 
+body.terminal-theme-kali .terminal-input {
+    color: #f7f9ff;
+    caret-color: #f7f9ff;
+}
+
 .error {
     color: #ff5555;
+}
+
+body.terminal-theme-kali .error {
+    color: #ff8e8e;
 }
 
 .header {

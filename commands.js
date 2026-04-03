@@ -144,6 +144,166 @@ const QR_TOTP_BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 const QR_TOTP_SECRET_BYTES = 20;
 const QR_TOTP_STEP_SECONDS = 30;
 const QR_TOTP_CODE_DIGITS = 6;
+const DEFAULT_DOCUMENT_TITLE = document.title;
+const FALLBACK_TERMINAL_SESSION = Object.freeze({
+    shell: 'default',
+    user: 'guest'
+});
+
+let terminalSessionReadyPromise = null;
+let terminalSessionModule = null;
+let terminalSessionState = { ...FALLBACK_TERMINAL_SESSION };
+
+function getFallbackPromptSnapshot() {
+    if (terminalSessionState.shell === 'kali') {
+        const isRoot = String(terminalSessionState.user || '').toLowerCase() === 'root';
+        return {
+            documentTitle: `${terminalSessionState.user}@kali: ~`,
+            host: 'kali',
+            isRoot,
+            mode: 'kali',
+            path: '~',
+            promptSymbol: isRoot ? '#' : '$',
+            theme: isRoot ? 'kali-root' : 'kali-user',
+            user: terminalSessionState.user
+        };
+    }
+
+    return {
+        documentTitle: null,
+        host: 'localhost',
+        isRoot: false,
+        mode: 'default',
+        path: '/home/0x00C0DE/Unkn0wn',
+        promptSymbol: '$',
+        theme: 'default',
+        user: 'guest'
+    };
+}
+
+function normalizeFallbackTerminalSession(session) {
+    const safeSession = session && typeof session === 'object' ? session : FALLBACK_TERMINAL_SESSION;
+    return {
+        shell: safeSession.shell === 'kali' ? 'kali' : 'default',
+        user: typeof safeSession.user === 'string' && safeSession.user.trim()
+            ? safeSession.user.trim()
+            : 'guest'
+    };
+}
+
+function getTerminalSessionModuleApi() {
+    return terminalSessionModule;
+}
+
+function normalizeTerminalSessionState(session) {
+    const moduleApi = getTerminalSessionModuleApi();
+    if (moduleApi && typeof moduleApi.normalizeTerminalSession === 'function') {
+        return moduleApi.normalizeTerminalSession(session);
+    }
+
+    return normalizeFallbackTerminalSession(session);
+}
+
+function getTerminalPromptSnapshot() {
+    const moduleApi = getTerminalSessionModuleApi();
+    if (moduleApi && typeof moduleApi.getTerminalPromptSnapshot === 'function') {
+        return moduleApi.getTerminalPromptSnapshot(terminalSessionState);
+    }
+
+    return getFallbackPromptSnapshot();
+}
+
+function getTerminalSessionUsername() {
+    const moduleApi = getTerminalSessionModuleApi();
+    if (moduleApi && typeof moduleApi.getTerminalSessionUsername === 'function') {
+        return moduleApi.getTerminalSessionUsername(terminalSessionState);
+    }
+
+    return getTerminalPromptSnapshot().user;
+}
+
+function getTerminalSessionPwd() {
+    const moduleApi = getTerminalSessionModuleApi();
+    if (moduleApi && typeof moduleApi.getTerminalSessionPwd === 'function') {
+        return moduleApi.getTerminalSessionPwd(terminalSessionState);
+    }
+
+    return getTerminalPromptSnapshot().path;
+}
+
+function syncTerminalDocumentTitle() {
+    const snapshot = getTerminalPromptSnapshot();
+    document.title = snapshot.documentTitle || DEFAULT_DOCUMENT_TITLE;
+}
+
+function syncTerminalThemeClasses() {
+    const snapshot = getTerminalPromptSnapshot();
+    const isKali = snapshot.mode === 'kali';
+    const body = document.body;
+    const terminal = document.getElementById('terminal');
+
+    if (body) {
+        body.classList.toggle('terminal-theme-kali', isKali);
+        body.classList.toggle('terminal-theme-kali-root', isKali && snapshot.isRoot);
+    }
+
+    if (terminal) {
+        terminal.classList.toggle('terminal-theme-kali', isKali);
+        terminal.classList.toggle('terminal-theme-kali-root', isKali && snapshot.isRoot);
+    }
+}
+
+function refreshTerminalSessionUi() {
+    syncTerminalDocumentTitle();
+    syncTerminalThemeClasses();
+    if (typeof window.refreshTerminalInputPrompt === 'function') {
+        window.refreshTerminalInputPrompt();
+    }
+}
+
+function setTerminalSessionState(nextState) {
+    terminalSessionState = normalizeTerminalSessionState(nextState);
+    refreshTerminalSessionUi();
+    return terminalSessionState;
+}
+
+function applyTerminalSessionCommand(command, args = []) {
+    const moduleApi = getTerminalSessionModuleApi();
+    if (moduleApi && typeof moduleApi.applyTerminalSessionCommand === 'function') {
+        return moduleApi.applyTerminalSessionCommand(terminalSessionState, command, args);
+    }
+
+    if (String(command || '').toLowerCase() !== 'su') {
+        return normalizeTerminalSessionState(terminalSessionState);
+    }
+
+    const username = typeof args[0] === 'string' && args[0].trim() ? args[0].trim() : 'root';
+    return {
+        shell: 'kali',
+        user: username
+    };
+}
+
+function ensureTerminalSessionReady() {
+    if (terminalSessionReadyPromise) {
+        return terminalSessionReadyPromise;
+    }
+
+    terminalSessionReadyPromise = import('./terminal-session-core.mjs')
+        .then(module => {
+            terminalSessionModule = module;
+            terminalSessionState = normalizeTerminalSessionState(terminalSessionState);
+            refreshTerminalSessionUi();
+            return module;
+        })
+        .catch(error => {
+            console.error('terminal session failed to load', error);
+            refreshTerminalSessionUi();
+            return null;
+        });
+
+    return terminalSessionReadyPromise;
+}
 
 function normalizeTextFilename(input) {
     const trimmed = input.trim();
@@ -453,6 +613,7 @@ function help_command() {
         ['pwd', 'Print working directory'],
         ['qr-totp', 'Browser QR enrollment + TOTP generator for the cs370 project'],
         ['resume', 'Open my resume PDF in a new tab'],
+        ['su [user]', 'Switch to the Kali-style shell prompt (defaults to root)'],
         ['userpic [w h]', 'Upload or take your own picture and display it as ASCII art'],
         ['visitors', 'Display the live visitor stats widget'],
         ['whoami', 'Print current username'],
@@ -1248,6 +1409,11 @@ function pretext_command(args) {
     ];
 }
 
+function su_command(args) {
+    setTerminalSessionState(applyTerminalSessionCommand('su', args));
+    return [];
+}
+
 async function post_command(args) {
     const { includeImage, text } = parsePostArgs(args);
     if (!text && !includeImage) {
@@ -2002,6 +2168,11 @@ window.isSafeBlogImageDataUrl = isSafeBlogImageDataUrl;
 window.isSafeBlogImageSource = isSafeBlogImageSource;
 window.deleteBlogImageByBlockIndex = deleteBlogImageByBlockIndex;
 window.ensureTerminalPretextReady = ensureTerminalPretextReady;
+window.ensureTerminalSessionReady = ensureTerminalSessionReady;
+window.getTerminalPromptSnapshot = getTerminalPromptSnapshot;
+window.getTerminalSessionState = () => terminalSessionState;
+window.setTerminalSessionState = setTerminalSessionState;
+window.refreshTerminalSessionUi = refreshTerminalSessionUi;
 
 function resume_command() {
     window.open('resume.pdf', '_blank');
@@ -2009,11 +2180,11 @@ function resume_command() {
 }
 
 function pwd_command() {
-    return ['/home/0x00C0DE/Unkn0wn'];
+    return [getTerminalSessionPwd()];
 }
 
 function whoami_command() {
-    return ['guest'];
+    return [getTerminalSessionUsername()];
 }
 
 function youtube_command() {
