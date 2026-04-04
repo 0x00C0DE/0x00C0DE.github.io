@@ -4,6 +4,11 @@
     box-sizing: border-box;
 }
 
+html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+}
+
 :root {
     --terminal-red: #ff4d4d;
     --terminal-red-soft: #ff8585;
@@ -12,6 +17,8 @@
     --terminal-red-glow: rgba(255, 77, 77, 0.42);
     --terminal-root-red: #ff1f1f;
     --terminal-path-gold: #ffd166;
+    --terminal-font-size: clamp(15px, 1vw, 19px);
+    --terminal-line-height: clamp(17px, 1vw, 21px);
 }
 
 body {
@@ -86,10 +93,10 @@ body.terminal-theme-kali::after {
 
 .terminal-container {
     font-family: "Courier New", monospace;
-    font-size: clamp(15px, 1vw, 19px);
+    font-size: var(--terminal-font-size);
     text-shadow: 0 0 0.4vw rgba(255, 214, 214, 0.72);
-    line-height: clamp(17px, 1vw, 21px);
-    width: 100vw;
+    line-height: var(--terminal-line-height);
+    width: 100%;
     height: 100vh;
     position: relative;
     z-index: 3;
@@ -171,8 +178,11 @@ body.terminal-theme-root .terminal-binary-rain {
 }
 
 .terminal-command-text {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     min-width: 0;
+    white-space: pre;
+    overflow-wrap: normal;
+    word-break: normal;
 }
 
 .terminal-pretext-enabled {
@@ -405,8 +415,8 @@ body.terminal-theme-kali-root .prompt-kali-icon {
 
 .terminal-input {
     font-family: "Courier New", monospace;
-    font-size: clamp(15px, 1vw, 19px);
-    line-height: clamp(17px, 1vw, 21px);
+    font-size: var(--terminal-font-size);
+    line-height: var(--terminal-line-height);
     text-shadow: 0 0 0.4vw rgba(255, 214, 214, 0.72);
     background: transparent;
     border: none;
@@ -420,6 +430,17 @@ body.terminal-theme-kali-root .prompt-kali-icon {
 body.terminal-theme-kali .terminal-input {
     color: #f7f9ff;
     caret-color: #f7f9ff;
+}
+
+@media (max-width: 540px) {
+    :root {
+        --terminal-font-size: clamp(12px, 3.1vw, 15px);
+        --terminal-line-height: clamp(14px, 3.55vw, 17px);
+    }
+
+    .terminal-container {
+        padding: 0.5rem;
+    }
 }
 
 .error {

@@ -717,7 +717,8 @@ function renderCommandEchoText(container, text) {
 
     if (typeof window.renderTerminalTextWithPretext === 'function') {
         const handled = window.renderTerminalTextWithPretext(container, safeText, {
-            tokenizeLinks: false
+            tokenizeLinks: false,
+            whiteSpace: 'pre'
         });
         if (handled) {
             return;
