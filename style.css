@@ -223,6 +223,10 @@ body.terminal-theme-godlike .terminal-binary-column {
     align-items: flex-start;
 }
 
+.terminal-command-line.terminal-pretext-enabled {
+    display: block;
+}
+
 .terminal-prompt {
     display: inline-flex;
     flex: 0 0 auto;

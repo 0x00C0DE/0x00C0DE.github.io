@@ -954,7 +954,149 @@ async function selectUserImageFiles(options = {}) {
         input.addEventListener('change', handleChange, { once: true });
         window.addEventListener('focus', handleFocus, { once: true });
         document.addEventListener('visibilitychange', handleVisibilityChange);
-        input.click();
+        triggerUserImageInputPicker(input);
+    });
+}
+
+function triggerUserImageInputPicker(input) {
+    if (!input) {
+        return;
+    }
+
+    if (typeof input.showPicker === 'function') {
+        try {
+            input.showPicker();
+            return;
+        } catch {
+            // Fall back to click() for browsers that block or lack showPicker support.
+        }
+    }
+
+    input.click();
+}
+
+async function selectUserImageFilesSequentially(requiredCount = 1, options = {}) {
+    const input = document.getElementById('user-image-input');
+    if (!input) {
+        throw new Error('user image input not found');
+    }
+
+    const normalizedCount = Number.isInteger(requiredCount) && requiredCount > 0
+        ? requiredCount
+        : 1;
+    const acceptValue = typeof options.accept === 'string' && options.accept.trim()
+        ? options.accept.trim()
+        : BLOG_IMAGE_FILE_ACCEPT;
+
+    if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+    }
+
+    input.value = '';
+    input.removeAttribute('capture');
+    input.setAttribute('accept', acceptValue);
+    input.multiple = false;
+
+    return new Promise(resolve => {
+        let settled = false;
+        let activeCycle = 0;
+        let activeListeners = null;
+        const selectedFiles = [];
+
+        const detachListeners = () => {
+            if (!activeListeners) {
+                return;
+            }
+
+            input.removeEventListener('change', activeListeners.handleChange);
+            window.removeEventListener('focus', activeListeners.handleFocus);
+            document.removeEventListener('visibilitychange', activeListeners.handleVisibilityChange);
+            activeListeners = null;
+        };
+
+        const finish = files => {
+            if (settled) {
+                return;
+            }
+
+            settled = true;
+            detachListeners();
+            input.multiple = false;
+            resolve(Array.isArray(files) ? files : []);
+        };
+
+        const launchNextPicker = () => {
+            detachListeners();
+            activeCycle += 1;
+            const cycleId = activeCycle;
+            const openedAt = window.performance?.now?.() || Date.now();
+            input.value = '';
+
+            const resolveCurrentSelection = () => {
+                if (settled || cycleId !== activeCycle) {
+                    return;
+                }
+
+                const files = input.files ? Array.from(input.files).filter(Boolean) : [];
+                if (files.length > 0) {
+                    detachListeners();
+                    selectedFiles.push(files[0]);
+                    if (selectedFiles.length >= normalizedCount) {
+                        finish(selectedFiles);
+                        return;
+                    }
+
+                    launchNextPicker();
+                    return;
+                }
+
+                if (document.visibilityState === 'hidden') {
+                    return;
+                }
+
+                if (typeof document.hasFocus === 'function' && !document.hasFocus()) {
+                    return;
+                }
+
+                detachListeners();
+                finish(selectedFiles);
+            };
+
+            const handleChange = () => {
+                resolveCurrentSelection();
+            };
+
+            const handleFocus = () => {
+                const elapsed = (window.performance?.now?.() || Date.now()) - openedAt;
+                const delay = elapsed < 150 ? 650 : 400;
+                window.setTimeout(() => {
+                    resolveCurrentSelection();
+                }, delay);
+            };
+
+            const handleVisibilityChange = () => {
+                if (document.visibilityState !== 'visible') {
+                    return;
+                }
+
+                window.setTimeout(() => {
+                    resolveCurrentSelection();
+                }, 400);
+            };
+
+            activeListeners = {
+                handleChange,
+                handleFocus,
+                handleVisibilityChange
+            };
+
+            input.addEventListener('change', handleChange, { once: true });
+            window.addEventListener('focus', handleFocus, { once: true });
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+            triggerUserImageInputPicker(input);
+        };
+
+        launchNextPicker();
     });
 }
 
@@ -1603,30 +1745,27 @@ async function selectPostMediaAttachments(requiredCount = 1) {
     const normalizedCount = Number.isInteger(requiredCount) && requiredCount > 0
         ? requiredCount
         : 1;
+    const files = await selectUserImageFilesSequentially(normalizedCount, {
+        accept: BLOG_POST_FILE_ACCEPT
+    });
+
+    if (files.length === 0) {
+        return { error: 'post: no media selected' };
+    }
+
+    if (files.length !== normalizedCount) {
+        return {
+            error: `post: upload cancelled; expected ${normalizedCount} media item${normalizedCount === 1 ? '' : 's'} but received ${files.length}`
+        };
+    }
+
     const attachments = [];
-    for (let index = 0; index < normalizedCount; index += 1) {
-        const file = await selectUserImageFile({
-            accept: BLOG_POST_FILE_ACCEPT
-        });
-        if (!file) {
-            if (attachments.length === 0) {
-                return { error: 'post: no media selected' };
-            }
-
-            return {
-                error: `post: upload cancelled; expected ${normalizedCount} media item${normalizedCount === 1 ? '' : 's'} but received ${attachments.length}`
-            };
-        }
-
+    for (const file of files) {
         const attachment = await buildPostMediaAttachmentFromFile(file);
         if (attachment.error) {
             return attachment;
         }
         attachments.push(attachment);
-
-        if (index < normalizedCount - 1) {
-            await new Promise(resolve => window.setTimeout(resolve, 0));
-        }
     }
 
     return { attachments };
