@@ -471,7 +471,7 @@ function parseBlogTextFile(lines) {
 
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
-        if (line !== '[image-base64]' && line !== '[image-z85]') {
+        if (line !== '[image-base64]' && line !== '[image-z85]' && line !== '[image-url]') {
             if (isBlogEntryTimestampLine(line)) {
                 currentEntryTimestamp = line.trim();
                 currentEntryImageIndex = 0;
@@ -485,7 +485,12 @@ function parseBlogTextFile(lines) {
 
         const imageLines = [];
         const isCompactImageBlock = line === '[image-z85]';
-        const closingMarker = isCompactImageBlock ? '[/image-z85]' : '[/image-base64]';
+        const isHostedImageBlock = line === '[image-url]';
+        const closingMarker = isCompactImageBlock
+            ? '[/image-z85]'
+            : isHostedImageBlock
+                ? '[/image-url]'
+                : '[/image-base64]';
         index += 1;
 
         while (index < lines.length && lines[index] !== closingMarker) {
@@ -514,6 +519,28 @@ function parseBlogTextFile(lines) {
                 imageLines.forEach(imageLine => output.push(imageLine));
                 if (index < lines.length && lines[index] === '[/image-z85]') {
                     output.push('[/image-z85]');
+                }
+            }
+        } else if (isHostedImageBlock) {
+            const hostedImage = parseHostedBlogImageBlockLines(imageLines);
+            if (hostedImage) {
+                output.push({
+                    type: 'inline-image',
+                    src: hostedImage.src,
+                    alt: 'Embedded blog image',
+                    deletable: true,
+                    imageBlockIndex,
+                    imageKey: createBlogImageKey(hostedImage.src),
+                    entryTimestamp: currentEntryTimestamp,
+                    entryImageIndex: currentEntryImageIndex,
+                    previousTextLine,
+                    nextTextLine
+                });
+            } else {
+                output.push('[image-url]');
+                imageLines.forEach(imageLine => output.push(imageLine));
+                if (index < lines.length && lines[index] === '[/image-url]') {
+                    output.push('[/image-url]');
                 }
             }
         } else {
@@ -554,8 +581,12 @@ function findNextBlogTextLine(lines, startIndex) {
             return '';
         }
 
-        if (line === '[image-base64]' || line === '[image-z85]') {
-            const closingMarker = line === '[image-z85]' ? '[/image-z85]' : '[/image-base64]';
+        if (line === '[image-base64]' || line === '[image-z85]' || line === '[image-url]') {
+            const closingMarker = line === '[image-z85]'
+                ? '[/image-z85]'
+                : line === '[image-url]'
+                    ? '[/image-url]'
+                    : '[/image-base64]';
             index += 1;
             while (index < lines.length && lines[index] !== closingMarker) {
                 index += 1;
@@ -979,6 +1010,7 @@ async function deleteBlogImageByBlockIndex(
         : Number.parseInt(entryImageIndex, 10);
     const normalizedPreviousTextLine = typeof previousTextLine === 'string' ? previousTextLine.trim() : '';
     const normalizedImageDataUrl = normalizeBlogImageDataUrl(imageDataUrl);
+    const normalizedImageUrl = normalizedImageDataUrl ? '' : normalizeBlogImageUrl(imageDataUrl);
     const normalizedNextTextLine = typeof nextTextLine === 'string' ? nextTextLine.trim() : '';
 
     if ((!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) && !imageKey && !normalizedEntryTimestamp && !normalizedPreviousTextLine) {
@@ -997,6 +1029,7 @@ async function deleteBlogImageByBlockIndex(
             imageBlockIndex,
             imageKey,
             imageDataUrl: normalizedImageDataUrl,
+            imageUrl: normalizedImageUrl,
             entryTimestamp: normalizedEntryTimestamp,
             entryImageIndex: Number.isInteger(normalizedEntryImageIndex) && normalizedEntryImageIndex >= 0
                 ? normalizedEntryImageIndex
@@ -1075,7 +1108,53 @@ function isSafeBlogImageSource(source) {
         return true;
     }
 
-    return /^blob:/i.test(String(source || '').trim());
+    if (/^blob:/i.test(String(source || '').trim())) {
+        return true;
+    }
+
+    return isSafeHostedBlogImageUrl(source);
+}
+
+function normalizeBlogImageUrl(imageUrl) {
+    try {
+        const parsed = new URL(String(imageUrl || '').trim(), window.location.href);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return '';
+        }
+        return parsed.toString();
+    } catch {
+        return '';
+    }
+}
+
+function getTrustedBlogImageOrigins() {
+    const origins = new Set([window.location.origin]);
+    [BLOG_POST_API_URL, BLOG_STAGE_IMAGE_API_URL, BLOG_DELETE_IMAGE_API_URL].forEach(url => {
+        try {
+            origins.add(new URL(url, window.location.href).origin);
+        } catch {
+            // Ignore malformed configured URLs.
+        }
+    });
+    return origins;
+}
+
+function isSafeHostedBlogImageUrl(imageUrl) {
+    const normalizedImageUrl = normalizeBlogImageUrl(imageUrl);
+    if (!normalizedImageUrl) {
+        return false;
+    }
+
+    try {
+        const parsed = new URL(normalizedImageUrl);
+        if (!getTrustedBlogImageOrigins().has(parsed.origin)) {
+            return false;
+        }
+
+        return /\/api\/blog\/media\//.test(parsed.pathname);
+    } catch {
+        return false;
+    }
 }
 
 function parseCompactBlogImageBlockLines(imageLines) {
@@ -1105,6 +1184,33 @@ function parseCompactBlogImageBlockLines(imageLines) {
         mimeType,
         encodedPayload,
         src: URL.createObjectURL(new Blob([imageBytes], { type: mimeType }))
+    };
+}
+
+function parseHostedBlogImageBlockLines(imageLines) {
+    if (!Array.isArray(imageLines) || imageLines.length < 4) {
+        return null;
+    }
+
+    const blockData = Object.create(null);
+    for (const line of imageLines) {
+        const match = /^([a-z-]+):([\s\S]+)$/i.exec(String(line || '').trim());
+        if (!match) {
+            return null;
+        }
+
+        blockData[match[1].toLowerCase()] = match[2].trim();
+    }
+
+    const src = normalizeBlogImageUrl(blockData.src);
+    const mimeType = String(blockData.mime || '').trim().toLowerCase();
+    if (!src || mimeType !== 'image/gif' || !isSafeHostedBlogImageUrl(src)) {
+        return null;
+    }
+
+    return {
+        src,
+        mimeType
     };
 }
 
@@ -1235,16 +1341,15 @@ async function selectPostImageDataUrl() {
         return { error: `post: image must be ${BLOG_SUPPORTED_IMAGE_TYPES_LABEL}` };
     }
 
-    if (mimeType === 'image/gif') {
-        return buildCompactGifImageAttachment(file);
-    }
-
     if (dataUrl.length > BLOG_MAX_IMAGE_DATA_URL_LENGTH) {
         return { error: 'post: selected image is too large to store in blog.txt as base64' };
     }
 
     if (dataUrl.length > BLOG_DIRECT_POST_IMAGE_DATA_URL_LENGTH) {
-        const staged = await stageBlogUploadPayload(dataUrl, 'image upload');
+        const staged = await stageBlogUploadPayload(
+            dataUrl,
+            mimeType === 'image/gif' ? 'gif upload' : 'image upload'
+        );
         if (!staged.ok) {
             return { error: staged.error };
         }

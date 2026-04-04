@@ -45,6 +45,51 @@ class FakeStorage {
     }
 }
 
+class FakeR2Bucket {
+    constructor() {
+        this.objects = new Map();
+        this.failPut = null;
+    }
+
+    async put(key, value, options = {}) {
+        if (this.failPut) {
+            throw this.failPut;
+        }
+
+        const body = await new Response(value).arrayBuffer();
+        this.objects.set(key, {
+            body: new Uint8Array(body),
+            httpMetadata: options.httpMetadata || {},
+            customMetadata: options.customMetadata || {}
+        });
+        return {
+            key
+        };
+    }
+
+    async get(key) {
+        const stored = this.objects.get(key);
+        if (!stored) {
+            return null;
+        }
+
+        return {
+            httpMetadata: stored.httpMetadata,
+            customMetadata: stored.customMetadata,
+            async arrayBuffer() {
+                return stored.body.buffer.slice(
+                    stored.body.byteOffset,
+                    stored.body.byteOffset + stored.body.byteLength
+                );
+            }
+        };
+    }
+
+    async delete(key) {
+        this.objects.delete(key);
+    }
+}
+
 function createCounter() {
     const storage = new FakeStorage();
     return {
@@ -115,6 +160,28 @@ function createThrowingUploadSessionBinding() {
             return {
                 async fetch() {
                     throw new Error('simulated durable object staging failure');
+                }
+            };
+        }
+    };
+}
+
+function createAlwaysAllowRateLimiter() {
+    return {
+        idFromName(name) {
+            return name;
+        },
+        get() {
+            return {
+                async fetch() {
+                    return new Response(JSON.stringify({
+                        allowed: true
+                    }), {
+                        status: 200,
+                        headers: {
+                            'Content-Type': 'application/json; charset=utf-8'
+                        }
+                    });
                 }
             };
         }
@@ -339,6 +406,43 @@ test('removeImageBlock prefers image key for compact gif blocks when the index i
     assert.doesNotMatch(removal.content, /BYEGIF!!/);
 });
 
+test('removeImageBlock prefers image key for hosted image url blocks when the index is stale', () => {
+    const mediaUrlA = `https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media/r2/${Buffer.from('blog-gifs/a.gif').toString('base64url')}`;
+    const mediaUrlB = `https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media/b2/${encodeURIComponent('4_zbucket_f1048576_d20260403_m120000_c001_v0001001_t0042_u017')}`;
+    const currentContent = [
+        '[2026-04-02T10:17:04.041Z]',
+        'first hosted gif',
+        '[image-url]',
+        `src:${mediaUrlA}`,
+        'mime:image/gif',
+        'provider:r2',
+        'storage-key:blog-gifs/a.gif',
+        '[/image-url]',
+        '',
+        '[2026-04-02T10:19:04.041Z]',
+        'second hosted gif',
+        '[image-url]',
+        `src:${mediaUrlB}`,
+        'mime:image/gif',
+        'provider:b2',
+        'storage-key:blog-gifs/b.gif',
+        'storage-file-id:4_zbucket_f1048576_d20260403_m120000_c001_v0001001_t0042_u017',
+        '[/image-url]',
+        ''
+    ].join('\n');
+
+    const removal = removeImageBlock(currentContent, {
+        targetImageBlockIndex: 0,
+        targetImageKey: createBlogImageKey(mediaUrlB)
+    });
+
+    assert.equal(removal.removed, true);
+    assert.match(removal.content, /first hosted gif/);
+    assert.match(removal.content, /second hosted gif/);
+    assert.match(removal.content, /\[image-url\]\nsrc:https:\/\/0x00c0de-blog-append\.0x00c0de\.workers\.dev\/api\/blog\/media\/r2\//);
+    assert.doesNotMatch(removal.content, /storage-file-id:4_zbucket_f1048576_d20260403_m120000_c001_v0001001_t0042_u017/);
+});
+
 test('removeImageBlock does not delete a different image when retrying a stale delete after the original image is already gone', () => {
     const imageA = 'data:image/png;base64,AAAA';
     const imageB = 'data:image/png;base64,BBBB';
@@ -533,6 +637,244 @@ test('append endpoint accepts gif image data urls and commits them to blog.txt i
     assert.match(updatedBlogContent, /bytes:\d+/);
     assert.doesNotMatch(updatedBlogContent, /data:image\/gif;base64,R0lGODlhAQABAIAAAAUEBA==/);
     assert.match(updatedBlogContent, /\[\/image-z85\]/);
+});
+
+test('append endpoint uploads gif image data urls to R2 and stores a hosted image-url block in blog.txt', async t => {
+    const originalFetch = globalThis.fetch;
+    let githubUpdateBody = null;
+    const r2Bucket = new FakeR2Bucket();
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+        const method = options.method || 'GET';
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/contents/blog.txt?ref=main') {
+            if (method === 'PUT') {
+                githubUpdateBody = JSON.parse(options.body);
+                return new Response(JSON.stringify({
+                    commit: {
+                        sha: 'r2gif123'
+                    }
+                }), {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json; charset=utf-8'
+                    }
+                });
+            }
+
+            return new Response(JSON.stringify({
+                sha: 'oldsha123',
+                content: Buffer.from([
+                    '0x00C0DE Blog',
+                    '=============',
+                    ''
+                ].join('\n'), 'utf8').toString('base64')
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response([
+                '0x00C0DE Blog',
+                '=============',
+                ''
+            ].join('\n'), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${method} ${urlString}`);
+    };
+
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        GITHUB_OWNER: 'owner',
+        GITHUB_REPO: 'repo',
+        GITHUB_PAT: 'token',
+        GITHUB_BRANCH: 'main',
+        BLOG_MEDIA_BASE_URL: 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media',
+        BLOG_GIF_R2_BUCKET: r2Bucket,
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
+    };
+
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            contentBlocks: [
+                { type: 'text', text: 'hosted gif post' },
+                { type: 'image', imageDataUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBA==' }
+            ]
+        })
+    }), env);
+
+    assert.equal(response.status, 201);
+    const updatedBlogContent = Buffer.from(githubUpdateBody.content, 'base64').toString('utf8');
+    assert.match(updatedBlogContent, /hosted gif post/);
+    assert.match(updatedBlogContent, /\[image-url\]/);
+    assert.match(updatedBlogContent, /src:https:\/\/0x00c0de-blog-append\.0x00c0de\.workers\.dev\/api\/blog\/media\/r2\//);
+    assert.match(updatedBlogContent, /mime:image\/gif/);
+    assert.match(updatedBlogContent, /provider:r2/);
+    assert.match(updatedBlogContent, /storage-key:blog-gifs\//);
+    assert.doesNotMatch(updatedBlogContent, /\[image-z85\]/);
+    assert.doesNotMatch(updatedBlogContent, /data:image\/gif;base64/);
+    assert.equal(r2Bucket.objects.size, 1);
+    const uploaded = [...r2Bucket.objects.values()][0];
+    assert.equal(Buffer.from(uploaded.body).toString('base64'), 'R0lGODlhAQABAIAAAAUEBA==');
+    assert.equal(uploaded.httpMetadata.contentType, 'image/gif');
+});
+
+test('append endpoint falls back to private B2 when R2 gif upload fails', async t => {
+    const originalFetch = globalThis.fetch;
+    let githubUpdateBody = null;
+    let b2UploadHeaders = null;
+    const r2Bucket = new FakeR2Bucket();
+    r2Bucket.failPut = new Error('simulated R2 quota failure');
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+        const method = options.method || 'GET';
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/contents/blog.txt?ref=main') {
+            if (method === 'PUT') {
+                githubUpdateBody = JSON.parse(options.body);
+                return new Response(JSON.stringify({
+                    commit: {
+                        sha: 'b2gif123'
+                    }
+                }), {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json; charset=utf-8'
+                    }
+                });
+            }
+
+            return new Response(JSON.stringify({
+                sha: 'oldsha123',
+                content: Buffer.from([
+                    '0x00C0DE Blog',
+                    '=============',
+                    ''
+                ].join('\n'), 'utf8').toString('base64')
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response([
+                '0x00C0DE Blog',
+                '=============',
+                ''
+            ].join('\n'), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.includes('b2_authorize_account')) {
+            return new Response(JSON.stringify({
+                apiUrl: 'https://api001.backblazeb2.com',
+                downloadUrl: 'https://f001.backblazeb2.com',
+                authorizationToken: 'b2-auth-token'
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.includes('b2_get_upload_url')) {
+            return new Response(JSON.stringify({
+                uploadUrl: 'https://pod-001.backblazeb2.com/b2api/v3/b2_upload_file/upload-001',
+                authorizationToken: 'b2-upload-token'
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://pod-001.backblazeb2.com/b2api/v3/b2_upload_file/')) {
+            b2UploadHeaders = options.headers;
+            return new Response(JSON.stringify({
+                fileId: 'b2-file-id-123',
+                fileName: 'blog-gifs/uploaded.gif'
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${method} ${urlString}`);
+    };
+
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        GITHUB_OWNER: 'owner',
+        GITHUB_REPO: 'repo',
+        GITHUB_PAT: 'token',
+        GITHUB_BRANCH: 'main',
+        BLOG_MEDIA_BASE_URL: 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media',
+        BLOG_GIF_R2_BUCKET: r2Bucket,
+        B2_APPLICATION_KEY_ID: 'key-id',
+        B2_APPLICATION_KEY: 'app-key',
+        B2_BUCKET_ID: 'bucket-id-123',
+        B2_BUCKET_NAME: '0x00C0DE-github-b2',
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
+    };
+
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            contentBlocks: [
+                { type: 'text', text: 'b2 fallback gif post' },
+                { type: 'image', imageDataUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBA==' }
+            ]
+        })
+    }), env);
+
+    assert.equal(response.status, 201);
+    const updatedBlogContent = Buffer.from(githubUpdateBody.content, 'base64').toString('utf8');
+    assert.match(updatedBlogContent, /b2 fallback gif post/);
+    assert.match(updatedBlogContent, /\[image-url\]/);
+    assert.match(updatedBlogContent, /src:https:\/\/0x00c0de-blog-append\.0x00c0de\.workers\.dev\/api\/blog\/media\/b2\/b2-file-id-123/);
+    assert.match(updatedBlogContent, /provider:b2/);
+    assert.match(updatedBlogContent, /storage-key:blog-gifs\/uploaded\.gif/);
+    assert.match(updatedBlogContent, /storage-file-id:b2-file-id-123/);
+    assert.equal(r2Bucket.objects.size, 0);
+    assert.equal(b2UploadHeaders.Authorization, 'b2-upload-token');
 });
 
 test('append endpoint accepts direct compact gif payloads and commits them to blog.txt', async t => {
@@ -1740,6 +2082,217 @@ test('append endpoint uses the git data api when a blog update would exceed the 
     assert.deepEqual(refUpdateBody, {
         sha: 'newcommitsha',
         force: false
+    });
+});
+
+test('media endpoint serves hosted gifs from R2 primary storage', async () => {
+    const r2Bucket = new FakeR2Bucket();
+    await r2Bucket.put('blog-gifs/test.gif', Buffer.from('GIF89a', 'utf8'), {
+        httpMetadata: {
+            contentType: 'image/gif'
+        }
+    });
+
+    const response = await blogWorker.fetch(
+        new Request(`https://example.com/api/blog/media/r2/${Buffer.from('blog-gifs/test.gif').toString('base64url')}`),
+        {
+            ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+            BLOG_GIF_R2_BUCKET: r2Bucket
+        }
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('Content-Type'), 'image/gif');
+    assert.equal(Buffer.from(await response.arrayBuffer()).toString('utf8'), 'GIF89a');
+});
+
+test('media endpoint serves hosted gifs from private B2 fallback storage', async t => {
+    const originalFetch = globalThis.fetch;
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+
+        if (urlString.includes('b2_authorize_account')) {
+            return new Response(JSON.stringify({
+                apiUrl: 'https://api001.backblazeb2.com',
+                downloadUrl: 'https://f001.backblazeb2.com',
+                authorizationToken: 'b2-auth-token'
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.includes('b2_download_file_by_id') && String(options.headers?.Authorization || options.headers?.authorization || '') === 'b2-auth-token') {
+            return new Response(Buffer.from('GIF89a', 'utf8'), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'image/gif'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${urlString}`);
+    };
+
+    const response = await blogWorker.fetch(
+        new Request('https://example.com/api/blog/media/b2/b2-file-id-123'),
+        {
+            ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+            B2_APPLICATION_KEY_ID: 'key-id',
+            B2_APPLICATION_KEY: 'app-key',
+            B2_BUCKET_NAME: '0x00C0DE-github-b2'
+        }
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('Content-Type'), 'image/gif');
+    assert.equal(Buffer.from(await response.arrayBuffer()).toString('utf8'), 'GIF89a');
+});
+
+test('delete endpoint removes hosted B2 gif blocks from blog.txt and deletes the backing file', async t => {
+    const originalFetch = globalThis.fetch;
+    let githubUpdateBody = null;
+    let b2DeleteBody = null;
+    const mediaUrl = 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media/b2/b2-file-id-123';
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+        const method = options.method || 'GET';
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/contents/blog.txt?ref=main') {
+            if (method === 'PUT') {
+                githubUpdateBody = JSON.parse(options.body);
+                return new Response(JSON.stringify({
+                    commit: {
+                        sha: 'deletegif123'
+                    }
+                }), {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json; charset=utf-8'
+                    }
+                });
+            }
+
+            return new Response(JSON.stringify({
+                sha: 'oldsha123',
+                content: Buffer.from([
+                    '0x00C0DE Blog',
+                    '=============',
+                    '',
+                    '[2026-04-03T02:00:00.000Z]',
+                    'hosted gif',
+                    '[image-url]',
+                    `src:${mediaUrl}`,
+                    'mime:image/gif',
+                    'provider:b2',
+                    'storage-key:blog-gifs/uploaded.gif',
+                    'storage-file-id:b2-file-id-123',
+                    '[/image-url]',
+                    ''
+                ].join('\n'), 'utf8').toString('base64')
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response([
+                '0x00C0DE Blog',
+                '=============',
+                '',
+                '[2026-04-03T02:00:00.000Z]',
+                'hosted gif',
+                '[image-url]',
+                `src:${mediaUrl}`,
+                'mime:image/gif',
+                'provider:b2',
+                'storage-key:blog-gifs/uploaded.gif',
+                'storage-file-id:b2-file-id-123',
+                '[/image-url]',
+                ''
+            ].join('\n'), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.includes('b2_authorize_account')) {
+            return new Response(JSON.stringify({
+                apiUrl: 'https://api001.backblazeb2.com',
+                downloadUrl: 'https://f001.backblazeb2.com',
+                authorizationToken: 'b2-auth-token'
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.includes('b2_delete_file_version')) {
+            b2DeleteBody = JSON.parse(options.body);
+            return new Response(JSON.stringify({
+                fileId: 'b2-file-id-123',
+                fileName: 'blog-gifs/uploaded.gif'
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${method} ${urlString}`);
+    };
+
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/delete-image', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            password: 'delete-me',
+            imageBlockIndex: 0,
+            imageKey: createBlogImageKey(mediaUrl),
+            entryTimestamp: '[2026-04-03T02:00:00.000Z]',
+            entryImageIndex: 0
+        })
+    }), {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        GITHUB_OWNER: 'owner',
+        GITHUB_REPO: 'repo',
+        GITHUB_PAT: 'token',
+        GITHUB_BRANCH: 'main',
+        BLOG_IMAGE_DELETE_PASSWORD: 'delete-me',
+        B2_APPLICATION_KEY_ID: 'key-id',
+        B2_APPLICATION_KEY: 'app-key',
+        B2_BUCKET_NAME: '0x00C0DE-github-b2',
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
+    });
+
+    assert.equal(response.status, 200);
+    const updatedBlogContent = Buffer.from(githubUpdateBody.content, 'base64').toString('utf8');
+    assert.doesNotMatch(updatedBlogContent, /\[image-url\]/);
+    assert.deepEqual(b2DeleteBody, {
+        fileId: 'b2-file-id-123',
+        fileName: 'blog-gifs/uploaded.gif'
     });
 });
 

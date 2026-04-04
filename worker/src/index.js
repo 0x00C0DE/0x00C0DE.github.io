@@ -37,6 +37,10 @@ export default {
             return handleDeleteImage(request, env);
         }
 
+        if (request.method === 'GET' && url.pathname.startsWith('/api/blog/media/')) {
+            return handleHostedBlogMedia(request, env);
+        }
+
         return jsonResponse({ error: 'not found' }, 404, env.ALLOWED_ORIGIN);
     }
 };
@@ -461,8 +465,11 @@ const DEFAULT_GITHUB_CONTENTS_MAX_BASE64_BYTES = 95000000;
 const LARGE_STAGED_COMPACT_IMAGE_BYTE_LENGTH = 4000000;
 const ALLOWED_BLOG_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 const BLOG_COMPACT_IMAGE_MIME_TYPES = new Set(['image/gif']);
+const BLOG_HOSTED_IMAGE_PROVIDERS = new Set(['r2', 'b2']);
 const BLOG_Z85_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#';
 const BLOG_DEPLOY_PENDING_ERROR = 'site is still deploying previous changes; wait for blog.txt to go live before posting or deleting again';
+const DEFAULT_BLOG_MEDIA_BASE_URL = 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media';
+const B2_AUTHORIZE_ACCOUNT_URL = 'https://api.backblazeb2.com/b2api/v3/b2_authorize_account';
 
 function normalizeSnapshot(snapshot) {
     return {
@@ -629,6 +636,7 @@ async function handleDeleteImage(request, env) {
         const password = typeof body?.password === 'string' ? body.password : '';
         const imageKey = typeof body?.imageKey === 'string' ? body.imageKey.trim() : '';
         const imageDataUrl = normalizeImageDataUrl(body?.imageDataUrl);
+        const imageUrl = normalizeImageUrl(body?.imageUrl);
         const entryTimestamp = normalizeBlogEntryTimestamp(body?.entryTimestamp);
         const entryImageIndex = Number.isInteger(body?.entryImageIndex) ? body.entryImageIndex : Number.parseInt(body?.entryImageIndex, 10);
         const imageBlockIndex = Number.isInteger(body?.imageBlockIndex) ? body.imageBlockIndex : Number.parseInt(body?.imageBlockIndex, 10);
@@ -643,9 +651,10 @@ async function handleDeleteImage(request, env) {
             (!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) &&
             !imageKey &&
             !imageDataUrl &&
+            !imageUrl &&
             !entryTimestamp
         ) {
-            return jsonResponse({ error: 'imageBlockIndex, imageKey, imageDataUrl, or entryTimestamp is required' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
+            return jsonResponse({ error: 'imageBlockIndex, imageKey, imageDataUrl, imageUrl, or entryTimestamp is required' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
         const githubFile = await fetchGithubFile(env);
@@ -658,6 +667,7 @@ async function handleDeleteImage(request, env) {
             targetImageBlockIndex: Number.isInteger(imageBlockIndex) && imageBlockIndex >= 0 ? imageBlockIndex : null,
             targetImageKey: imageKey,
             targetImageDataUrl: imageDataUrl,
+            targetImageUrl: imageUrl,
             targetEntryTimestamp: entryTimestamp,
             targetEntryImageIndex: Number.isInteger(entryImageIndex) && entryImageIndex >= 0 ? entryImageIndex : null,
             targetPreviousTextLine: previousTextLine,
@@ -674,6 +684,14 @@ async function handleDeleteImage(request, env) {
             'Delete blog image via terminal site'
         );
 
+        if (removal.removedBlock) {
+            try {
+                await cleanupHostedImageBlock(env, removal.removedBlock);
+            } catch (error) {
+                console.error('hosted image cleanup failed', error);
+            }
+        }
+
         return jsonResponse({
             ok: true,
             commitSha: commit.sha,
@@ -682,6 +700,85 @@ async function handleDeleteImage(request, env) {
     } catch (error) {
         console.error('delete image failed', error);
         return jsonResponse({ error: 'failed to delete blog image' }, 500, env.ALLOWED_ORIGIN);
+    }
+}
+
+async function handleHostedBlogMedia(request, env) {
+    try {
+        const url = new URL(request.url);
+        const pathSegments = url.pathname.replace(/^\/+|\/+$/g, '').split('/');
+        if (pathSegments.length < 5) {
+            return new Response('not found', {
+                status: 404,
+                headers: corsHeaders(env.ALLOWED_ORIGIN)
+            });
+        }
+
+        const provider = normalizeHostedImageProvider(pathSegments[3]);
+        if (!provider) {
+            return new Response('not found', {
+                status: 404,
+                headers: corsHeaders(env.ALLOWED_ORIGIN)
+            });
+        }
+
+        if (provider === 'r2') {
+            const storageKey = decodeBase64Url(pathSegments[4] || '');
+            if (!storageKey || !env.BLOG_GIF_R2_BUCKET) {
+                return new Response('not found', {
+                    status: 404,
+                    headers: corsHeaders(env.ALLOWED_ORIGIN)
+                });
+            }
+
+            const object = await env.BLOG_GIF_R2_BUCKET.get(storageKey);
+            if (!object) {
+                return new Response('not found', {
+                    status: 404,
+                    headers: corsHeaders(env.ALLOWED_ORIGIN)
+                });
+            }
+
+            return new Response(await object.arrayBuffer(), {
+                status: 200,
+                headers: {
+                    'Content-Type': object.httpMetadata?.contentType || 'image/gif',
+                    'Cache-Control': 'public, max-age=31536000, immutable',
+                    ...corsHeaders(env.ALLOWED_ORIGIN)
+                }
+            });
+        }
+
+        const fileId = decodeURIComponent(pathSegments[4] || '').trim();
+        if (!fileId) {
+            return new Response('not found', {
+                status: 404,
+                headers: corsHeaders(env.ALLOWED_ORIGIN)
+            });
+        }
+
+        const b2Response = await downloadPrivateB2FileById(env, fileId);
+        if (!b2Response.ok) {
+            return new Response('not found', {
+                status: b2Response.status === 404 ? 404 : 502,
+                headers: corsHeaders(env.ALLOWED_ORIGIN)
+            });
+        }
+
+        return new Response(await b2Response.arrayBuffer(), {
+            status: 200,
+            headers: {
+                'Content-Type': b2Response.headers.get('Content-Type') || 'image/gif',
+                'Cache-Control': 'public, max-age=31536000, immutable',
+                ...corsHeaders(env.ALLOWED_ORIGIN)
+            }
+        });
+    } catch (error) {
+        console.error('hosted blog media failed', error);
+        return new Response('unable to load media', {
+            status: 500,
+            headers: corsHeaders(env.ALLOWED_ORIGIN)
+        });
     }
 }
 
@@ -785,6 +882,23 @@ function normalizeImageDataUrl(value) {
     const mimeType = match[1].toLowerCase();
     const base64Payload = match[2].replace(/\s+/g, '');
     return `data:${mimeType};base64,${base64Payload}`;
+}
+
+function normalizeImageUrl(value) {
+    try {
+        const parsed = new URL(String(value || '').trim());
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return '';
+        }
+        return parsed.toString();
+    } catch {
+        return '';
+    }
+}
+
+function normalizeHostedImageProvider(value) {
+    const normalizedValue = String(value || '').trim().toLowerCase();
+    return BLOG_HOSTED_IMAGE_PROVIDERS.has(normalizedValue) ? normalizedValue : '';
 }
 
 function parseImageDataUrlParts(value) {
@@ -892,9 +1006,40 @@ function createCompactImageBlock(imageDataUrl) {
     };
 }
 
+function createHostedImageBlock({
+    imageUrl,
+    mimeType = 'image/gif',
+    storageProvider,
+    storageKey,
+    storageFileId = ''
+}) {
+    const normalizedImageUrl = normalizeImageUrl(imageUrl);
+    const normalizedMimeType = String(mimeType || '').trim().toLowerCase();
+    const normalizedStorageProvider = normalizeHostedImageProvider(storageProvider);
+    const normalizedStorageKey = String(storageKey || '').trim();
+    const normalizedStorageFileId = String(storageFileId || '').trim();
+
+    if (!normalizedImageUrl || !normalizedStorageProvider || !normalizedStorageKey) {
+        return null;
+    }
+
+    return {
+        type: 'image',
+        imageUrl: normalizedImageUrl,
+        mimeType: normalizedMimeType || 'image/gif',
+        storageProvider: normalizedStorageProvider,
+        storageKey: normalizedStorageKey,
+        ...(normalizedStorageFileId ? { storageFileId: normalizedStorageFileId } : {})
+    };
+}
+
 function createStoredImageComparisonValue(block) {
     if (!block || block.type !== 'image') {
         return '';
+    }
+
+    if (typeof block.imageUrl === 'string' && block.imageUrl) {
+        return block.imageUrl;
     }
 
     if (typeof block.imageDataUrl === 'string' && block.imageDataUrl) {
@@ -1138,17 +1283,24 @@ async function resolveStagedImageBlocks(blocks, maxImageDataUrlLength, env) {
             };
         }
 
-        resolvedBlocks.push(createCompactImageBlock(stagedUpload.dataUrl));
+        const hostedGifBlock = await uploadGifToHostedStorage(stagedUpload.dataUrl, env);
+        resolvedBlocks.push(hostedGifBlock || createCompactImageBlock(stagedUpload.dataUrl));
+    }
+
+    const finalizedBlocks = [];
+    for (const block of resolvedBlocks) {
+        if (block.type !== 'image' || !block.imageDataUrl) {
+            finalizedBlocks.push(block);
+            continue;
+        }
+
+        const hostedGifBlock = await uploadGifToHostedStorage(block.imageDataUrl, env);
+        finalizedBlocks.push(hostedGifBlock || createCompactImageBlock(block.imageDataUrl));
     }
 
     return {
         ok: true,
-        blocks: resolvedBlocks.map(block => {
-            if (block.type !== 'image' || !block.imageDataUrl) {
-                return block;
-            }
-            return createCompactImageBlock(block.imageDataUrl);
-        })
+        blocks: finalizedBlocks
     };
 }
 
@@ -1217,6 +1369,212 @@ async function clearStagedUpload(env, uploadToken) {
     await stub.fetch('https://blog-upload-session/clear', {
         method: 'POST'
     });
+}
+
+function canStoreGifInHostedMedia(env) {
+    return Boolean(env.BLOG_GIF_R2_BUCKET || (env.B2_APPLICATION_KEY_ID && env.B2_APPLICATION_KEY && env.B2_BUCKET_ID));
+}
+
+function blogMediaBaseUrl(env) {
+    return String(env.BLOG_MEDIA_BASE_URL || DEFAULT_BLOG_MEDIA_BASE_URL).trim().replace(/\/+$/g, '');
+}
+
+function encodeBase64Url(value) {
+    return encodeBase64(value)
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/g, '');
+}
+
+function decodeBase64Url(value) {
+    const normalizedValue = String(value || '').trim().replace(/-/g, '+').replace(/_/g, '/');
+    if (!normalizedValue) {
+        return '';
+    }
+
+    const paddingLength = (4 - (normalizedValue.length % 4)) % 4;
+    return decodeBase64(`${normalizedValue}${'='.repeat(paddingLength)}`);
+}
+
+async function sha1Hex(bytes) {
+    const digest = await crypto.subtle.digest('SHA-1', bytes);
+    return Array.from(new Uint8Array(digest))
+        .map(value => value.toString(16).padStart(2, '0'))
+        .join('');
+}
+
+function parseImageBytesFromDataUrl(imageDataUrl) {
+    const parts = parseImageDataUrlParts(imageDataUrl);
+    if (!parts) {
+        return null;
+    }
+
+    return {
+        mimeType: parts.mimeType,
+        bytes: decodeBase64ToBytes(parts.base64Payload)
+    };
+}
+
+function createHostedGifStorageKey() {
+    return `blog-gifs/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}.gif`;
+}
+
+function buildHostedGifMediaUrl(env, storageProvider, storageKey, storageFileId = '') {
+    const baseUrl = blogMediaBaseUrl(env);
+    if (storageProvider === 'r2') {
+        return `${baseUrl}/r2/${encodeBase64Url(storageKey)}`;
+    }
+
+    return `${baseUrl}/b2/${encodeURIComponent(storageFileId)}`;
+}
+
+async function uploadGifToHostedStorage(imageDataUrl, env) {
+    const imageBytes = parseImageBytesFromDataUrl(imageDataUrl);
+    if (!imageBytes || imageBytes.mimeType !== 'image/gif' || !canStoreGifInHostedMedia(env)) {
+        return null;
+    }
+
+    const storageKey = createHostedGifStorageKey();
+
+    if (env.BLOG_GIF_R2_BUCKET) {
+        try {
+            await env.BLOG_GIF_R2_BUCKET.put(storageKey, imageBytes.bytes, {
+                httpMetadata: {
+                    contentType: imageBytes.mimeType
+                }
+            });
+
+            return createHostedImageBlock({
+                imageUrl: buildHostedGifMediaUrl(env, 'r2', storageKey),
+                mimeType: imageBytes.mimeType,
+                storageProvider: 'r2',
+                storageKey
+            });
+        } catch (error) {
+            console.warn('R2 gif upload failed, falling back to B2', error);
+        }
+    }
+
+    if (!env.B2_APPLICATION_KEY_ID || !env.B2_APPLICATION_KEY || !env.B2_BUCKET_ID) {
+        return null;
+    }
+
+    const uploadedFile = await uploadGifToPrivateB2(env, storageKey, imageBytes.bytes, imageBytes.mimeType);
+    return createHostedImageBlock({
+        imageUrl: buildHostedGifMediaUrl(env, 'b2', uploadedFile.fileName, uploadedFile.fileId),
+        mimeType: imageBytes.mimeType,
+        storageProvider: 'b2',
+        storageKey: uploadedFile.fileName,
+        storageFileId: uploadedFile.fileId
+    });
+}
+
+async function cleanupHostedImageBlock(env, block) {
+    if (!block || block.type !== 'image') {
+        return;
+    }
+
+    if (block.storageProvider === 'r2' && env.BLOG_GIF_R2_BUCKET && block.storageKey) {
+        await env.BLOG_GIF_R2_BUCKET.delete(block.storageKey);
+        return;
+    }
+
+    if (block.storageProvider === 'b2' && block.storageFileId && block.storageKey) {
+        await deletePrivateB2File(env, block.storageFileId, block.storageKey);
+    }
+}
+
+async function authorizeB2Account(env) {
+    const basicToken = btoa(`${env.B2_APPLICATION_KEY_ID}:${env.B2_APPLICATION_KEY}`);
+    const response = await fetch(B2_AUTHORIZE_ACCOUNT_URL, {
+        headers: {
+            Authorization: `Basic ${basicToken}`
+        }
+    });
+
+    if (!response.ok) {
+        throw new Error(`b2 authorize failed with ${response.status}`);
+    }
+
+    const payload = await response.json();
+    if (!payload?.apiUrl || !payload?.downloadUrl || !payload?.authorizationToken) {
+        throw new Error('b2 authorize response missing required fields');
+    }
+
+    return payload;
+}
+
+async function uploadGifToPrivateB2(env, storageKey, bytes, mimeType) {
+    const authorization = await authorizeB2Account(env);
+    const uploadUrlResponse = await fetch(`${authorization.apiUrl}/b2api/v3/b2_get_upload_url`, {
+        method: 'POST',
+        headers: {
+            Authorization: authorization.authorizationToken,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            bucketId: env.B2_BUCKET_ID
+        })
+    });
+
+    if (!uploadUrlResponse.ok) {
+        throw new Error(`b2 get upload url failed with ${uploadUrlResponse.status}`);
+    }
+
+    const uploadUrlPayload = await uploadUrlResponse.json();
+    const sha1 = await sha1Hex(bytes);
+    const uploadResponse = await fetch(uploadUrlPayload.uploadUrl, {
+        method: 'POST',
+        headers: {
+            Authorization: uploadUrlPayload.authorizationToken,
+            'Content-Type': mimeType,
+            'X-Bz-File-Name': storageKey,
+            'X-Bz-Content-Sha1': sha1
+        },
+        body: bytes
+    });
+
+    if (!uploadResponse.ok) {
+        throw new Error(`b2 upload failed with ${uploadResponse.status}`);
+    }
+
+    const uploadPayload = await uploadResponse.json();
+    if (!uploadPayload?.fileId || !uploadPayload?.fileName) {
+        throw new Error('b2 upload response missing file metadata');
+    }
+
+    return {
+        fileId: uploadPayload.fileId,
+        fileName: uploadPayload.fileName
+    };
+}
+
+async function downloadPrivateB2FileById(env, fileId) {
+    const authorization = await authorizeB2Account(env);
+    return fetch(`${authorization.downloadUrl}/b2api/v3/b2_download_file_by_id?fileId=${encodeURIComponent(fileId)}`, {
+        headers: {
+            Authorization: authorization.authorizationToken
+        }
+    });
+}
+
+async function deletePrivateB2File(env, fileId, fileName) {
+    const authorization = await authorizeB2Account(env);
+    const response = await fetch(`${authorization.apiUrl}/b2api/v3/b2_delete_file_version`, {
+        method: 'POST',
+        headers: {
+            Authorization: authorization.authorizationToken,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            fileId,
+            fileName
+        })
+    });
+
+    if (!response.ok) {
+        throw new Error(`b2 delete failed with ${response.status}`);
+    }
 }
 
 function sanitizeVisitorId(value) {
@@ -1717,6 +2075,7 @@ export function removeImageBlock(currentContent, {
     targetImageBlockIndex = null,
     targetImageKey = '',
     targetImageDataUrl = '',
+    targetImageUrl = '',
     targetEntryTimestamp = '',
     targetEntryImageIndex = null,
     targetPreviousTextLine = '',
@@ -1727,6 +2086,7 @@ export function removeImageBlock(currentContent, {
         targetImageBlockIndex,
         targetImageKey,
         targetImageDataUrl,
+        targetImageUrl,
         targetEntryTimestamp,
         targetEntryImageIndex,
         targetPreviousTextLine,
@@ -1736,14 +2096,16 @@ export function removeImageBlock(currentContent, {
     if (!target) {
         return {
             removed: false,
-            content: currentContent
+            content: currentContent,
+            removedBlock: null
         };
     }
 
-    blogDocument.entries[target.entryIndex].blocks.splice(target.blockIndex, 1);
+    const [removedBlock] = blogDocument.entries[target.entryIndex].blocks.splice(target.blockIndex, 1);
     return {
         removed: true,
-        content: serializeBlogDocument(blogDocument)
+        content: serializeBlogDocument(blogDocument),
+        removedBlock: removedBlock || null
     };
 }
 
@@ -1825,7 +2187,7 @@ function parseBlogEntryBlocks(entryLines) {
 
     for (let index = 0; index < entryLines.length; index += 1) {
         const line = entryLines[index];
-        if (line !== '[image-base64]' && line !== '[image-z85]') {
+        if (line !== '[image-base64]' && line !== '[image-z85]' && line !== '[image-url]') {
             textLines.push(line);
             continue;
         }
@@ -1834,7 +2196,12 @@ function parseBlogEntryBlocks(entryLines) {
 
         const imageLines = [];
         const isCompactImageBlock = line === '[image-z85]';
-        const closingMarker = isCompactImageBlock ? '[/image-z85]' : '[/image-base64]';
+        const isHostedImageBlock = line === '[image-url]';
+        const closingMarker = isCompactImageBlock
+            ? '[/image-z85]'
+            : isHostedImageBlock
+                ? '[/image-url]'
+                : '[/image-base64]';
         index += 1;
         while (index < entryLines.length && entryLines[index] !== closingMarker) {
             imageLines.push(entryLines[index]);
@@ -1850,6 +2217,17 @@ function parseBlogEntryBlocks(entryLines) {
                 }
 
                 textLines.push('[image-z85]', ...imageLines, '[/image-z85]');
+                continue;
+            }
+
+            if (isHostedImageBlock) {
+                const hostedImageBlock = parseHostedImageBlockLines(imageLines);
+                if (hostedImageBlock) {
+                    blocks.push(hostedImageBlock);
+                    continue;
+                }
+
+                textLines.push('[image-url]', ...imageLines, '[/image-url]');
                 continue;
             }
 
@@ -1871,6 +2249,30 @@ function parseBlogEntryBlocks(entryLines) {
 
     flushTextLines();
     return blocks;
+}
+
+function parseHostedImageBlockLines(imageLines) {
+    if (!Array.isArray(imageLines) || imageLines.length < 4) {
+        return null;
+    }
+
+    const blockData = {};
+    for (const line of imageLines) {
+        const match = /^([a-z-]+):([\s\S]+)$/i.exec(String(line || '').trim());
+        if (!match) {
+            return null;
+        }
+
+        blockData[match[1].toLowerCase()] = match[2].trim();
+    }
+
+    return createHostedImageBlock({
+        imageUrl: blockData.src,
+        mimeType: blockData.mime,
+        storageProvider: blockData.provider,
+        storageKey: blockData['storage-key'],
+        storageFileId: blockData['storage-file-id']
+    });
 }
 
 function parseCompactImageBlockLines(imageLines) {
@@ -1923,6 +2325,22 @@ function normalizeBlogEntryBlocks(contentBlocks) {
         }
 
         if (block.type === 'image') {
+            if (block.imageUrl) {
+                const hostedImageBlock = createHostedImageBlock({
+                    imageUrl: block.imageUrl,
+                    mimeType: block.mimeType,
+                    storageProvider: block.storageProvider,
+                    storageKey: block.storageKey,
+                    storageFileId: block.storageFileId
+                });
+                if (!hostedImageBlock) {
+                    continue;
+                }
+
+                blocks.push(hostedImageBlock);
+                continue;
+            }
+
             if (block.imageEncoding === 'z85') {
                 const mimeType = String(block.mimeType || '').trim().toLowerCase();
                 const byteLength = Number.parseInt(block.byteLength, 10);
@@ -1978,6 +2396,19 @@ function serializeBlogDocument(blogDocument) {
             }
 
             if (block.type === 'image') {
+                if (block.imageUrl) {
+                    lines.push('[image-url]');
+                    lines.push(`src:${block.imageUrl}`);
+                    lines.push(`mime:${String(block.mimeType || 'image/gif').toLowerCase()}`);
+                    lines.push(`provider:${block.storageProvider}`);
+                    lines.push(`storage-key:${block.storageKey}`);
+                    if (block.storageFileId) {
+                        lines.push(`storage-file-id:${block.storageFileId}`);
+                    }
+                    lines.push('[/image-url]');
+                    continue;
+                }
+
                 if (block.imageEncoding === 'z85') {
                     lines.push('[image-z85]');
                     lines.push(`mime:${String(block.mimeType || '').toLowerCase()}`);
@@ -2005,6 +2436,7 @@ function findImageBlockTarget(entries, {
     targetImageBlockIndex,
     targetImageKey,
     targetImageDataUrl,
+    targetImageUrl,
     targetEntryTimestamp,
     targetEntryImageIndex,
     targetPreviousTextLine,
@@ -2015,6 +2447,7 @@ function findImageBlockTarget(entries, {
         ? targetEntryImageIndex
         : Number.parseInt(targetEntryImageIndex, 10);
     const normalizedTargetImageDataUrl = normalizeImageDataUrl(targetImageDataUrl);
+    const normalizedTargetImageUrl = normalizeImageUrl(targetImageUrl);
     const normalizedTargetPreviousTextLine = String(targetPreviousTextLine || '').trim();
     const normalizedTargetNextTextLine = String(targetNextTextLine || '').trim();
 
@@ -2024,6 +2457,7 @@ function findImageBlockTarget(entries, {
             const match = findImageBlockInEntry(entries[entryIndex], {
                 targetImageKey,
                 targetImageDataUrl: normalizedTargetImageDataUrl,
+                targetImageUrl: normalizedTargetImageUrl,
                 targetEntryImageIndex: normalizedTargetEntryImageIndex,
                 targetPreviousTextLine: normalizedTargetPreviousTextLine,
                 targetNextTextLine: normalizedTargetNextTextLine
@@ -2041,7 +2475,8 @@ function findImageBlockTarget(entries, {
 
     const globalMatch = findImageBlockAcrossEntries(entries, {
         targetImageKey,
-        targetImageDataUrl: normalizedTargetImageDataUrl
+        targetImageDataUrl: normalizedTargetImageDataUrl,
+        targetImageUrl: normalizedTargetImageUrl
     });
     if (globalMatch) {
         return globalMatch;
@@ -2060,6 +2495,7 @@ function findImageBlockTarget(entries, {
 function findImageBlockInEntry(entry, {
     targetImageKey,
     targetImageDataUrl,
+    targetImageUrl,
     targetEntryImageIndex,
     targetPreviousTextLine,
     targetNextTextLine
@@ -2086,6 +2522,7 @@ function findImageBlockInEntry(entry, {
             blockIndex,
             imageIndex: imageBlocks.length,
             imageDataUrl: block.imageDataUrl,
+            imageUrl: block.imageUrl,
             imageKey: createBlogImageKey(createStoredImageComparisonValue(block)),
             previousTextLine: lastNonEmptyTextLine,
             nextTextLine: findNextNonEmptyTextLineInEntry(entry.blocks, blockIndex)
@@ -2094,6 +2531,14 @@ function findImageBlockInEntry(entry, {
 
     if (targetImageDataUrl) {
         return selectExactImageBlockMatch(imageBlocks.filter(block => block.imageDataUrl === targetImageDataUrl), {
+            targetEntryImageIndex,
+            targetPreviousTextLine,
+            targetNextTextLine
+        });
+    }
+
+    if (targetImageUrl) {
+        return selectExactImageBlockMatch(imageBlocks.filter(block => block.imageUrl === targetImageUrl), {
             targetEntryImageIndex,
             targetPreviousTextLine,
             targetNextTextLine
@@ -2225,7 +2670,7 @@ function findImageBlockByGlobalIndex(entries, targetImageBlockIndex) {
     return null;
 }
 
-function findImageBlockAcrossEntries(entries, { targetImageKey, targetImageDataUrl }) {
+function findImageBlockAcrossEntries(entries, { targetImageKey, targetImageDataUrl, targetImageUrl }) {
     for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
         const entry = entries[entryIndex];
 
@@ -2236,6 +2681,13 @@ function findImageBlockAcrossEntries(entries, { targetImageKey, targetImageDataU
             }
 
             if (targetImageDataUrl && block.imageDataUrl === targetImageDataUrl) {
+                return {
+                    entryIndex,
+                    blockIndex
+                };
+            }
+
+            if (targetImageUrl && block.imageUrl === targetImageUrl) {
                 return {
                     entryIndex,
                     blockIndex
