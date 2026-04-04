@@ -222,6 +222,51 @@ function createAlwaysAllowRateLimiter() {
     };
 }
 
+test('terminal su endpoint authenticates godlike with the delete password', async () => {
+    const response = await blogWorker.fetch(new Request('https://example.com/api/terminal/su', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            target: 'godlike',
+            password: 'delete-me'
+        })
+    }), {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        BLOG_IMAGE_DELETE_PASSWORD: 'delete-me',
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+        ok: true,
+        user: 'godlike'
+    });
+});
+
+test('terminal su endpoint rejects invalid godlike passwords', async () => {
+    const response = await blogWorker.fetch(new Request('https://example.com/api/terminal/su', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            target: 'godlike',
+            password: 'wrong-password'
+        })
+    }), {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        BLOG_IMAGE_DELETE_PASSWORD: 'delete-me',
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
+    });
+
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), {
+        error: 'invalid password'
+    });
+});
+
 test('trackVisitor persists totals and increments visits only on "visit" action', async () => {
     const { counter, storage } = createCounter();
 

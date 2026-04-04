@@ -49,8 +49,15 @@ function createBinaryRainStream(cells) {
 }
 
 export function getPromptUserClassName(snapshot) {
-    const isRoot = Boolean(snapshot && typeof snapshot === 'object' && snapshot.isRoot);
-    return isRoot ? 'prompt-user prompt-user-root' : 'prompt-user';
+    if (!snapshot || typeof snapshot !== 'object') {
+        return 'prompt-user';
+    }
+
+    if (snapshot.isGodlike || String(snapshot.user || '').trim().toLowerCase() === 'godlike') {
+        return 'prompt-user prompt-user-godlike';
+    }
+
+    return snapshot.isRoot ? 'prompt-user prompt-user-root' : 'prompt-user';
 }
 
 export function shouldUseRootTerminalVisuals(snapshot) {
@@ -58,11 +65,12 @@ export function shouldUseRootTerminalVisuals(snapshot) {
         return false;
     }
 
-    if (snapshot.isRoot) {
+    if (snapshot.isRoot || snapshot.isGodlike) {
         return true;
     }
 
-    return String(snapshot.user || '').trim().toLowerCase() === 'root';
+    const normalizedUser = String(snapshot.user || '').trim().toLowerCase();
+    return normalizedUser === 'root' || normalizedUser === 'godlike';
 }
 
 export function createBinaryRainColumns(options = {}) {

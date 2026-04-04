@@ -400,6 +400,13 @@ body.terminal-theme-kali A {
         0 0 0.45rem var(--terminal-red-glow);
 }
 
+.prompt-user-godlike {
+    color: #ffe38a;
+    text-shadow:
+        0 0 0.22rem rgba(255, 240, 180, 0.52),
+        0 0 0.55rem rgba(255, 215, 96, 0.46);
+}
+
 .prompt-path-kali {
     color: #e6e6e6;
 }

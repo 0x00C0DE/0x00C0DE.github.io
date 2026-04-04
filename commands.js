@@ -94,6 +94,7 @@ const BLOG_POST_API_URL = window.BLOG_POST_API_URL || 'https://0x00c0de-blog-app
 const BLOG_STAGE_IMAGE_API_URL = window.BLOG_STAGE_IMAGE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/upload-chunk';
 const BLOG_DELETE_IMAGE_API_URL = window.BLOG_DELETE_IMAGE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/delete-image';
 const BLOG_DELETE_ENTRY_API_URL = window.BLOG_DELETE_ENTRY_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/delete-entry';
+const TERMINAL_SU_API_URL = window.TERMINAL_SU_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/terminal/su';
 const VISITOR_COUNT_API_URL = window.VISITOR_COUNT_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors';
 const VISITOR_TRACK_API_URL = window.VISITOR_TRACK_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/track';
 const VISITOR_LEAVE_API_URL = window.VISITOR_LEAVE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/leave';
@@ -158,14 +159,18 @@ const FALLBACK_TERMINAL_SESSION = Object.freeze({
 let terminalSessionReadyPromise = null;
 let terminalSessionModule = null;
 let terminalSessionState = { ...FALLBACK_TERMINAL_SESSION };
+const terminalSessionSecrets = {
+    godlikePassword: ''
+};
 
 function getFallbackPromptSnapshot() {
     const username = typeof terminalSessionState.user === 'string' && terminalSessionState.user.trim()
-        ? terminalSessionState.user.trim()
+        ? terminalSessionState.user.trim().toLowerCase()
         : 'guest';
     return {
         documentTitle: null,
         host: 'localhost',
+        isGodlike: username === 'godlike',
         isRoot: username.toLowerCase() === 'root',
         mode: 'default',
         path: '/home/0x00C0DE/Unkn0wn',
@@ -177,10 +182,13 @@ function getFallbackPromptSnapshot() {
 
 function normalizeFallbackTerminalSession(session) {
     const safeSession = session && typeof session === 'object' ? session : FALLBACK_TERMINAL_SESSION;
+    const normalizedUser = typeof safeSession.user === 'string' && safeSession.user.trim()
+        ? safeSession.user.trim().toLowerCase()
+        : 'guest';
     return {
         shell: 'default',
-        user: typeof safeSession.user === 'string' && safeSession.user.trim()
-            ? safeSession.user.trim()
+        user: normalizedUser === 'guest' || normalizedUser === 'root' || normalizedUser === 'godlike'
+            ? normalizedUser
             : 'guest'
     };
 }
@@ -225,6 +233,28 @@ function getTerminalSessionPwd() {
     return getTerminalPromptSnapshot().path;
 }
 
+function isCurrentUserGodlike() {
+    return getTerminalSessionUsername().toLowerCase() === 'godlike';
+}
+
+function setGodlikePassword(password) {
+    terminalSessionSecrets.godlikePassword = typeof password === 'string' ? password : '';
+}
+
+function clearGodlikePassword() {
+    terminalSessionSecrets.godlikePassword = '';
+}
+
+function getGodlikePassword() {
+    return typeof terminalSessionSecrets.godlikePassword === 'string'
+        ? terminalSessionSecrets.godlikePassword
+        : '';
+}
+
+function canCurrentUserManageBlogEntries() {
+    return isCurrentUserGodlike() && Boolean(getGodlikePassword());
+}
+
 function syncTerminalDocumentTitle() {
     const snapshot = getTerminalPromptSnapshot();
     document.title = snapshot.documentTitle || DEFAULT_DOCUMENT_TITLE;
@@ -233,20 +263,20 @@ function syncTerminalDocumentTitle() {
 function syncTerminalThemeClasses() {
     const snapshot = getTerminalPromptSnapshot();
     const isKali = snapshot.mode === 'kali';
-    const isRoot = snapshot.isRoot;
+    const isElevated = Boolean(snapshot.isRoot || snapshot.isGodlike);
     const body = document.body;
     const terminal = document.getElementById('terminal');
 
     if (body) {
         body.classList.toggle('terminal-theme-kali', isKali);
-        body.classList.toggle('terminal-theme-kali-root', isKali && isRoot);
-        body.classList.toggle('terminal-theme-root', isRoot);
+        body.classList.toggle('terminal-theme-kali-root', isKali && isElevated);
+        body.classList.toggle('terminal-theme-root', isElevated);
     }
 
     if (terminal) {
         terminal.classList.toggle('terminal-theme-kali', isKali);
-        terminal.classList.toggle('terminal-theme-kali-root', isKali && isRoot);
-        terminal.classList.toggle('terminal-theme-root', isRoot);
+        terminal.classList.toggle('terminal-theme-kali-root', isKali && isElevated);
+        terminal.classList.toggle('terminal-theme-root', isElevated);
     }
 }
 
@@ -259,10 +289,16 @@ function refreshTerminalSessionUi() {
     if (typeof window.refreshTerminalInputPrompt === 'function') {
         window.refreshTerminalInputPrompt();
     }
+    if (typeof window.syncTerminalSessionAwareLines === 'function') {
+        window.syncTerminalSessionAwareLines();
+    }
 }
 
 function setTerminalSessionState(nextState) {
     terminalSessionState = normalizeTerminalSessionState(nextState);
+    if (String(terminalSessionState.user || '').toLowerCase() !== 'godlike') {
+        clearGodlikePassword();
+    }
     refreshTerminalSessionUi();
     return terminalSessionState;
 }
@@ -284,13 +320,18 @@ function applyTerminalSessionCommand(command, args = []) {
         };
     }
 
-    if (args.length !== 1 || String(args[0] || '').trim().toLowerCase() !== 'guest') {
+    if (args.length !== 1) {
+        return normalizeTerminalSessionState(terminalSessionState);
+    }
+
+    const target = String(args[0] || '').trim().toLowerCase();
+    if (target !== 'guest' && target !== 'godlike') {
         return normalizeTerminalSessionState(terminalSessionState);
     }
 
     return {
         shell: 'default',
-        user: 'guest'
+        user: target
     };
 }
 
@@ -303,7 +344,8 @@ function resolveSupportedSuTarget(args = []) {
         return null;
     }
 
-    return String(args[0] || '').trim().toLowerCase() === 'guest' ? 'guest' : null;
+    const target = String(args[0] || '').trim().toLowerCase();
+    return target === 'guest' || target === 'godlike' ? target : null;
 }
 
 function ensureTerminalSessionReady() {
@@ -687,7 +729,7 @@ function help_command() {
         ['pwd', 'Print working directory'],
         ['qr-totp', 'Browser QR enrollment + TOTP generator for the cs370 project'],
         ['resume', 'Open my resume PDF in a new tab'],
-        ['su [guest]', 'Switch to root with `su` or back to guest with `su guest`'],
+        ['su [guest|godlike]', 'Switch to root with `su`, back to guest with `su guest`, or authenticate godlike with `su godlike`'],
         ['userpic [w h]', 'Upload or take your own picture and display it as ASCII art'],
         ['visitors', 'Display the live visitor stats widget'],
         ['whoami', 'Print current username'],
@@ -1033,6 +1075,9 @@ async function deleteBlogImageByBlockIndex(
     previousTextLine = '',
     nextTextLine = ''
 ) {
+    const resolvedPassword = typeof password === 'string' && password
+        ? password
+        : (canCurrentUserManageBlogEntries() ? getGodlikePassword() : '');
     const normalizedEntryTimestamp = isBlogEntryTimestampLine(entryTimestamp) ? entryTimestamp.trim() : '';
     const normalizedEntryImageIndex = Number.isInteger(entryImageIndex)
         ? entryImageIndex
@@ -1060,14 +1105,14 @@ async function deleteBlogImageByBlockIndex(
             imageDataUrl: normalizedImageDataUrl,
             imageUrl: normalizedImageUrl,
             entryTimestamp: normalizedEntryTimestamp,
-            entryImageIndex: Number.isInteger(normalizedEntryImageIndex) && normalizedEntryImageIndex >= 0
-                ? normalizedEntryImageIndex
-                : null,
-            previousTextLine: normalizedPreviousTextLine,
-            nextTextLine: normalizedNextTextLine,
-            password
-        })
-    });
+              entryImageIndex: Number.isInteger(normalizedEntryImageIndex) && normalizedEntryImageIndex >= 0
+                  ? normalizedEntryImageIndex
+                  : null,
+              previousTextLine: normalizedPreviousTextLine,
+              nextTextLine: normalizedNextTextLine,
+              password: resolvedPassword
+          })
+      });
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -1084,6 +1129,9 @@ async function deleteBlogImageByBlockIndex(
 }
 
 async function deleteBlogEntryByTimestamp(entryTimestamp, password) {
+    const resolvedPassword = typeof password === 'string' && password
+        ? password
+        : (canCurrentUserManageBlogEntries() ? getGodlikePassword() : '');
     const normalizedEntryTimestamp = isBlogEntryTimestampLine(entryTimestamp) ? entryTimestamp.trim() : '';
     if (!normalizedEntryTimestamp) {
         return {
@@ -1099,7 +1147,7 @@ async function deleteBlogEntryByTimestamp(entryTimestamp, password) {
         },
         body: JSON.stringify({
             entryTimestamp: normalizedEntryTimestamp,
-            password
+            password: resolvedPassword
         })
     });
 
@@ -1616,14 +1664,66 @@ function pretext_command(args) {
     ];
 }
 
-function su_command(args) {
+async function authenticateGodlikeSession() {
+    if (canCurrentUserManageBlogEntries()) {
+        return { ok: true };
+    }
+
+    const password = window.prompt('Enter godlike password');
+    if (password === null) {
+        return {
+            ok: false,
+            error: 'authentication cancelled'
+        };
+    }
+
+    try {
+        const response = await fetch(TERMINAL_SU_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                password,
+                target: 'godlike'
+            })
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            return {
+                ok: false,
+                error: payload.error || 'unable to authenticate godlike right now'
+            };
+        }
+
+        setGodlikePassword(password);
+        return { ok: true };
+    } catch (error) {
+        console.error('godlike authentication failed', error);
+        return {
+            ok: false,
+            error: 'unable to authenticate godlike right now'
+        };
+    }
+}
+
+async function su_command(args) {
     const target = resolveSupportedSuTarget(args);
     if (!target) {
         return [
             'su: unsupported user target',
             'usage: su',
-            '       su guest'
+            '       su guest',
+            '       su godlike'
         ];
+    }
+
+    if (target === 'godlike') {
+        const authentication = await authenticateGodlikeSession();
+        if (!authentication.ok) {
+            return [`su: ${authentication.error}`];
+        }
     }
 
     setTerminalSessionState(applyTerminalSessionCommand('su', args));
@@ -2380,6 +2480,7 @@ function projects_command() {
 
 window.renderTerminalLineContent = renderTerminalLineContent;
 window.buildVisitorWidgetElement = buildVisitorWidgetElement;
+window.canCurrentUserManageBlogEntries = canCurrentUserManageBlogEntries;
 window.isSafeBlogImageDataUrl = isSafeBlogImageDataUrl;
 window.isSafeBlogImageSource = isSafeBlogImageSource;
 window.deleteBlogEntryByTimestamp = deleteBlogEntryByTimestamp;

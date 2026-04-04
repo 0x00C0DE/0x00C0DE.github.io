@@ -1,22 +1,35 @@
+const TERMINAL_USERS = Object.freeze({
+    GODLIKE: 'godlike',
+    GUEST: 'guest',
+    ROOT: 'root'
+});
+
 const DEFAULT_TERMINAL_SESSION = Object.freeze({
     shell: 'default',
-    user: 'guest'
+    user: TERMINAL_USERS.GUEST
 });
 
 const DEFAULT_PROMPT_SNAPSHOT = Object.freeze({
     documentTitle: null,
     host: 'localhost',
+    isGodlike: false,
     isRoot: false,
     mode: 'default',
     path: '/home/0x00C0DE/Unkn0wn',
     promptSymbol: '$',
     theme: 'default',
-    user: 'guest'
+    user: TERMINAL_USERS.GUEST
 });
 
 function sanitizeUsername(value, fallback = DEFAULT_TERMINAL_SESSION.user) {
     const trimmed = typeof value === 'string' ? value.trim() : '';
-    return trimmed || fallback;
+    const normalized = trimmed.toLowerCase();
+
+    if (normalized === TERMINAL_USERS.GUEST || normalized === TERMINAL_USERS.ROOT || normalized === TERMINAL_USERS.GODLIKE) {
+        return normalized;
+    }
+
+    return fallback;
 }
 
 export function createDefaultTerminalSession() {
@@ -38,7 +51,7 @@ export function normalizeTerminalSession(session) {
 
 export function resolveSuTarget(args = []) {
     if (!Array.isArray(args) || args.length === 0) {
-        return 'root';
+        return TERMINAL_USERS.ROOT;
     }
 
     if (args.length !== 1) {
@@ -46,7 +59,7 @@ export function resolveSuTarget(args = []) {
     }
 
     const target = sanitizeUsername(args[0], '');
-    return target.toLowerCase() === 'guest' ? 'guest' : null;
+    return target === TERMINAL_USERS.GUEST || target === TERMINAL_USERS.GODLIKE ? target : null;
 }
 
 export function applyTerminalSessionCommand(session, command, args = []) {
@@ -68,11 +81,13 @@ export function applyTerminalSessionCommand(session, command, args = []) {
 
 export function getTerminalPromptSnapshot(session) {
     const normalized = normalizeTerminalSession(session);
-    const isRoot = normalized.user.toLowerCase() === 'root';
+    const isRoot = normalized.user === TERMINAL_USERS.ROOT;
+    const isGodlike = normalized.user === TERMINAL_USERS.GODLIKE;
     return {
         ...DEFAULT_PROMPT_SNAPSHOT,
         documentTitle: null,
         host: 'localhost',
+        isGodlike,
         isRoot,
         mode: 'default',
         path: '/home/0x00C0DE/Unkn0wn',

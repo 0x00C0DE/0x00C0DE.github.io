@@ -41,6 +41,10 @@ export default {
             return handleDeleteEntry(request, env);
         }
 
+        if (request.method === 'POST' && url.pathname === '/api/terminal/su') {
+            return handleTerminalSu(request, env);
+        }
+
         if (request.method === 'GET' && url.pathname.startsWith('/api/blog/media/')) {
             return handleHostedBlogMedia(request, env);
         }
@@ -1469,6 +1473,40 @@ async function handleAppend(request, env) {
     } catch (error) {
         console.error('append failed', error);
         return jsonResponse({ error: 'failed to append blog entry' }, 500, env.ALLOWED_ORIGIN);
+    }
+}
+
+async function handleTerminalSu(request, env) {
+    try {
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rateCheck = await enforceRateLimit(ip, env);
+        if (!rateCheck.allowed) {
+            return jsonResponse({ error: 'rate limit exceeded' }, 429, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        if (!env.BLOG_IMAGE_DELETE_PASSWORD) {
+            return jsonResponse({ error: 'delete password is not configured' }, 500, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        const body = await request.json().catch(() => null);
+        const target = String(body?.target || '').trim().toLowerCase();
+        const password = typeof body?.password === 'string' ? body.password : '';
+
+        if (target !== 'godlike') {
+            return jsonResponse({ error: 'unsupported su target' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        if (!timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD)) {
+            return jsonResponse({ error: 'invalid password' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        return jsonResponse({
+            ok: true,
+            user: 'godlike'
+        }, 200, env.ALLOWED_ORIGIN, rateCheck.headers);
+    } catch (error) {
+        console.error('terminal su failed', error);
+        return jsonResponse({ error: 'failed to authenticate terminal user' }, 500, env.ALLOWED_ORIGIN);
     }
 }
 

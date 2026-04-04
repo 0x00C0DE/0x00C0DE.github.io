@@ -37,6 +37,17 @@ test('root prompt adds a dedicated root user class', () => {
     );
 });
 
+test('godlike prompt adds a dedicated godlike user class', () => {
+    assert.equal(
+        getPromptUserClassName({
+            isGodlike: true,
+            isRoot: false,
+            user: 'godlike'
+        }),
+        'prompt-user prompt-user-godlike'
+    );
+});
+
 test('only root snapshots enable the animated terminal background', () => {
     assert.equal(
         shouldUseRootTerminalVisuals({
@@ -49,6 +60,14 @@ test('only root snapshots enable the animated terminal background', () => {
         shouldUseRootTerminalVisuals({
             isRoot: true,
             user: 'root'
+        }),
+        true
+    );
+    assert.equal(
+        shouldUseRootTerminalVisuals({
+            isGodlike: true,
+            isRoot: false,
+            user: 'godlike'
         }),
         true
     );

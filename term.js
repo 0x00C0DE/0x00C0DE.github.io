@@ -273,6 +273,10 @@ function fallbackSplitBannerWaveGlyphs(text) {
 }
 
 function fallbackGetPromptUserClassName(snapshot) {
+    if (snapshot && (snapshot.isGodlike || String(snapshot.user || '').trim().toLowerCase() === 'godlike')) {
+        return 'prompt-user prompt-user-godlike';
+    }
+
     return snapshot && snapshot.isRoot ? 'prompt-user prompt-user-root' : 'prompt-user';
 }
 
@@ -281,7 +285,8 @@ function fallbackShouldUseRootTerminalVisuals(snapshot) {
         return false;
     }
 
-    return Boolean(snapshot.isRoot) || String(snapshot.user || '').trim().toLowerCase() === 'root';
+    const normalizedUser = String(snapshot.user || '').trim().toLowerCase();
+    return Boolean(snapshot.isRoot || snapshot.isGodlike) || normalizedUser === 'root' || normalizedUser === 'godlike';
 }
 
 function fallbackCreateBinaryRainColumns(options = {}) {
@@ -442,6 +447,128 @@ function appendBannerWaveText(container, text, className) {
     return wrapper;
 }
 
+function canManageBlogEntries() {
+    return typeof window.canCurrentUserManageBlogEntries === 'function'
+        ? window.canCurrentUserManageBlogEntries()
+        : false;
+}
+
+async function handleDeleteBlogEntryAction(deleteButton, status, line) {
+    deleteButton.disabled = true;
+    status.textContent = ' deleting...';
+
+    try {
+        const result = await window.deleteBlogEntryByTimestamp(
+            typeof line.entryTimestamp === 'string' ? line.entryTimestamp : ''
+        );
+        if (!result.ok) {
+            status.textContent = ` ${result.error}`;
+            deleteButton.disabled = false;
+            return;
+        }
+
+        const matchingLines = [...document.querySelectorAll('.terminal-line[data-blog-entry-timestamp]')]
+            .filter(node => node.dataset.blogEntryTimestamp === line.entryTimestamp);
+        matchingLines.forEach(node => node.remove());
+    } catch (error) {
+        status.textContent = ' unable to delete post right now';
+        deleteButton.disabled = false;
+    }
+}
+
+function appendDeletePostActions(wrapper, line) {
+    if (!line.deletable || !canManageBlogEntries() || typeof window.deleteBlogEntryByTimestamp !== 'function') {
+        return;
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'terminal-inline-image-actions';
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'terminal-inline-image-delete';
+    deleteButton.textContent = 'delete post';
+
+    const status = document.createElement('span');
+    status.className = 'terminal-inline-image-status';
+
+    deleteButton.addEventListener('click', async () => {
+        await handleDeleteBlogEntryAction(deleteButton, status, line);
+    });
+
+    actions.append(deleteButton, status);
+    wrapper.append(actions);
+}
+
+async function handleDeleteBlogMediaAction(deleteButton, status, line, mediaElement) {
+    deleteButton.disabled = true;
+    status.textContent = ' deleting...';
+
+    try {
+        const result = await window.deleteBlogImageByBlockIndex(
+            line.imageBlockIndex,
+            '',
+            typeof line.imageKey === 'string' ? line.imageKey : '',
+            typeof line.src === 'string' ? line.src : '',
+            typeof line.entryTimestamp === 'string' ? line.entryTimestamp : '',
+            Number.isInteger(line.entryImageIndex) ? line.entryImageIndex : null,
+            typeof line.previousTextLine === 'string' ? line.previousTextLine : '',
+            typeof line.nextTextLine === 'string' ? line.nextTextLine : ''
+        );
+        if (!result.ok) {
+            status.textContent = ` ${result.error}`;
+            deleteButton.disabled = false;
+            return;
+        }
+
+        status.textContent = ' deleted';
+        deleteButton.remove();
+        if (mediaElement && typeof mediaElement.remove === 'function') {
+            mediaElement.remove();
+        }
+    } catch (error) {
+        status.textContent = ' unable to delete image right now';
+        deleteButton.disabled = false;
+    }
+}
+
+function appendDeleteMediaActions(wrapper, line, mediaElement) {
+    if (!line.deletable || !canManageBlogEntries() || typeof window.deleteBlogImageByBlockIndex !== 'function') {
+        return;
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'terminal-inline-image-actions';
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'terminal-inline-image-delete';
+    deleteButton.textContent = 'delete';
+
+    const status = document.createElement('span');
+    status.className = 'terminal-inline-image-status';
+
+    deleteButton.addEventListener('click', async () => {
+        await handleDeleteBlogMediaAction(deleteButton, status, line, mediaElement);
+    });
+
+    actions.append(deleteButton, status);
+    wrapper.append(actions);
+}
+
+function syncTerminalSessionAwareLines() {
+    const lines = document.querySelectorAll('.terminal-line');
+    lines.forEach(line => {
+        if (!line.__terminalRenderedObject || typeof line.__terminalRenderedObject !== 'object') {
+            return;
+        }
+
+        line.replaceChildren();
+        delete line.dataset.blogEntryTimestamp;
+        renderOutputObject(line, line.__terminalRenderedObject);
+    });
+}
+
 function getSafeHref(href) {
     try {
         const parsed = new URL(href, window.location.href);
@@ -484,6 +611,8 @@ function renderOutputObject(container, line) {
         container.textContent = String(line ?? '');
         return;
     }
+
+    container.__terminalRenderedObject = line;
 
     if (typeof line.entryTimestamp === 'string' && line.entryTimestamp) {
         container.dataset.blogEntryTimestamp = line.entryTimestamp;
@@ -557,51 +686,7 @@ function renderOutputObject(container, line) {
         timestamp.className = 'terminal-blog-entry-timestamp';
         timestamp.textContent = line.text || '';
         wrapper.append(timestamp);
-
-        if (line.deletable && typeof window.deleteBlogEntryByTimestamp === 'function') {
-            const actions = document.createElement('div');
-            actions.className = 'terminal-inline-image-actions';
-
-            const deleteButton = document.createElement('button');
-            deleteButton.type = 'button';
-            deleteButton.className = 'terminal-inline-image-delete';
-            deleteButton.textContent = 'delete post';
-
-            const status = document.createElement('span');
-            status.className = 'terminal-inline-image-status';
-
-            deleteButton.addEventListener('click', async () => {
-                const password = window.prompt('Enter delete password');
-                if (password === null) {
-                    return;
-                }
-
-                deleteButton.disabled = true;
-                status.textContent = ' deleting...';
-
-                try {
-                    const result = await window.deleteBlogEntryByTimestamp(
-                        typeof line.entryTimestamp === 'string' ? line.entryTimestamp : '',
-                        password
-                    );
-                    if (!result.ok) {
-                        status.textContent = ` ${result.error}`;
-                        deleteButton.disabled = false;
-                        return;
-                    }
-
-                    const matchingLines = [...document.querySelectorAll('.terminal-line[data-blog-entry-timestamp]')]
-                        .filter(node => node.dataset.blogEntryTimestamp === line.entryTimestamp);
-                    matchingLines.forEach(node => node.remove());
-                } catch (error) {
-                    status.textContent = ' unable to delete post right now';
-                    deleteButton.disabled = false;
-                }
-            });
-
-            actions.append(deleteButton, status);
-            wrapper.append(actions);
-        }
+        appendDeletePostActions(wrapper, line);
 
         container.append(wrapper);
         return;
@@ -630,58 +715,7 @@ function renderOutputObject(container, line) {
 
         const wrapper = document.createElement('div');
         wrapper.className = 'terminal-inline-image-wrapper';
-
-        if (line.deletable && typeof window.deleteBlogImageByBlockIndex === 'function') {
-            const actions = document.createElement('div');
-            actions.className = 'terminal-inline-image-actions';
-
-            const deleteButton = document.createElement('button');
-            deleteButton.type = 'button';
-            deleteButton.className = 'terminal-inline-image-delete';
-            deleteButton.textContent = 'delete';
-
-            const status = document.createElement('span');
-            status.className = 'terminal-inline-image-status';
-
-            deleteButton.addEventListener('click', async () => {
-                const password = window.prompt('Enter delete password');
-                if (password === null) {
-                    return;
-                }
-
-                deleteButton.disabled = true;
-                status.textContent = ' deleting...';
-
-                try {
-                    const result = await window.deleteBlogImageByBlockIndex(
-                        line.imageBlockIndex,
-                        password,
-                        typeof line.imageKey === 'string' ? line.imageKey : '',
-                        typeof line.src === 'string' ? line.src : '',
-                        typeof line.entryTimestamp === 'string' ? line.entryTimestamp : '',
-                        Number.isInteger(line.entryImageIndex) ? line.entryImageIndex : null,
-                        typeof line.previousTextLine === 'string' ? line.previousTextLine : '',
-                        typeof line.nextTextLine === 'string' ? line.nextTextLine : ''
-                    );
-                    if (!result.ok) {
-                        status.textContent = ` ${result.error}`;
-                        deleteButton.disabled = false;
-                        return;
-                    }
-
-                    status.textContent = ' deleted';
-                    deleteButton.remove();
-                    image.remove();
-                } catch (error) {
-                    status.textContent = ' unable to delete image right now';
-                    deleteButton.disabled = false;
-                }
-            });
-
-            actions.append(deleteButton, status);
-            wrapper.append(actions);
-        }
-
+        let mediaElement = null;
         if (line.type === 'inline-video') {
             const video = document.createElement('video');
             video.className = 'terminal-inline-video';
@@ -689,6 +723,7 @@ function renderOutputObject(container, line) {
             video.controls = true;
             video.playsInline = true;
             video.preload = 'metadata';
+            mediaElement = video;
             wrapper.append(video);
         } else {
             const image = document.createElement('img');
@@ -697,8 +732,10 @@ function renderOutputObject(container, line) {
             image.alt = line.alt || 'Embedded blog image';
             image.decoding = 'async';
             image.loading = 'lazy';
+            mediaElement = image;
             wrapper.append(image);
         }
+        appendDeleteMediaActions(wrapper, line, mediaElement);
         container.append(wrapper);
         return;
     }
@@ -1198,6 +1235,7 @@ window.getPromptPath = () => getPromptSnapshot().path;
 window.getPromptUser = () => getPromptSnapshot().user;
 window.getPromptHost = () => getPromptSnapshot().host;
 window.refreshTerminalInputPrompt = refreshTerminalInputPrompt;
+window.syncTerminalSessionAwareLines = syncTerminalSessionAwareLines;
 window.syncTerminalVisualEffects = syncBinaryRainVisualState;
 window.showAsciiStill = showAsciiStill;
 window.showImageStill = showImageStill;

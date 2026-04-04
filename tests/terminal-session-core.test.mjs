@@ -20,6 +20,7 @@ test('default terminal session keeps the original guest prompt', () => {
     assert.deepEqual(snapshot, {
         documentTitle: null,
         host: 'localhost',
+        isGodlike: false,
         isRoot: false,
         mode: 'default',
         path: '/home/0x00C0DE/Unkn0wn',
@@ -43,6 +44,7 @@ test('su without arguments switches the session into a root localhost prompt', (
     assert.deepEqual(getTerminalPromptSnapshot(session), {
         documentTitle: null,
         host: 'localhost',
+        isGodlike: false,
         isRoot: true,
         mode: 'default',
         path: '/home/0x00C0DE/Unkn0wn',
@@ -65,6 +67,7 @@ test('su guest switches back to the guest localhost prompt', () => {
     assert.deepEqual(getTerminalPromptSnapshot(session), {
         documentTitle: null,
         host: 'localhost',
+        isGodlike: false,
         isRoot: false,
         mode: 'default',
         path: '/home/0x00C0DE/Unkn0wn',
@@ -90,6 +93,32 @@ test('unsupported su usernames leave the current shell profile unchanged', () =>
         applyTerminalSessionCommand(rootSession, 'su', ['root']),
         rootSession
     );
+});
+
+test('su godlike switches into the godlike localhost prompt', () => {
+    const session = applyTerminalSessionCommand(
+        createDefaultTerminalSession(),
+        'su',
+        ['godlike']
+    );
+
+    assert.deepEqual(session, {
+        shell: 'default',
+        user: 'godlike'
+    });
+    assert.deepEqual(getTerminalPromptSnapshot(session), {
+        documentTitle: null,
+        host: 'localhost',
+        isGodlike: true,
+        isRoot: false,
+        mode: 'default',
+        path: '/home/0x00C0DE/Unkn0wn',
+        promptSymbol: '$',
+        theme: 'default',
+        user: 'godlike'
+    });
+    assert.equal(getTerminalSessionUsername(session), 'godlike');
+    assert.equal(getTerminalSessionPwd(session), '/home/0x00C0DE/Unkn0wn');
 });
 
 test('non-session commands do not change the current shell profile', () => {
