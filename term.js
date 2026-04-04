@@ -485,6 +485,10 @@ function renderOutputObject(container, line) {
         return;
     }
 
+    if (typeof line.entryTimestamp === 'string' && line.entryTimestamp) {
+        container.dataset.blogEntryTimestamp = line.entryTimestamp;
+    }
+
     if (line.type === 'banner') {
         appendBannerWaveText(container, line.title || '', 'banner-art');
 
@@ -542,6 +546,73 @@ function renderOutputObject(container, line) {
 
         entry.append(command, separator, description);
         container.append(entry);
+        return;
+    }
+
+    if (line.type === 'blog-entry-header') {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'terminal-blog-entry-header';
+
+        const timestamp = document.createElement('span');
+        timestamp.className = 'terminal-blog-entry-timestamp';
+        timestamp.textContent = line.text || '';
+        wrapper.append(timestamp);
+
+        if (line.deletable && typeof window.deleteBlogEntryByTimestamp === 'function') {
+            const actions = document.createElement('div');
+            actions.className = 'terminal-inline-image-actions';
+
+            const deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'terminal-inline-image-delete';
+            deleteButton.textContent = 'delete post';
+
+            const status = document.createElement('span');
+            status.className = 'terminal-inline-image-status';
+
+            deleteButton.addEventListener('click', async () => {
+                const password = window.prompt('Enter delete password');
+                if (password === null) {
+                    return;
+                }
+
+                deleteButton.disabled = true;
+                status.textContent = ' deleting...';
+
+                try {
+                    const result = await window.deleteBlogEntryByTimestamp(
+                        typeof line.entryTimestamp === 'string' ? line.entryTimestamp : '',
+                        password
+                    );
+                    if (!result.ok) {
+                        status.textContent = ` ${result.error}`;
+                        deleteButton.disabled = false;
+                        return;
+                    }
+
+                    const matchingLines = [...document.querySelectorAll('.terminal-line[data-blog-entry-timestamp]')]
+                        .filter(node => node.dataset.blogEntryTimestamp === line.entryTimestamp);
+                    matchingLines.forEach(node => node.remove());
+                } catch (error) {
+                    status.textContent = ' unable to delete post right now';
+                    deleteButton.disabled = false;
+                }
+            });
+
+            actions.append(deleteButton, status);
+            wrapper.append(actions);
+        }
+
+        container.append(wrapper);
+        return;
+    }
+
+    if (line.type === 'blog-entry-text') {
+        if (typeof window.renderTerminalLineContent === 'function') {
+            window.renderTerminalLineContent(container, line.text || '');
+        } else {
+            container.textContent = typeof line.text === 'string' ? line.text : '';
+        }
         return;
     }
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import blogWorker, { BlogUploadSession, VisitorCounter, appendBlogEntry, createBlogImageKey, removeImageBlock } from './index.js';
+import blogWorker, { BlogUploadSession, VisitorCounter, appendBlogEntry, createBlogImageKey, removeBlogEntry, removeImageBlock } from './index.js';
 
 class FakeStorage {
     constructor() {
@@ -521,6 +521,43 @@ test('appendBlogEntry and removeImageBlock use the same blog file serialization'
         'testing image post',
         ''
     ].join('\n'));
+});
+
+test('removeBlogEntry removes the targeted entry and returns its blocks for cascading cleanup', () => {
+    const currentContent = [
+        '0x00C0DE Blog',
+        '=============',
+        '',
+        '[2026-04-03T10:00:00.000Z]',
+        'keep me',
+        '',
+        '[2026-04-03T11:00:00.000Z]',
+        'delete me',
+        '[image-base64]',
+        'data:image/png;base64,AAAA',
+        '[/image-base64]',
+        '[image-url]',
+        'src:https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media/r2/YmxvZy1naWZzL3Rlc3QuZ2lm',
+        'mime:image/gif',
+        'provider:r2',
+        'storage-key:blog-gifs/test.gif',
+        '[/image-url]',
+        '',
+        '[2026-04-03T12:00:00.000Z]',
+        'keep me too',
+        ''
+    ].join('\n');
+
+    const removal = removeBlogEntry(currentContent, {
+        targetEntryTimestamp: '[2026-04-03T11:00:00.000Z]'
+    });
+
+    assert.equal(removal.removed, true);
+    assert.doesNotMatch(removal.content, /\[2026-04-03T11:00:00.000Z\]/);
+    assert.match(removal.content, /\[2026-04-03T10:00:00.000Z\]/);
+    assert.match(removal.content, /\[2026-04-03T12:00:00.000Z\]/);
+    assert.equal(removal.removedEntry?.timestampLine, '[2026-04-03T11:00:00.000Z]');
+    assert.equal(removal.removedEntry?.blocks.filter(block => block.type === 'image').length, 2);
 });
 
 test('append endpoint accepts gif image data urls and commits them to blog.txt in compact reversible form', async t => {
@@ -2294,6 +2331,187 @@ test('delete endpoint removes hosted B2 gif blocks from blog.txt and deletes the
         fileId: 'b2-file-id-123',
         fileName: 'blog-gifs/uploaded.gif'
     });
+});
+
+test('delete entry endpoint removes one post and cascades hosted gif cleanup across R2 and B2', async t => {
+    const originalFetch = globalThis.fetch;
+    let githubUpdateBody = null;
+    const b2DeleteBodies = [];
+    const r2Bucket = new FakeR2Bucket();
+    const r2StorageKey = 'blog-gifs/r2-post.gif';
+    const r2MediaUrl = `https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media/r2/${Buffer.from(r2StorageKey, 'utf8').toString('base64url')}`;
+    const b2MediaUrl = 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media/b2/b2-file-id-456';
+
+    await r2Bucket.put(r2StorageKey, Buffer.from('GIF89a', 'utf8'), {
+        httpMetadata: {
+            contentType: 'image/gif'
+        }
+    });
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+        const method = options.method || 'GET';
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/contents/blog.txt?ref=main') {
+            if (method === 'PUT') {
+                githubUpdateBody = JSON.parse(options.body);
+                return new Response(JSON.stringify({
+                    commit: {
+                        sha: 'deleteentry123'
+                    }
+                }), {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json; charset=utf-8'
+                    }
+                });
+            }
+
+            return new Response(JSON.stringify({
+                sha: 'oldsha123',
+                content: Buffer.from([
+                    '0x00C0DE Blog',
+                    '=============',
+                    '',
+                    '[2026-04-03T01:00:00.000Z]',
+                    'keep post',
+                    '',
+                    '[2026-04-03T02:00:00.000Z]',
+                    'delete post',
+                    '[image-base64]',
+                    'data:image/png;base64,AAAA',
+                    '[/image-base64]',
+                    '[image-url]',
+                    `src:${r2MediaUrl}`,
+                    'mime:image/gif',
+                    'provider:r2',
+                    `storage-key:${r2StorageKey}`,
+                    '[/image-url]',
+                    '[image-url]',
+                    `src:${b2MediaUrl}`,
+                    'mime:image/gif',
+                    'provider:b2',
+                    'storage-key:blog-gifs/b2-post.gif',
+                    'storage-file-id:b2-file-id-456',
+                    '[/image-url]',
+                    '',
+                    '[2026-04-03T03:00:00.000Z]',
+                    'keep post too',
+                    ''
+                ].join('\n'), 'utf8').toString('base64')
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response([
+                '0x00C0DE Blog',
+                '=============',
+                '',
+                '[2026-04-03T01:00:00.000Z]',
+                'keep post',
+                '',
+                '[2026-04-03T02:00:00.000Z]',
+                'delete post',
+                '[image-base64]',
+                'data:image/png;base64,AAAA',
+                '[/image-base64]',
+                '[image-url]',
+                `src:${r2MediaUrl}`,
+                'mime:image/gif',
+                'provider:r2',
+                `storage-key:${r2StorageKey}`,
+                '[/image-url]',
+                '[image-url]',
+                `src:${b2MediaUrl}`,
+                'mime:image/gif',
+                'provider:b2',
+                'storage-key:blog-gifs/b2-post.gif',
+                'storage-file-id:b2-file-id-456',
+                '[/image-url]',
+                '',
+                '[2026-04-03T03:00:00.000Z]',
+                'keep post too',
+                ''
+            ].join('\n'), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.includes('b2_authorize_account')) {
+            return new Response(JSON.stringify({
+                apiUrl: 'https://api001.backblazeb2.com',
+                downloadUrl: 'https://f001.backblazeb2.com',
+                authorizationToken: 'b2-auth-token'
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.includes('b2_delete_file_version')) {
+            b2DeleteBodies.push(JSON.parse(options.body));
+            return new Response(JSON.stringify({
+                fileId: 'b2-file-id-456',
+                fileName: 'blog-gifs/b2-post.gif'
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${method} ${urlString}`);
+    };
+
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/delete-entry', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            password: 'delete-me',
+            entryTimestamp: '[2026-04-03T02:00:00.000Z]'
+        })
+    }), {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        GITHUB_OWNER: 'owner',
+        GITHUB_REPO: 'repo',
+        GITHUB_PAT: 'token',
+        GITHUB_BRANCH: 'main',
+        BLOG_IMAGE_DELETE_PASSWORD: 'delete-me',
+        BLOG_GIF_R2_BUCKET: r2Bucket,
+        B2_APPLICATION_KEY_ID: 'key-id',
+        B2_APPLICATION_KEY: 'app-key',
+        B2_BUCKET_NAME: '0x00C0DE-github-b2',
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
+    });
+
+    assert.equal(response.status, 200);
+    const updatedBlogContent = Buffer.from(githubUpdateBody.content, 'base64').toString('utf8');
+    assert.doesNotMatch(updatedBlogContent, /\[2026-04-03T02:00:00.000Z\]/);
+    assert.doesNotMatch(updatedBlogContent, /delete post/);
+    assert.match(updatedBlogContent, /\[2026-04-03T01:00:00.000Z\]/);
+    assert.match(updatedBlogContent, /\[2026-04-03T03:00:00.000Z\]/);
+    assert.equal(r2Bucket.objects.has(r2StorageKey), false);
+    assert.deepEqual(b2DeleteBodies, [{
+        fileId: 'b2-file-id-456',
+        fileName: 'blog-gifs/b2-post.gif'
+    }]);
 });
 
 test('append endpoint blocks writes while the live site is still deploying the previous repo state', async t => {

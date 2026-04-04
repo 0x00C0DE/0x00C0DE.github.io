@@ -93,6 +93,7 @@ const ASTROLOGY_FORTUNE_SOURCES = [
 const BLOG_POST_API_URL = window.BLOG_POST_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/append';
 const BLOG_STAGE_IMAGE_API_URL = window.BLOG_STAGE_IMAGE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/upload-chunk';
 const BLOG_DELETE_IMAGE_API_URL = window.BLOG_DELETE_IMAGE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/delete-image';
+const BLOG_DELETE_ENTRY_API_URL = window.BLOG_DELETE_ENTRY_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/delete-entry';
 const VISITOR_COUNT_API_URL = window.VISITOR_COUNT_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors';
 const VISITOR_TRACK_API_URL = window.VISITOR_TRACK_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/track';
 const VISITOR_LEAVE_API_URL = window.VISITOR_LEAVE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/leave';
@@ -468,6 +469,18 @@ function parseBlogTextFile(lines) {
     let currentEntryTimestamp = '';
     let currentEntryImageIndex = 0;
     let previousTextLine = '';
+    const pushBlogEntryTextLine = line => {
+        if (!currentEntryTimestamp) {
+            output.push(line);
+            return;
+        }
+
+        output.push({
+            type: 'blog-entry-text',
+            text: line,
+            entryTimestamp: currentEntryTimestamp
+        });
+    };
 
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
@@ -476,10 +489,18 @@ function parseBlogTextFile(lines) {
                 currentEntryTimestamp = line.trim();
                 currentEntryImageIndex = 0;
                 previousTextLine = '';
+                output.push({
+                    type: 'blog-entry-header',
+                    text: line,
+                    entryTimestamp: currentEntryTimestamp,
+                    deletable: true
+                });
             } else if (line.trim()) {
                 previousTextLine = line;
+                pushBlogEntryTextLine(line);
+            } else {
+                pushBlogEntryTextLine(line);
             }
-            output.push(line);
             continue;
         }
 
@@ -515,10 +536,10 @@ function parseBlogTextFile(lines) {
                     nextTextLine
                 });
             } else {
-                output.push('[image-z85]');
-                imageLines.forEach(imageLine => output.push(imageLine));
+                pushBlogEntryTextLine('[image-z85]');
+                imageLines.forEach(imageLine => pushBlogEntryTextLine(imageLine));
                 if (index < lines.length && lines[index] === '[/image-z85]') {
-                    output.push('[/image-z85]');
+                    pushBlogEntryTextLine('[/image-z85]');
                 }
             }
         } else if (isHostedImageBlock) {
@@ -537,10 +558,10 @@ function parseBlogTextFile(lines) {
                     nextTextLine
                 });
             } else {
-                output.push('[image-url]');
-                imageLines.forEach(imageLine => output.push(imageLine));
+                pushBlogEntryTextLine('[image-url]');
+                imageLines.forEach(imageLine => pushBlogEntryTextLine(imageLine));
                 if (index < lines.length && lines[index] === '[/image-url]') {
-                    output.push('[/image-url]');
+                    pushBlogEntryTextLine('[/image-url]');
                 }
             }
         } else {
@@ -559,10 +580,10 @@ function parseBlogTextFile(lines) {
                     nextTextLine
                 });
             } else {
-                output.push('[image-base64]');
-                imageLines.forEach(imageLine => output.push(imageLine));
+                pushBlogEntryTextLine('[image-base64]');
+                imageLines.forEach(imageLine => pushBlogEntryTextLine(imageLine));
                 if (index < lines.length && lines[index] === '[/image-base64]') {
-                    output.push('[/image-base64]');
+                    pushBlogEntryTextLine('[/image-base64]');
                 }
             }
         }
@@ -1045,6 +1066,40 @@ async function deleteBlogImageByBlockIndex(
         return {
             ok: false,
             error: payload.error || 'unable to delete image right now'
+        };
+    }
+
+    return {
+        ok: true,
+        commitUrl: payload.commitUrl || ''
+    };
+}
+
+async function deleteBlogEntryByTimestamp(entryTimestamp, password) {
+    const normalizedEntryTimestamp = isBlogEntryTimestampLine(entryTimestamp) ? entryTimestamp.trim() : '';
+    if (!normalizedEntryTimestamp) {
+        return {
+            ok: false,
+            error: 'invalid post reference'
+        };
+    }
+
+    const response = await fetch(BLOG_DELETE_ENTRY_API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            entryTimestamp: normalizedEntryTimestamp,
+            password
+        })
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        return {
+            ok: false,
+            error: payload.error || 'unable to delete post right now'
         };
     }
 
@@ -2297,6 +2352,7 @@ window.renderTerminalLineContent = renderTerminalLineContent;
 window.buildVisitorWidgetElement = buildVisitorWidgetElement;
 window.isSafeBlogImageDataUrl = isSafeBlogImageDataUrl;
 window.isSafeBlogImageSource = isSafeBlogImageSource;
+window.deleteBlogEntryByTimestamp = deleteBlogEntryByTimestamp;
 window.deleteBlogImageByBlockIndex = deleteBlogImageByBlockIndex;
 window.ensureTerminalPretextReady = ensureTerminalPretextReady;
 window.ensureTerminalSessionReady = ensureTerminalSessionReady;

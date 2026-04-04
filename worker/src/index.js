@@ -37,6 +37,10 @@ export default {
             return handleDeleteImage(request, env);
         }
 
+        if (request.method === 'POST' && url.pathname === '/api/blog/delete-entry') {
+            return handleDeleteEntry(request, env);
+        }
+
         if (request.method === 'GET' && url.pathname.startsWith('/api/blog/media/')) {
             return handleHostedBlogMedia(request, env);
         }
@@ -700,6 +704,75 @@ async function handleDeleteImage(request, env) {
     } catch (error) {
         console.error('delete image failed', error);
         return jsonResponse({ error: 'failed to delete blog image' }, 500, env.ALLOWED_ORIGIN);
+    }
+}
+
+async function handleDeleteEntry(request, env) {
+    try {
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rateCheck = await enforceRateLimit(ip, env);
+        if (!rateCheck.allowed) {
+            return jsonResponse({ error: 'rate limit exceeded' }, 429, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        if (!env.BLOG_IMAGE_DELETE_PASSWORD) {
+            return jsonResponse({ error: 'delete password is not configured' }, 500, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        const body = await request.json().catch(() => null);
+        const password = typeof body?.password === 'string' ? body.password : '';
+        const entryTimestamp = normalizeBlogEntryTimestamp(body?.entryTimestamp);
+
+        if (!timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD)) {
+            return jsonResponse({ error: 'invalid password' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        if (!entryTimestamp) {
+            return jsonResponse({ error: 'entryTimestamp is required' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        const githubFile = await fetchGithubFile(env);
+        const deploymentStatus = await ensurePublishedBlogIsCurrent(env, githubFile.content);
+        if (!deploymentStatus.ok) {
+            return jsonResponse({ error: deploymentStatus.error }, 409, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        const removal = removeBlogEntry(githubFile.content, {
+            targetEntryTimestamp: entryTimestamp
+        });
+        if (!removal.removed) {
+            return jsonResponse({ error: 'entry not found in blog.txt' }, 404, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        const commit = await updateGithubFile(
+            env,
+            removal.content,
+            githubFile.sha,
+            'Delete blog entry via terminal site'
+        );
+
+        if (removal.removedEntry) {
+            for (const block of removal.removedEntry.blocks) {
+                if (block.type !== 'image' || !block.imageUrl) {
+                    continue;
+                }
+
+                try {
+                    await cleanupHostedImageBlock(env, block);
+                } catch (error) {
+                    console.error('hosted image cleanup failed', error);
+                }
+            }
+        }
+
+        return jsonResponse({
+            ok: true,
+            commitSha: commit.sha,
+            commitUrl: `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/commit/${commit.sha}`
+        }, 200, env.ALLOWED_ORIGIN, rateCheck.headers);
+    } catch (error) {
+        console.error('delete entry failed', error);
+        return jsonResponse({ error: 'failed to delete blog entry' }, 500, env.ALLOWED_ORIGIN);
     }
 }
 
@@ -2069,6 +2142,36 @@ export function appendBlogEntry(currentContent, contentBlocks, timestamp = new D
         blocks: normalizeBlogEntryBlocks(contentBlocks)
     });
     return serializeBlogDocument(blogDocument);
+}
+
+export function removeBlogEntry(currentContent, {
+    targetEntryTimestamp = ''
+} = {}) {
+    const blogDocument = parseBlogDocument(currentContent);
+    const normalizedTargetEntryTimestamp = normalizeBlogEntryTimestamp(targetEntryTimestamp);
+    if (!normalizedTargetEntryTimestamp) {
+        return {
+            removed: false,
+            content: currentContent,
+            removedEntry: null
+        };
+    }
+
+    const entryIndex = blogDocument.entries.findIndex(entry => entry.timestampLine === normalizedTargetEntryTimestamp);
+    if (entryIndex < 0) {
+        return {
+            removed: false,
+            content: currentContent,
+            removedEntry: null
+        };
+    }
+
+    const [removedEntry] = blogDocument.entries.splice(entryIndex, 1);
+    return {
+        removed: true,
+        content: serializeBlogDocument(blogDocument),
+        removedEntry: removedEntry || null
+    };
 }
 
 export function removeImageBlock(currentContent, {
