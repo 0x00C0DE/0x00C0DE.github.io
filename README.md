@@ -52,7 +52,7 @@ The live blog still centers on `blog.txt`, but the Worker now supports three med
 
 The latest terminal updates integrate **Pretext** directly into the live render path and expand the constrained `su` session model. Plain text output, echoed commands, wrapped links, and the `help` descriptions now reflow through a link-aware layout engine that behaves correctly on mobile and on browser resize, while `su` now supports implicit `root`, `su guest`, and password-gated `su godlike`.
 
-Elevated sessions now split responsibilities: `root` enables the red animated glyph-rain background and unlocks a root-only editorial `cat blog.txt` view where images, GIFs, and MP4 blocks can be dragged to live-reflow text, while `godlike` uses the same password as blog/image deletion and is the only session that can see or trigger delete controls. Switching back with `su guest` restores the original CRT background and standard prompt styling.
+Elevated sessions now split responsibilities: `root` enables the red animated glyph-rain background and unlocks a root-only editorial `cat blog.txt` view where images, GIFs, and MP4 blocks can be dragged across the terminal to live-reflow the banner, visitor widget, timestamps, and blog text, with undocked media picking up a subtle animated aura, while `godlike` uses the same password as blog/image deletion and is the only session that can see or trigger delete controls. Those controls also switch to the godlike dark-gold palette while that session is active. Switching back with `su guest` restores the original CRT background and standard prompt styling.
 
 Credit to Cheng Lou for the original [Pretext](https://github.com/chenglou/pretext) project, the pure JavaScript/TypeScript multiline text measurement and layout library this terminal integration builds on.
 
@@ -120,7 +120,7 @@ Pretext wraps visible rows while preserving terminal links
 Terminal scrolls to bottom
 ```
 
-When the active session is `root`, `cat blog.txt` routes each entry through a root-only editorial stage where draggable images, GIFs, and MP4 blocks act as live obstacles for Pretext line layout. Delete controls stay fully hidden unless the active session is `godlike`.
+When the active session is `root`, `cat blog.txt` routes the banner, visitor widget, timestamps, and blog entries through a root-only terminal-wide editorial stage where draggable images, GIFs, and MP4 blocks act as live obstacles for Pretext line layout. Delete controls stay fully hidden unless the active session is `godlike`.
 
 **Request flow for `post <message>`:**
 
@@ -140,7 +140,7 @@ GitHub API appends entry to blog.txt → commits to main branch
 Next `cat blog.txt` reflects the new entry live
 ```
 
-`post --image` and inline-image posts share the same Worker path. PNG/JPEG/JPG/WEBP images remain inline in `blog.txt`, while hosted media blocks now cover larger GIFs and MP4 uploads through `/api/blog/media/...`.
+`post --image` and inline-image posts share the same Worker path. PNG/JPEG/JPG/WEBP images remain inline in `blog.txt`, while hosted media blocks now cover larger GIFs and MP4 uploads through `/api/blog/media/...`. When a post template requests multiple `[image]` placeholders, the browser now requires the exact same number of selected media files in a single chooser step; selecting fewer cancels the entire post instead of partially publishing it.
 
 ---
 
@@ -219,8 +219,8 @@ Responsibilities:
 - Enables the animated glyph-rain background while the terminal user is in an elevated session (`root` or `godlike`)
 - Waits for the Pretext runtime before the first command renders
 - Calls `initVisitorTracking()` for lightweight analytics
-- Renders `cat blog.txt` in a root-only editorial layout with draggable media and live Pretext reflow
-- Renders delete controls for blog images and whole blog entries only while the terminal user is `godlike`
+- Renders `cat blog.txt` in a root-only editorial layout where draggable media can float across the terminal and reroute the banner, visitor widget, timestamps, and blog text through Pretext
+- Renders delete controls for blog images and whole blog entries only while the terminal user is `godlike`, with matching dark-gold godlike styling
 
 ```
 setupTerminal()
@@ -252,7 +252,7 @@ The terminal command map in `term.js` routes each shell verb to its handler, wit
 | `picture [w h]` | Renders a built-in ASCII portrait |
 | `post <text>` | Appends a text-only blog entry through the Worker |
 | `post --image [text]` | Appends one selected `png/jpg/jpeg/webp/gif/mp4` media file |
-| `post ... [image] ...` | Inserts one selected `png/jpg/jpeg/webp/gif/mp4` media file inline between text blocks |
+| `post ... [image] ...` | Inserts exact-count selected `png/jpg/jpeg/webp/gif/mp4` media files inline between text blocks; partial selection cancels the post |
 | `pretext [text]` | Reports terminal Pretext status or opens the lab with `pretext lab [text]` |
 | `projects` | Opens the dedicated projects terminal page |
 | `pwd` | Prints the simulated working directory |
@@ -266,9 +266,9 @@ The terminal command map in `term.js` routes each shell verb to its handler, wit
 
 Commands that require async I/O (`cat`, `post`, `fortune`, `movie`, `userpic`, `qr-totp`, `visitors`) return Promises and can be aborted mid-execution.
 
-For blog rendering, `cat blog.txt` now groups entries into structured text/media blocks, understands inline base64 image blocks, compact reversible GIF blocks, and hosted media URL blocks for GIF and MP4 assets. When the active user is `root`, it reflows each entry through a draggable editorial layout; delete controls remain hidden unless the active user is `godlike`.
+For blog rendering, `cat blog.txt` now groups entries into structured text/media blocks, understands inline base64 image blocks, compact reversible GIF blocks, and hosted media URL blocks for GIF and MP4 assets. When the active user is `root`, it reflows the banner, visitor widget, timestamps, and blog entries through a draggable editorial layout that treats media as terminal-wide obstacles; delete controls remain hidden unless the active user is `godlike`.
 
-`commands.js` also exposes the terminal text rendering bridge. It lazy-loads `terminal-pretext-runtime.mjs`, routes plain string output through Pretext when available, falls back to the older regex-based renderer if the module cannot be loaded, parses `[image-base64]`, `[image-z85]`, and `[image-url]` blog blocks, and coordinates the guest/root/godlike session model, `su godlike` authentication, and image/post delete flows with the prompt renderer.
+`commands.js` also exposes the terminal text rendering bridge. It lazy-loads `terminal-pretext-runtime.mjs`, routes plain string output through Pretext when available, falls back to the older regex-based renderer if the module cannot be loaded, parses `[image-base64]`, `[image-z85]`, and `[image-url]` blog blocks, and coordinates exact-count media selection, the guest/root/godlike session model, `su godlike` authentication, and image/post delete flows with the prompt renderer.
 
 ### `terminal-session-core.mjs` — Session State
 
@@ -335,9 +335,9 @@ Font:          monospace stack with Courier New styling
 The stylesheet also contains the Pretext-specific layout classes, the root-only editorial blog stage, and the elevated visual modes:
 - `.terminal-pretext-enabled`, `.terminal-pretext-row`, and `.terminal-pretext-editorial-row` for wrapped terminal rows
 - `.terminal-help-entry` for the help command's three-column grid layout
-- `.terminal-editorial-*` for the root-only draggable `blog.txt` layout
+- `.terminal-editorial-*` for the root-only draggable `blog.txt` layout, including floating media aura styling
 - Mobile-safe wrapping rules that keep long help descriptions in the right-hand column instead of drifting under the command name
-- Elevated prompt and background styles for `root` / `godlike`, including a distinct godlike prompt treatment
+- Elevated prompt, background, and delete-control styles for `root` / `godlike`, including a distinct godlike prompt treatment
 
 ---
 
@@ -487,7 +487,7 @@ The Pretext lab remains available at [pretext-lab.html](https://0x00c0de.github.
 
 Start at **[https://0x00c0de.github.io](https://0x00c0de.github.io)**. The terminal loads automatically with the `banner` command.
 
-Plain terminal output, echoed commands, and `help` descriptions now use Pretext-backed wrapping, so they reflow cleanly on mobile and when the window width changes. The prompt starts in the original guest shell, `su` switches into `root`, `su guest` switches back to the guest shell and restores the default background, and `su godlike` authenticates against the same password used for blog/image deletion. When the active user is `root`, `cat blog.txt` enters the editorial layout with draggable media reflow; delete controls stay hidden unless the active user is `godlike`.
+Plain terminal output, echoed commands, and `help` descriptions now use Pretext-backed wrapping, so they reflow cleanly on mobile and when the window width changes. The prompt starts in the original guest shell, `su` switches into `root`, `su guest` switches back to the guest shell and restores the default background, and `su godlike` authenticates against the same password used for blog/image deletion. When the active user is `root`, `cat blog.txt` enters the editorial layout with draggable media reflow across the banner, widget, timestamps, and blog text; delete controls stay hidden unless the active user is `godlike`.
 
 ```text
 ╔══════════════════════════════════════════════════╗
@@ -521,7 +521,7 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
   fortune                    Random quote
   post <your message>        Append to blog.txt
   post --image [caption]     Append one selected png/jpg/jpeg/webp/gif/mp4 file
-  post hello [image] goodbye Insert one selected png/jpg/jpeg/webp/gif/mp4 file inline
+  post hello [image] goodbye Insert exact-count selected png/jpg/jpeg/webp/gif/mp4 file(s) inline
   picture                    ASCII portrait
   movie                      Live webcam to ASCII art
   userpic                    Uploaded/captured image to ASCII art
