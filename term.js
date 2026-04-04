@@ -612,6 +612,24 @@ function syncTerminalSessionAwareLines() {
     }
 }
 
+function resetTerminalLinePresentation(container) {
+    if (!container) {
+        return;
+    }
+
+    container.classList.remove('terminal-pretext-enabled', 'terminal-pretext-editorial-enabled');
+    container.style.minHeight = '';
+    container.style.position = '';
+
+    const visitorWidget = container.querySelector(':scope > [data-visitor-counter]');
+    if (visitorWidget) {
+        visitorWidget.style.position = '';
+        visitorWidget.style.left = '';
+        visitorWidget.style.top = '';
+        visitorWidget.style.transform = '';
+    }
+}
+
 const editorialBlogEntryStates = new WeakMap();
 const editorialBlogEntryContainers = new Set();
 let editorialBlogResizeFrameId = 0;
@@ -831,6 +849,16 @@ function getOrderedTerminalCommandLines() {
         .filter(container => typeof container.__terminalRenderedCommandText === 'string');
 }
 
+function buildPromptDisplayText(snapshot = null) {
+    const safeSnapshot = clonePromptSnapshot(snapshot);
+    return `${safeSnapshot.user}@${safeSnapshot.host}:${safeSnapshot.path}${safeSnapshot.promptSymbol} `;
+}
+
+function buildCommandLineDisplayText(snapshot = null, commandText = '') {
+    const safeCommandText = typeof commandText === 'string' ? commandText : String(commandText ?? '');
+    return `${buildPromptDisplayText(snapshot)}${safeCommandText}`;
+}
+
 function createEditorialMediaPlaceholderRow() {
     const row = document.createElement('div');
     row.className = 'terminal-blog-entry-media-row terminal-editorial-media-placeholder';
@@ -1002,6 +1030,10 @@ function syncEditorialTextContainer(element, text, obstacleRects, options = {}) 
     if (typeof window.renderTerminalEditorialLineContent === 'function') {
         return window.renderTerminalEditorialLineContent(element, text, {
             ...options,
+            characterGranularity: options.characterGranularity !== false,
+            minSegmentWidth: Number.isFinite(Number(options.minSegmentWidth))
+                ? Number(options.minSegmentWidth)
+                : 8,
             obstacles: buildRelativeEditorialObstacles(element, obstacleRects, options.padding)
         }) || {
             height: element.getBoundingClientRect().height || 0,
@@ -1226,6 +1258,75 @@ function collectBlogEditorialObstacleRects() {
     }, []);
 }
 
+function rectsOverlap(left, right) {
+    return left.x < right.x + right.width
+        && left.x + left.width > right.x
+        && left.y < right.y + right.height
+        && left.y + left.height > right.y;
+}
+
+function resolveEditorialBlockPlacement(container, blockWidth, blockHeight, obstacleRects = [], options = {}) {
+    const maxWidth = resolveEditorialContainerWidth(container);
+    const safeWidth = Math.max(1, Math.round(blockWidth));
+    const safeHeight = Math.max(1, Math.round(blockHeight));
+    const maximumX = Math.max(0, maxWidth - safeWidth);
+    const preferredX = clampEditorialNumber(Number(options.preferredX) || 0, 0, maximumX);
+    const preferredY = Math.max(0, Math.round(Number(options.preferredY) || 0));
+    const verticalStep = Math.max(4, Math.round(Number(options.verticalStep) || (resolveEditorialLineHeight(container) * 0.5)));
+    const relativeObstacles = buildRelativeEditorialObstacles(
+        container,
+        obstacleRects,
+        Number.isFinite(Number(options.padding)) ? Number(options.padding) : EDITORIAL_MEDIA_FLOAT_PADDING
+    );
+    const scanLimit = Math.max(
+        preferredY + safeHeight + verticalStep,
+        ...relativeObstacles.map(rect => Math.ceil(rect.y + rect.height + safeHeight + verticalStep))
+    );
+
+    let bestPlacement = {
+        x: preferredX,
+        y: scanLimit
+    };
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (let y = preferredY; y <= scanLimit; y += verticalStep) {
+        const overlappingRects = relativeObstacles.filter(rect => rect.y < y + safeHeight && rect.y + rect.height > y);
+        const candidateXs = new Set([preferredX, 0]);
+        overlappingRects.forEach(rect => {
+            candidateXs.add(clampEditorialNumber(Math.round(rect.x + rect.width), 0, maximumX));
+        });
+
+        const orderedXs = [...candidateXs].sort((left, right) => Math.abs(left - preferredX) - Math.abs(right - preferredX));
+        for (const x of orderedXs) {
+            const candidateRect = {
+                height: safeHeight,
+                width: safeWidth,
+                x,
+                y
+            };
+            if (overlappingRects.some(rect => rectsOverlap(candidateRect, rect))) {
+                continue;
+            }
+
+            const score = Math.abs(y - preferredY) * 3 + Math.abs(x - preferredX);
+            if (score < bestScore) {
+                bestScore = score;
+                bestPlacement = { x, y };
+            }
+        }
+
+        if (bestScore === 0) {
+            break;
+        }
+    }
+
+    return {
+        height: bestPlacement.y + safeHeight,
+        x: bestPlacement.x,
+        y: bestPlacement.y
+    };
+}
+
 function applyBlogEditorialMediaPosition(mediaState, dimensions) {
     if (!mediaState.dom?.wrapper || !mediaState.dom?.mediaElement) {
         return;
@@ -1319,15 +1420,18 @@ function syncAllBlogEditorialLayouts() {
         });
 
         getOrderedTerminalCommandLines().forEach(container => {
-            const commandText = container.querySelector(':scope > .terminal-command-text');
-            if (!commandText) {
-                return;
-            }
-
-            syncEditorialTextContainer(commandText, container.__terminalRenderedCommandText, obstacleRects, {
+            syncEditorialTextContainer(
+                container,
+                buildCommandLineDisplayText(
+                    container.__terminalCommandPromptSnapshot,
+                    container.__terminalRenderedCommandText
+                ),
+                obstacleRects,
+                {
                 tokenizeLinks: false,
                 whiteSpace: 'pre'
-            });
+            }
+            );
         });
     };
 
@@ -1354,7 +1458,7 @@ function syncBlogEditorialEntryLayout(container, line, state, obstacleRects = []
 
     if (state.dom.timestamp) {
         syncEditorialTextContainer(state.dom.timestamp, line.text || '', obstacleRects, {
-            minSegmentWidth: 136,
+            minSegmentWidth: 12,
             tokenizeLinks: false,
             whiteSpace: 'pre-wrap'
         });
@@ -1414,14 +1518,14 @@ function syncBannerEditorialLayout(container, line, obstacleRects = []) {
     }
 
     syncEditorialTextContainer(state.dom.title, line.title || '', obstacleRects, {
-        minSegmentWidth: 132,
+        minSegmentWidth: 18,
         tokenizeLinks: false,
         whiteSpace: 'pre-wrap'
     });
 
     if (state.dom.subtitle) {
         syncEditorialTextContainer(state.dom.subtitle, line.subtitle || '', obstacleRects, {
-            minSegmentWidth: 96,
+            minSegmentWidth: 14,
             tokenizeLinks: false,
             whiteSpace: 'pre-wrap'
         });
@@ -1460,27 +1564,13 @@ function buildVisitorWidgetEditorialRows(stats = null) {
 }
 
 function mountVisitorWidgetEditorial(container, line, state) {
-    const widget = document.createElement('div');
-    widget.className = 'visitor-widget terminal-editorial-visitor-widget';
-    widget.setAttribute('data-visitor-counter', '');
+    let widget = container.querySelector(':scope > [data-visitor-counter]');
+    if (!widget && typeof window.buildVisitorWidgetElement === 'function') {
+        widget = window.buildVisitorWidgetElement(line.stats);
+        container.replaceChildren(widget);
+    }
 
-    const rows = buildVisitorWidgetEditorialRows(line.stats).map(rowDefinition => {
-        const row = document.createElement('div');
-        row.className = rowDefinition.className;
-
-        const text = createEditorialTextBlockElement('visitor-widget-editorial-text');
-        row.append(text);
-        widget.append(row);
-
-        return {
-            element: text,
-            text: rowDefinition.text
-        };
-    });
-
-    container.append(widget);
     state.dom = {
-        rows,
         widget
     };
 }
@@ -1491,28 +1581,36 @@ function syncVisitorWidgetEditorialLayout(container, line, obstacleRects = []) {
     }
 
     let state = container.__terminalEditorialVisitorState;
-    const signature = buildVisitorWidgetEditorialSignature(line.stats);
-    if (!state || state.signature !== signature || !state.dom?.widget) {
-        container.replaceChildren();
-        state = { dom: null, signature };
+    const widget = container.querySelector(':scope > [data-visitor-counter]');
+    if (!state || state.dom?.widget !== widget || !state.dom?.widget) {
+        state = { dom: null };
         mountVisitorWidgetEditorial(container, line, state);
         container.__terminalEditorialVisitorState = state;
     }
 
-    const rows = buildVisitorWidgetEditorialRows(line.stats);
-    rows.forEach((rowDefinition, index) => {
-        const row = state.dom.rows[index];
-        if (!row) {
-            return;
-        }
+    if (!state.dom?.widget) {
+        return;
+    }
 
-        row.text = rowDefinition.text;
-        syncEditorialTextContainer(row.element, row.text, obstacleRects, {
-            minSegmentWidth: 84,
-            tokenizeLinks: false,
-            whiteSpace: 'pre-wrap'
-        });
+    const measuredWidth = Math.ceil(state.dom.widget.getBoundingClientRect().width || state.dom.widget.offsetWidth || 0);
+    const measuredHeight = Math.ceil(state.dom.widget.getBoundingClientRect().height || state.dom.widget.offsetHeight || 0);
+    if (measuredWidth <= 0 || measuredHeight <= 0) {
+        return;
+    }
+
+    const placement = resolveEditorialBlockPlacement(container, measuredWidth, measuredHeight, obstacleRects, {
+        padding: 12,
+        preferredX: 0,
+        preferredY: 0,
+        verticalStep: 8
     });
+
+    container.style.position = 'relative';
+    container.style.minHeight = `${Math.max(measuredHeight, placement.height)}px`;
+    state.dom.widget.style.position = 'absolute';
+    state.dom.widget.style.left = `${placement.x}px`;
+    state.dom.widget.style.top = `${placement.y}px`;
+    state.dom.widget.style.transform = 'none';
 }
 
 function renderVisitorWidgetEditorial(container, line) {
@@ -1735,6 +1833,7 @@ function renderOutputObject(container, line) {
         return;
     }
 
+    resetTerminalLinePresentation(container);
     delete container.__terminalRenderedText;
     delete container.__terminalRenderedCommandText;
     delete container.__terminalCommandPromptSnapshot;
@@ -1922,6 +2021,7 @@ function renderCommandLineEcho(container, commandLine, promptSnapshot = null) {
     const safeCommandLine = typeof commandLine === 'string' ? commandLine : String(commandLine ?? '');
     const frozenPromptSnapshot = clonePromptSnapshot(promptSnapshot);
 
+    resetTerminalLinePresentation(container);
     container.replaceChildren();
     delete container.__terminalRenderedObject;
     delete container.__terminalRenderedText;

@@ -4,6 +4,15 @@ import { buildTerminalEditorialLayout, buildTerminalPretextLayout, tokenizeTermi
 const terminalPretextStates = new WeakMap();
 const terminalPretextContainers = new Set();
 let resizeFrameId = 0;
+let sharedGraphemeSegmenter = null;
+
+function getGraphemeSegmenter() {
+    if (sharedGraphemeSegmenter === null) {
+        sharedGraphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+    }
+
+    return sharedGraphemeSegmenter;
+}
 
 function buildPlainTextToken(text) {
     return {
@@ -14,12 +23,50 @@ function buildPlainTextToken(text) {
     };
 }
 
+function explodeTokensToGraphemeTokens(tokens) {
+    if (!Array.isArray(tokens) || tokens.length === 0) {
+        return [];
+    }
+
+    const graphemeTokens = [];
+    tokens.forEach(token => {
+        const safeText = typeof token?.text === 'string' ? token.text : String(token?.text ?? '');
+        if (!safeText) {
+            return;
+        }
+
+        const baseToken = { ...token };
+        delete baseToken.text;
+        delete baseToken.start;
+        delete baseToken.end;
+
+        let offset = Number.isFinite(token?.start) ? token.start : 0;
+        for (const part of getGraphemeSegmenter().segment(safeText)) {
+            const segment = part.segment;
+            const nextOffset = offset + segment.length;
+            graphemeTokens.push({
+                ...baseToken,
+                text: segment,
+                start: offset,
+                end: nextOffset
+            });
+            offset = nextOffset;
+        }
+    });
+
+    return graphemeTokens;
+}
+
 function buildTokensForText(text, options = {}) {
-    return options.tokenizeLinks === false
+    const tokens = options.tokenizeLinks === false
         ? [buildPlainTextToken(text)]
         : tokenizeTerminalText(text, {
             normalizeTextFilename: options.normalizeTextFilename
         });
+
+    return options.characterGranularity
+        ? explodeTokensToGraphemeTokens(tokens)
+        : tokens;
 }
 
 function buildComputedFont(styles) {
