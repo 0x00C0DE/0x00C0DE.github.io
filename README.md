@@ -44,9 +44,11 @@ No frameworks. No build steps. Pure JavaScript + HTML + CSS.
 
 ## Overview
 
-`0x00C0DE.github.io` is a **browser-based Unix-like terminal** that serves as a developer portfolio. The entire UI is a scrollable command-line interface rendered inside a `<div>` with no terminal emulator libraries and no framework dependencies. Navigation, blog posting, project browsing, ASCII art rendering, QR/TOTP enrollment, and webcam-to-glyph conversion are driven by a small JavaScript shell engine.
+`0x00C0DE.github.io` is a **browser-based Unix-like terminal** that serves as a developer portfolio. The entire UI is a scrollable command-line interface rendered inside a `<div>` with no terminal emulator libraries and no framework dependencies. Navigation, blog posting, project browsing, ASCII art rendering, QR/TOTP enrollment, webcam-to-glyph conversion, and password-gated blog deletion are driven by a small JavaScript shell engine.
 
 The design philosophy is **file-system-first**: documentation lives as real `.txt` files fetched over HTTP at runtime, mirroring how a real terminal would `cat` files off disk. This keeps content versionable, diffable, and human-readable without introducing a database or build step.
+
+The live blog still centers on `blog.txt`, but the Worker now supports three image storage modes inside that document: inline `[image-base64]` blocks for `png/jpg/jpeg/webp`, compact reversible `[image-z85]` blocks for smaller GIF payloads, and hosted `[image-url]` blocks for larger GIFs served through the Worker from `R2` with private `B2` fallback.
 
 The latest terminal updates integrate **Pretext** directly into the live render path and add a constrained `su` session toggle. Plain text output, echoed commands, wrapped links, and the `help` descriptions now reflow through a link-aware layout engine that behaves correctly on mobile and on browser resize, while `su` now only supports `su` for `root` and `su guest` for the default guest shell.
 
@@ -135,6 +137,8 @@ GitHub API appends entry to blog.txt → commits to main branch
 Next `cat blog.txt` reflects the new entry live
 ```
 
+`post --image` and inline-image posts share the same Worker path. PNG/JPEG/JPG/WEBP images remain inline in `blog.txt`, while larger GIFs are stored as hosted `[image-url]` blocks that render through `/api/blog/media/...`.
+
 ---
 
 ## File Structure
@@ -208,6 +212,7 @@ Responsibilities:
 - Enables the animated glyph-rain background only while the terminal user is `root`
 - Waits for the Pretext runtime before the first command renders
 - Calls `initVisitorTracking()` for lightweight analytics
+- Renders password-gated delete buttons for blog images and whole blog entries returned by `cat blog.txt`
 
 ```
 setupTerminal()
@@ -253,7 +258,9 @@ The terminal command map in `term.js` routes each shell verb to its handler, wit
 
 Commands that require async I/O (`cat`, `post`, `fortune`, `movie`, `userpic`, `qr-totp`, `visitors`) return Promises and can be aborted mid-execution.
 
-`commands.js` also exposes the terminal text rendering bridge. It lazy-loads `terminal-pretext-runtime.mjs`, routes plain string output through Pretext when available, falls back to the older regex-based renderer if the module cannot be loaded, and coordinates the root/guest session toggle with the prompt renderer.
+For blog rendering, `cat blog.txt` now understands inline base64 image blocks, compact reversible GIF blocks, and hosted image URL blocks. It also attaches password-gated delete controls to rendered blog images and whole entries.
+
+`commands.js` also exposes the terminal text rendering bridge. It lazy-loads `terminal-pretext-runtime.mjs`, routes plain string output through Pretext when available, falls back to the older regex-based renderer if the module cannot be loaded, parses `[image-base64]`, `[image-z85]`, and `[image-url]` blog blocks, and coordinates the root/guest session toggle plus image/post delete flows with the prompt renderer.
 
 ### `terminal-session-core.mjs` — Session State
 
@@ -344,7 +351,7 @@ The site has **no database**. Persistent content lives in versioned `.txt` files
 └──────────────┴─────────────────────────────────────────────────────────────┘
 ```
 
-Because `cat` fetches files at runtime over HTTP, content updates are live as soon as a commit lands on `main`.
+Because `cat` fetches files at runtime over HTTP, content updates are live as soon as a commit lands on `main`. Authorized delete actions remove the matching image block or full entry from `blog.txt`, and hosted GIF deletes also cascade into `R2` or `B2`.
 
 ---
 
@@ -397,12 +404,16 @@ The `post` command enables live, authenticated blog posting from the terminal di
              github.com/.../blog.txt
 ```
 
-The Worker acts as a thin authenticated proxy between the public terminal UI and the GitHub Contents API. Secrets live in Cloudflare environment variables and are not committed to the repo.
+The Worker acts as a thin authenticated proxy between the public terminal UI, the GitHub API, and hosted GIF storage. The same package now serves `/api/blog/append`, `/api/blog/delete-image`, `/api/blog/delete-entry`, `/api/blog/media/...`, and visitor endpoints while `R2QuotaGuard` and `B2QuotaGuard` Durable Objects enforce conservative storage and operation thresholds before either provider reaches its free-tier limit.
+
+Secrets live in Cloudflare environment variables and are not committed to the repo. Current runtime secrets include `GITHUB_PAT`, `BLOG_IMAGE_DELETE_PASSWORD`, `B2_APPLICATION_KEY`, and `CLOUDFLARE_BILLING_API_TOKEN`.
+
+Inline `png/jpg/jpeg/webp` images stay inside `blog.txt`, compact GIF payloads can still be serialized directly into the file, and larger GIFs are stored as hosted Worker media URLs with `R2` as the primary store and private `B2` as the backup. The Worker also blocks posts and deletes while GitHub Pages is still catching up to the previous `blog.txt` commit so the live site and the repo do not drift.
 
 ### Directories
 
 - `backend/` contains local backend/server helpers
-- `worker/` contains the Worker package, `wrangler` scripts, and deployment entry points
+- `worker/` contains the Worker package, `worker/wrangler.jsonc`, and deployment entry points
 
 ---
 
@@ -426,18 +437,18 @@ Cache busting is handled manually through version query strings in the terminal 
 
 ```html
 <script src="commands.js?v=20260403c"></script>
-<script src="term.js?v=20260403c"></script>
+<script src="term.js?v=20260403j"></script>
 <script src="pictures.js?v=20260331b"></script>
-<link rel="stylesheet" href="style.css?v=20260403b">
+<link rel="stylesheet" href="style.css?v=20260403i">
 ```
 
-Frontend-only changes go live with a push to `main`. A separate Worker redeploy is only needed when `backend/`, `worker/`, or `wrangler.jsonc` changes.
+Frontend-only changes go live with a push to `main`. A separate Worker redeploy is only needed when `backend/`, `worker/`, or `worker/wrangler.jsonc` changes.
 
 ---
 
 ## Testing
 
-The recent terminal updates were added with red/green TDD around the pure adapter/session/visual layers before wiring them into the browser runtime.
+The recent terminal updates were added with red/green TDD around both the pure adapter/session/visual layers and the Worker-backed blog/media flows before wiring them into the browser runtime.
 
 Current checks:
 
@@ -449,6 +460,9 @@ node --check terminal-session-core.mjs
 node --check terminal-visuals-core.mjs
 node --check terminal-pretext-core.mjs
 node --check terminal-pretext-runtime.mjs
+node --check worker/src/index.js
+node --check worker/src/index.test.js
+node worker/src/index.test.js
 ```
 
 The Pretext lab remains available at [pretext-lab.html](https://0x00c0de.github.io/pretext-lab.html) for manual layout experiments and visual smoke testing.
@@ -459,7 +473,7 @@ The Pretext lab remains available at [pretext-lab.html](https://0x00c0de.github.
 
 Start at **[https://0x00c0de.github.io](https://0x00c0de.github.io)**. The terminal loads automatically with the `banner` command.
 
-Plain terminal output, echoed commands, and `help` descriptions now use Pretext-backed wrapping, so they reflow cleanly on mobile and when the window width changes. The prompt starts in the original guest shell, `su` switches into `root`, and `su guest` switches back to the guest shell and restores the default background.
+Plain terminal output, echoed commands, and `help` descriptions now use Pretext-backed wrapping, so they reflow cleanly on mobile and when the window width changes. The prompt starts in the original guest shell, `su` switches into `root`, and `su guest` switches back to the guest shell and restores the default background. `cat blog.txt` also renders password-gated delete controls for individual images and entire blog entries.
 
 ```text
 ╔══════════════════════════════════════════════════╗
@@ -508,6 +522,8 @@ https://0x00c0de.github.io/?command=cat%20blog.txt
 ```
 
 The `command` URL parameter is parsed by the entry page and passed directly into the terminal boot flow.
+
+When GIF media is hosted instead of stored inline, the blog still renders through `cat blog.txt` using Worker-backed media URLs. If `R2` or `B2` guardrails trip, those hosted GIFs intentionally stop rendering instead of pushing the provider past its configured threshold.
 
 ---
 
