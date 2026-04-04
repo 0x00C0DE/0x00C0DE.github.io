@@ -410,7 +410,7 @@ function getSafeTerminalHref(href) {
 let terminalPretextReadyPromise = null;
 const TERMINAL_PRETEXT_RUNTIME_MODULE_URL = './terminal-pretext-runtime.mjs?v=20260404a';
 let blogUploadCoreReadyPromise = null;
-const BLOG_UPLOAD_CORE_MODULE_URL = './blog-upload-core.mjs?v=20260404b';
+const BLOG_UPLOAD_CORE_MODULE_URL = './blog-upload-core.mjs?v=20260404c';
 
 function ensureTerminalPretextReady() {
     if (terminalPretextReadyPromise) {
@@ -973,16 +973,22 @@ function triggerUserImageInputPicker(input) {
         return;
     }
 
-    if (typeof input.showPicker === 'function') {
+    if (typeof input.click === 'function') {
         try {
-            input.showPicker();
+            input.click();
             return;
         } catch {
-            // Fall back to click() for browsers that block or lack showPicker support.
+            // Fall back to showPicker() for browsers that block click() on hidden inputs.
         }
     }
 
-    input.click();
+    if (typeof input.showPicker === 'function') {
+        try {
+            input.showPicker();
+        } catch {
+            // No further fallback available.
+        }
+    }
 }
 
 function createTransientUserImageInput(options = {}) {
@@ -1018,29 +1024,127 @@ function removeTransientUserImageInput(input) {
     input.remove();
 }
 
-function resolveUserImageInput(options = {}) {
-    const existingInput = document.getElementById('user-image-input');
-    if (existingInput instanceof HTMLInputElement) {
-        existingInput.removeAttribute('capture');
-        existingInput.setAttribute(
-            'accept',
-            typeof options.accept === 'string' && options.accept.trim()
-                ? options.accept.trim()
-                : BLOG_IMAGE_FILE_ACCEPT
-        );
-        existingInput.multiple = Boolean(options.multiple);
-        existingInput.value = '';
-        return existingInput;
+async function selectUserImageFilesSequentially(requiredCount = 1, options = {}) {
+    const normalizedCount = Number.isInteger(requiredCount) && requiredCount > 0
+        ? requiredCount
+        : 1;
+    const acceptValue = typeof options.accept === 'string' && options.accept.trim()
+        ? options.accept.trim()
+        : BLOG_IMAGE_FILE_ACCEPT;
+
+    if (normalizedCount <= 1) {
+        return selectUserImageFiles({
+            ...options,
+            accept: acceptValue,
+            exactCount: 1,
+            multiple: false
+        });
     }
 
-    return createTransientUserImageInput(options);
-}
+    if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+    }
 
-async function selectUserImageFilesSequentially(requiredCount = 1, options = {}) {
-    return selectUserImageFiles({
-        ...options,
-        exactCount: Number.isInteger(requiredCount) && requiredCount > 0 ? requiredCount : 1,
-        multiple: Number(requiredCount) > 1
+    return new Promise(resolve => {
+        let settled = false;
+        let activeInput = null;
+        let fallbackTimerId = 0;
+        const selectedFiles = [];
+
+        const clearFallbackTimer = () => {
+            if (!fallbackTimerId) {
+                return;
+            }
+
+            window.clearTimeout(fallbackTimerId);
+            fallbackTimerId = 0;
+        };
+
+        const cleanupActiveInput = () => {
+            clearFallbackTimer();
+            if (!activeInput) {
+                return;
+            }
+
+            activeInput.remove();
+            activeInput = null;
+        };
+
+        const finish = files => {
+            if (settled) {
+                return;
+            }
+
+            settled = true;
+            cleanupActiveInput();
+            resolve(Array.isArray(files) ? files.filter(Boolean) : []);
+        };
+
+        const openNextPicker = () => {
+            if (settled) {
+                return;
+            }
+
+            cleanupActiveInput();
+            const input = createTransientUserImageInput({
+                accept: acceptValue,
+                multiple: false
+            });
+            activeInput = input;
+
+            const finalizeAfterReturn = () => {
+                clearFallbackTimer();
+                fallbackTimerId = window.setTimeout(() => {
+                    if (settled || activeInput !== input) {
+                        return;
+                    }
+
+                    const files = input.files ? Array.from(input.files).filter(Boolean) : [];
+                    if (files.length === 0) {
+                        finish(selectedFiles);
+                    }
+                }, 250);
+            };
+
+            input.addEventListener('change', () => {
+                if (settled || activeInput !== input) {
+                    return;
+                }
+
+                const files = input.files ? Array.from(input.files).filter(Boolean) : [];
+                if (files.length === 0) {
+                    finish(selectedFiles);
+                    return;
+                }
+
+                selectedFiles.push(files[0]);
+                if (selectedFiles.length >= normalizedCount) {
+                    finish(selectedFiles);
+                    return;
+                }
+
+                openNextPicker();
+            }, { once: true });
+
+            input.addEventListener('cancel', () => {
+                if (settled || activeInput !== input) {
+                    return;
+                }
+
+                finish(selectedFiles);
+            }, { once: true });
+
+            window.addEventListener('focus', finalizeAfterReturn, { once: true });
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    finalizeAfterReturn();
+                }
+            }, { once: true });
+
+            triggerUserImageInputPicker(input);
+        };
+
+        openNextPicker();
     });
 }
 
@@ -1690,15 +1794,17 @@ async function selectPostMediaAttachments(requiredCount = 1) {
         ? requiredCount
         : 1;
     const uploadCore = await ensureBlogUploadCoreReady();
-    const selection = uploadCore?.collectExactPostMediaFiles
-        ? await uploadCore.collectExactPostMediaFiles(selectUserImageFiles, normalizedCount, {
-            accept: BLOG_POST_FILE_ACCEPT
-        })
+    const selectedFiles = await selectUserImageFilesSequentially(normalizedCount, {
+        accept: BLOG_POST_FILE_ACCEPT
+    });
+    const selection = uploadCore?.validateExactPostMediaFiles
+        ? uploadCore.validateExactPostMediaFiles(selectedFiles, normalizedCount)
         : {
-            ok: true,
-            files: await selectUserImageFilesSequentially(normalizedCount, {
-                accept: BLOG_POST_FILE_ACCEPT
-            })
+            ok: selectedFiles.length === normalizedCount,
+            files: selectedFiles,
+            error: selectedFiles.length === 0
+                ? 'post: no media selected'
+                : `post: upload cancelled; expected ${normalizedCount} media item${normalizedCount === 1 ? '' : 's'} but received ${selectedFiles.length}`
         };
 
     if (!selection.ok) {
