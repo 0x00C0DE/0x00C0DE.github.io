@@ -223,6 +223,13 @@ body.terminal-theme-godlike .terminal-binary-column {
     align-items: flex-start;
 }
 
+.terminal-command-shell,
+.input-line-shell {
+    display: inline-flex;
+    align-items: flex-start;
+    max-width: 100%;
+}
+
 .terminal-command-line.terminal-pretext-enabled {
     display: block;
 }
@@ -691,8 +698,7 @@ body.terminal-theme-kali-root .prompt-kali-icon {
 }
 
 .input-line {
-    display: flex;
-    align-items: flex-start;
+    display: block;
     margin-top: 0;
 }
 
