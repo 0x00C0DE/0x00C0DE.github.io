@@ -263,20 +263,24 @@ function syncTerminalDocumentTitle() {
 function syncTerminalThemeClasses() {
     const snapshot = getTerminalPromptSnapshot();
     const isKali = snapshot.mode === 'kali';
-    const isElevated = Boolean(snapshot.isRoot || snapshot.isGodlike);
+    const isRoot = Boolean(snapshot.isRoot);
+    const isGodlike = Boolean(snapshot.isGodlike);
+    const isElevated = isRoot || isGodlike;
     const body = document.body;
     const terminal = document.getElementById('terminal');
 
     if (body) {
         body.classList.toggle('terminal-theme-kali', isKali);
         body.classList.toggle('terminal-theme-kali-root', isKali && isElevated);
-        body.classList.toggle('terminal-theme-root', isElevated);
+        body.classList.toggle('terminal-theme-root', isRoot);
+        body.classList.toggle('terminal-theme-godlike', isGodlike);
     }
 
     if (terminal) {
         terminal.classList.toggle('terminal-theme-kali', isKali);
         terminal.classList.toggle('terminal-theme-kali-root', isKali && isElevated);
-        terminal.classList.toggle('terminal-theme-root', isElevated);
+        terminal.classList.toggle('terminal-theme-root', isRoot);
+        terminal.classList.toggle('terminal-theme-godlike', isGodlike);
     }
 }
 

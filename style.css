@@ -16,6 +16,12 @@ html {
     --terminal-red-deep: #7d0a12;
     --terminal-red-glow: rgba(255, 77, 77, 0.42);
     --terminal-root-red: #ff1f1f;
+    --terminal-gold: #f0c86c;
+    --terminal-gold-soft: #ffd98a;
+    --terminal-gold-faint: #ffe8b6;
+    --terminal-gold-deep: #5b4208;
+    --terminal-gold-glow: rgba(240, 200, 108, 0.42);
+    --terminal-godlike-gold: #ffcf54;
     --terminal-path-gold: #ffd166;
     --terminal-font-size: clamp(15px, 1vw, 19px);
     --terminal-line-height: clamp(17px, 1vw, 21px);
@@ -76,6 +82,32 @@ body.terminal-theme-root::after {
     );
 }
 
+body.terminal-theme-godlike {
+    background:
+        radial-gradient(circle at top, rgba(96, 73, 16, 0.34), transparent 44%),
+        radial-gradient(circle at bottom, rgba(88, 55, 6, 0.28), transparent 56%),
+        #050401;
+    color: var(--terminal-gold);
+}
+
+body.terminal-theme-godlike::before {
+    opacity: 1;
+    background:
+        radial-gradient(circle at top, rgba(255, 221, 128, 0.18), transparent 48%),
+        radial-gradient(circle at bottom, rgba(138, 98, 18, 0.24), transparent 54%),
+        linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(42, 24, 0, 0.26));
+}
+
+body.terminal-theme-godlike::after {
+    background: repeating-linear-gradient(
+        0deg,
+        rgba(255, 241, 211, 0.05),
+        rgba(255, 241, 211, 0.05) 1px,
+        transparent 1px,
+        transparent 2px
+    );
+}
+
 body.terminal-theme-kali {
     background-color: #0d1018;
     background-image: radial-gradient(rgba(33, 49, 84, 0.72), #06070c 125%);
@@ -121,6 +153,11 @@ body.terminal-theme-kali::after {
     text-shadow: 0 0 0.24vw rgba(196, 214, 255, 0.18);
 }
 
+.terminal-container.terminal-theme-godlike {
+    color: var(--terminal-gold);
+    text-shadow: 0 0 0.24vw rgba(255, 232, 182, 0.28);
+}
+
 .terminal-binary-rain {
     position: fixed;
     inset: -18vh 0 0 0;
@@ -131,7 +168,8 @@ body.terminal-theme-kali::after {
     transition: opacity 180ms ease;
 }
 
-body.terminal-theme-root .terminal-binary-rain {
+body.terminal-theme-root .terminal-binary-rain,
+body.terminal-theme-godlike .terminal-binary-rain {
     opacity: 1;
 }
 
@@ -154,6 +192,20 @@ body.terminal-theme-root .terminal-binary-rain {
     animation-iteration-count: infinite;
     will-change: transform;
     user-select: none;
+}
+
+body.terminal-theme-root .terminal-binary-column {
+    color: var(--terminal-red);
+    text-shadow:
+        0 0 0.4rem rgba(255, 77, 77, 0.92),
+        0 0 1.1rem rgba(164, 18, 18, 0.58);
+}
+
+body.terminal-theme-godlike .terminal-binary-column {
+    color: var(--terminal-godlike-gold);
+    text-shadow:
+        0 0 0.45rem rgba(255, 218, 116, 0.92),
+        0 0 1.2rem rgba(159, 112, 13, 0.62);
 }
 
 @keyframes binary-rain-fall {
@@ -309,6 +361,15 @@ body.terminal-theme-root .terminal-binary-rain {
     border-top: none;
 }
 
+.terminal-editorial-overlay {
+    position: absolute;
+    inset: 0 0 auto 0;
+    width: 100%;
+    min-height: 100%;
+    pointer-events: none;
+    z-index: 4;
+}
+
 .terminal-editorial-stage {
     position: relative;
     width: 100%;
@@ -333,6 +394,7 @@ body.terminal-theme-root .terminal-binary-rain {
     left: 0;
     top: 0;
     display: block;
+    pointer-events: auto;
     z-index: 2;
 }
 
@@ -441,6 +503,10 @@ A {
     color: var(--terminal-red-soft);
 }
 
+body.terminal-theme-godlike A {
+    color: var(--terminal-gold-soft);
+}
+
 body.terminal-theme-kali A {
     color: #49aee6;
 }
@@ -481,10 +547,24 @@ body.terminal-theme-kali A {
 }
 
 .prompt-user-godlike {
-    color: #ffe38a;
+    color: var(--terminal-godlike-gold);
     text-shadow:
         0 0 0.22rem rgba(255, 240, 180, 0.52),
         0 0 0.55rem rgba(255, 215, 96, 0.46);
+}
+
+body.terminal-theme-godlike .prompt,
+body.terminal-theme-godlike .prompt-user,
+body.terminal-theme-godlike .header {
+    color: var(--terminal-gold-soft);
+}
+
+body.terminal-theme-godlike .prompt-host {
+    color: var(--terminal-gold-faint);
+}
+
+body.terminal-theme-godlike .prompt-path {
+    color: var(--terminal-godlike-gold);
 }
 
 .prompt-path-kali {
@@ -522,6 +602,11 @@ body.terminal-theme-kali-root .prompt-kali-icon {
 body.terminal-theme-kali .terminal-input {
     color: #f7f9ff;
     caret-color: #f7f9ff;
+}
+
+body.terminal-theme-godlike .terminal-input {
+    color: var(--terminal-gold);
+    caret-color: var(--terminal-gold);
 }
 
 @media (max-width: 540px) {
