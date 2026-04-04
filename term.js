@@ -641,6 +641,28 @@ function resolveEditorialStageTopInTerminal(stage) {
     return Math.max(0, Math.round(stageRect.top - terminalRect.top + terminal.scrollTop));
 }
 
+function resolveElementTopInTerminal(element) {
+    const terminal = document.getElementById('terminal');
+    if (!element || !terminal) {
+        return 0;
+    }
+
+    const elementRect = element.getBoundingClientRect();
+    const terminalRect = terminal.getBoundingClientRect();
+    return Math.max(0, Math.round(elementRect.top - terminalRect.top + terminal.scrollTop));
+}
+
+function resolveElementLeftInTerminal(element) {
+    const terminal = document.getElementById('terminal');
+    if (!element || !terminal) {
+        return 0;
+    }
+
+    const elementRect = element.getBoundingClientRect();
+    const terminalRect = terminal.getBoundingClientRect();
+    return Math.max(0, Math.round(elementRect.left - terminalRect.left + terminal.scrollLeft));
+}
+
 function resolveEditorialTerminalWidth() {
     const terminal = document.getElementById('terminal');
     if (!terminal) {
@@ -702,6 +724,12 @@ function getOrderedEditorialBlogContainers() {
         const line = container.__terminalRenderedObject;
         return line && line.type === 'blog-entry' && editorialBlogEntryStates.has(container);
     });
+}
+
+function createEditorialMediaPlaceholderRow() {
+    const row = document.createElement('div');
+    row.className = 'terminal-blog-entry-media-row terminal-editorial-media-placeholder';
+    return row;
 }
 
 function getBlogEntryMediaBlocks(line) {
@@ -929,69 +957,6 @@ function applyBlogEditorialMediaPosition(mediaState, dimensions) {
     mediaState.dom.mediaElement.style.height = `${Math.round(dimensions.height)}px`;
 }
 
-function ensureBlogEditorialTextBlock(state, index) {
-    if (!state.dom?.textLayer) {
-        return null;
-    }
-
-    if (!Array.isArray(state.dom.textBlocks)) {
-        state.dom.textBlocks = [];
-    }
-
-    let blockElement = state.dom.textBlocks[index];
-    if (!blockElement) {
-        blockElement = document.createElement('div');
-        blockElement.className = 'terminal-editorial-text-block';
-        state.dom.textBlocks[index] = blockElement;
-    }
-
-    if (blockElement.parentElement !== state.dom.textLayer) {
-        state.dom.textLayer.append(blockElement);
-    }
-
-    return blockElement;
-}
-
-function pruneBlogEditorialTextBlocks(state, usedCount) {
-    const textBlocks = Array.isArray(state?.dom?.textBlocks) ? state.dom.textBlocks : [];
-    for (let index = usedCount; index < textBlocks.length; index += 1) {
-        textBlocks[index]?.remove();
-    }
-    textBlocks.length = usedCount;
-}
-
-function collectFloatingBlogEditorialObstacleRects(stageTopInTerminal, terminalWidth) {
-    const safeTerminalWidth = Math.max(1, terminalWidth);
-
-    return getOrderedEditorialBlogContainers().reduce((obstacles, container) => {
-        const state = editorialBlogEntryStates.get(container);
-        if (!state) {
-            return obstacles;
-        }
-
-        state.media.forEach(mediaState => {
-            if (mediaState.docked) {
-                return;
-            }
-
-            const dimensions = resolveEditorialMediaDimensions(mediaState, safeTerminalWidth);
-            const maximumX = Math.max(0, safeTerminalWidth - dimensions.width);
-            mediaState.x = clampEditorialNumber(Number(mediaState.x) || 0, 0, maximumX);
-            mediaState.y = clampEditorialNumber(Number(mediaState.y) || 0, 0, Number.MAX_SAFE_INTEGER);
-            applyBlogEditorialMediaPosition(mediaState, dimensions);
-
-            obstacles.push({
-                height: dimensions.outerHeight + BLOG_EDITORIAL_MEDIA_GUTTER,
-                width: Math.min(safeTerminalWidth, dimensions.width + BLOG_EDITORIAL_MEDIA_GUTTER * 2),
-                x: Math.max(0, mediaState.x - BLOG_EDITORIAL_MEDIA_GUTTER),
-                y: mediaState.y - stageTopInTerminal - BLOG_EDITORIAL_MEDIA_GUTTER * 0.5
-            });
-        });
-
-        return obstacles;
-    }, []);
-}
-
 function syncAllBlogEditorialLayouts() {
     if (!isRootSessionActive()) {
         return;
@@ -1019,108 +984,37 @@ function syncAllBlogEditorialLayouts() {
 }
 
 function syncBlogEditorialEntryLayout(container, line, state) {
-    if (!state?.dom?.stage || !state.dom.textLayer) {
+    if (!state?.dom?.wrapper) {
         return;
     }
 
-    const stageWidth = resolveEditorialContainerWidth(state.dom.stage);
-    if (stageWidth <= 0) {
-        if (typeof window.requestAnimationFrame === 'function') {
-            window.requestAnimationFrame(() => syncBlogEditorialEntryLayout(container, line, state));
-        }
-        return;
-    }
-
-    const lineHeight = resolveEditorialLineHeight(state.dom.textLayer);
-    const rowSpacing = resolveEditorialMediaRowSpacing();
-    const terminalWidth = resolveEditorialTerminalWidth() || stageWidth;
-    const stageTopInTerminal = resolveEditorialStageTopInTerminal(state.dom.stage);
     const overlay = ensureTerminalEditorialOverlay();
     if (overlay && state.dom.overlay !== overlay) {
         state.dom.overlay = overlay;
     }
-    const floatingObstacleRects = collectFloatingBlogEditorialObstacleRects(stageTopInTerminal, terminalWidth);
-    const mediaStatesByBlock = new Map(state.media.map(mediaState => [mediaState.block, mediaState]));
-    const blocks = Array.isArray(line?.blocks) ? line.blocks : [];
-    let currentY = 0;
-    let maxBottom = 0;
-    let textBlockCount = 0;
 
-    blocks.forEach(block => {
-        if (!block) {
-            return;
-        }
-
-        if (block.type === 'blog-entry-text-block') {
-            const textBlock = ensureBlogEditorialTextBlock(state, textBlockCount);
-            textBlockCount += 1;
-            if (!textBlock) {
-                return;
-            }
-
-            const blockText = Array.isArray(block.lines) ? block.lines.join('\n') : '';
-            textBlock.style.transform = `translateY(${Math.round(currentY)}px)`;
-
-            if (blockText) {
-                if (typeof window.renderTerminalEditorialLineContent === 'function') {
-                    const layout = window.renderTerminalEditorialLineContent(textBlock, blockText, {
-                        minSegmentWidth: 56,
-                        obstacles: floatingObstacleRects.map(rect => ({
-                            ...rect,
-                            y: rect.y - currentY
-                        }))
-                    }) || {
-                        height: 0,
-                        lineCount: 0,
-                        lines: []
-                    };
-                    currentY += Math.max(lineHeight, Math.ceil(layout.height || 0));
-                } else {
-                    textBlock.classList.remove('terminal-pretext-enabled', 'terminal-pretext-editorial-enabled');
-                    textBlock.style.minHeight = '';
-                    textBlock.replaceChildren();
-                    if (typeof window.renderTerminalLineContent === 'function') {
-                        window.renderTerminalLineContent(textBlock, blockText);
-                    } else {
-                        textBlock.textContent = blockText;
-                    }
-                    currentY += Math.max(lineHeight, Math.ceil(textBlock.getBoundingClientRect().height || 0));
-                }
-            } else {
-                textBlock.classList.remove('terminal-pretext-enabled', 'terminal-pretext-editorial-enabled');
-                textBlock.style.minHeight = '';
-                textBlock.replaceChildren(document.createTextNode('\u00A0'));
-                currentY += lineHeight;
-            }
-
-            maxBottom = Math.max(maxBottom, currentY);
-            return;
-        }
-
-        if (block.type !== 'inline-image' && block.type !== 'inline-video') {
-            return;
-        }
-
-        const mediaState = mediaStatesByBlock.get(block);
-        if (!mediaState) {
+    const terminalWidth = resolveEditorialTerminalWidth();
+    state.media.forEach(mediaState => {
+        const placeholder = mediaState.dom?.placeholder || null;
+        if (!placeholder) {
             return;
         }
 
         const dimensions = resolveEditorialMediaDimensions(mediaState, terminalWidth);
+        placeholder.style.height = `${Math.round(dimensions.outerHeight)}px`;
+        placeholder.style.minHeight = `${Math.round(dimensions.outerHeight)}px`;
+
         if (mediaState.docked) {
-            currentY += rowSpacing.top;
-            mediaState.x = 0;
-            mediaState.y = stageTopInTerminal + currentY;
-            applyBlogEditorialMediaPosition(mediaState, dimensions);
-            currentY += dimensions.outerHeight + rowSpacing.bottom;
+            mediaState.x = resolveElementLeftInTerminal(placeholder);
+            mediaState.y = resolveElementTopInTerminal(placeholder);
+        } else {
+            const maximumX = Math.max(0, terminalWidth - dimensions.width);
+            mediaState.x = clampEditorialNumber(Number(mediaState.x) || 0, 0, maximumX);
+            mediaState.y = clampEditorialNumber(Number(mediaState.y) || 0, 0, Number.MAX_SAFE_INTEGER);
         }
 
-        maxBottom = Math.max(maxBottom, currentY);
+        applyBlogEditorialMediaPosition(mediaState, dimensions);
     });
-
-    pruneBlogEditorialTextBlocks(state, textBlockCount);
-    state.dom.textLayer.style.minHeight = `${Math.max(lineHeight, Math.ceil(maxBottom))}px`;
-    state.dom.stage.style.minHeight = `${Math.max(lineHeight, Math.ceil(maxBottom))}px`;
 }
 
 function mountBlogEditorialEntry(container, line, state) {
@@ -1135,15 +1029,46 @@ function mountBlogEditorialEntry(container, line, state) {
     timestamp.textContent = line.text || '';
     header.append(timestamp);
     appendDeletePostActions(header, line);
-
-    const stage = document.createElement('div');
-    stage.className = 'terminal-editorial-stage';
-
-    const textLayer = document.createElement('div');
-    textLayer.className = 'terminal-editorial-text';
-    stage.append(textLayer);
+    wrapper.append(header);
 
     const overlay = ensureTerminalEditorialOverlay();
+    const mediaStatesByBlock = new Map(state.media.map(mediaState => [mediaState.block, mediaState]));
+
+    (Array.isArray(line.blocks) ? line.blocks : []).forEach(block => {
+        if (block.type === 'blog-entry-text-block') {
+            block.lines.forEach(textLine => {
+                const row = document.createElement('div');
+                row.className = textLine ? 'terminal-blog-entry-text-line' : 'terminal-blog-entry-text-line terminal-blog-entry-text-line-empty';
+                if (textLine) {
+                    if (typeof window.renderTerminalLineContent === 'function') {
+                        window.renderTerminalLineContent(row, textLine);
+                    } else {
+                        row.textContent = textLine;
+                    }
+                } else {
+                    row.textContent = '\u00A0';
+                }
+                wrapper.append(row);
+            });
+            return;
+        }
+
+        if (block.type !== 'inline-image' && block.type !== 'inline-video') {
+            return;
+        }
+
+        const mediaState = mediaStatesByBlock.get(block);
+        if (!mediaState) {
+            return;
+        }
+
+        const placeholder = createEditorialMediaPlaceholderRow();
+        wrapper.append(placeholder);
+        mediaState.dom = {
+            ...(mediaState.dom || {}),
+            placeholder
+        };
+    });
 
     state.media.forEach(mediaState => {
         let mediaWrapper = mediaState.dom?.wrapper || null;
@@ -1218,19 +1143,16 @@ function mountBlogEditorialEntry(container, line, state) {
 
         overlay?.append(mediaWrapper);
         mediaState.dom = {
+            ...mediaState.dom,
             mediaElement,
             wrapper: mediaWrapper
         };
         ensureBlogEditorialMediaAspectRatio(container, line, state, mediaState, mediaElement);
     });
 
-    wrapper.append(header, stage);
     container.append(wrapper);
     state.dom = {
         overlay,
-        stage,
-        textLayer,
-        textBlocks: [],
         wrapper
     };
 }
