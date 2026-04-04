@@ -16,6 +16,23 @@ const SAMPLE_MEDIA_PATHS = [
     'E:/Downloads/plankton1.jpg'
 ];
 
+function createMediaPostCommand(requestedCount) {
+    const textBlocks = ['aaa', 'bbb', 'ccc', 'ddd', 'eee', 'fff'];
+    const output = ['post'];
+    for (let index = 0; index < requestedCount; index += 1) {
+        output.push(textBlocks[index] || `block-${index + 1}`);
+        output.push('[image]');
+    }
+    output.push(textBlocks[requestedCount] || `block-${requestedCount + 1}`);
+    return output.join(' ');
+}
+
+function createExpectedMediaPaths(requestedCount) {
+    return Array.from({ length: requestedCount }, (_, index) => (
+        SAMPLE_MEDIA_PATHS[index % SAMPLE_MEDIA_PATHS.length]
+    ));
+}
+
 function getContentType(filePath) {
     const extension = path.extname(filePath).toLowerCase();
     switch (extension) {
@@ -82,7 +99,7 @@ async function createStaticServer(rootDirectory) {
     };
 }
 
-test('post with three media placeholders reopens file chooser three times and succeeds with the sample images', { timeout: 120000 }, async t => {
+test('post reopens the file chooser once per requested media slot and succeeds for 1 through 4 and 10 attachments', { timeout: 120000 }, async t => {
     const server = await createStaticServer(REPO_ROOT);
     t.after(async () => {
         await server.close();
@@ -129,34 +146,46 @@ test('post with three media placeholders reopens file chooser three times and su
         });
     });
 
-    await page.goto(server.origin, { waitUntil: 'networkidle' });
+    await page.goto(server.origin, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('#command-input');
 
     const input = page.locator('#command-input');
-    await input.fill('post aaa [image] bbb [image] ccc [image] eee');
 
-    const chooser1Promise = page.waitForEvent('filechooser');
-    await input.press('Enter');
-    const chooser1 = await chooser1Promise;
+    for (const requestedCount of [1, 2, 3, 4, 10]) {
+        appendPayload = null;
+        const expectedMediaPaths = createExpectedMediaPaths(requestedCount);
+        await input.fill(createMediaPostCommand(requestedCount));
 
-    const chooser2Promise = page.waitForEvent('filechooser', { timeout: 5000 });
-    await chooser1.setFiles(SAMPLE_MEDIA_PATHS[0]);
-    const chooser2 = await chooser2Promise;
+        const chooserPromises = [];
+        for (let index = 0; index < requestedCount; index += 1) {
+            chooserPromises.push(page.waitForEvent('filechooser', { timeout: 5000 }));
+            if (index === 0) {
+                await input.press('Enter');
+            } else {
+                const previousChooser = await chooserPromises[index - 1];
+                await previousChooser.setFiles(expectedMediaPaths[index - 1]);
+            }
+        }
 
-    const chooser3Promise = page.waitForEvent('filechooser', { timeout: 5000 });
-    await chooser2.setFiles(SAMPLE_MEDIA_PATHS[1]);
-    const chooser3 = await chooser3Promise;
+        const lastChooser = await chooserPromises[requestedCount - 1];
+        await lastChooser.setFiles(expectedMediaPaths[requestedCount - 1]);
 
-    await chooser3.setFiles(SAMPLE_MEDIA_PATHS[2]);
+        await page.waitForFunction(
+            count => document.body.textContent.includes(`post: attached ${count} media item${count === 1 ? '' : 's'} in the entry`),
+            requestedCount
+        );
 
-    await page.waitForFunction(() => document.body.textContent.includes('post: attached 3 media items in the entry'));
-    const terminalText = await page.locator('#terminal').innerText();
-
-    assert.match(terminalText, /post: blog entry appended successfully/);
-    assert.match(terminalText, /post: attached 3 media items in the entry/);
-    assert.doesNotMatch(terminalText, /upload cancelled/);
-    assert.ok(appendPayload && Array.isArray(appendPayload.contentBlocks));
-    assert.equal(
-        appendPayload.contentBlocks.filter(block => block.type === 'image').length,
-        3
-    );
+        const terminalText = await page.locator('#terminal').innerText();
+        assert.match(terminalText, /post: blog entry appended successfully/);
+        assert.match(
+            terminalText,
+            new RegExp(`post: attached ${requestedCount} media item${requestedCount === 1 ? '' : 's'} in the entry`)
+        );
+        assert.doesNotMatch(terminalText, /upload cancelled/);
+        assert.ok(appendPayload && Array.isArray(appendPayload.contentBlocks));
+        assert.equal(
+            appendPayload.contentBlocks.filter(block => block.type === 'image').length,
+            requestedCount
+        );
+    }
 });

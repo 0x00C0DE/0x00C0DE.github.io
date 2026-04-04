@@ -140,7 +140,7 @@ GitHub API appends entry to blog.txt → commits to main branch
 Next `cat blog.txt` reflects the new entry live
 ```
 
-`post --image` and inline-image posts share the same Worker path. PNG/JPEG/JPG/WEBP images remain inline in `blog.txt`, while hosted media blocks now cover larger GIFs and MP4 uploads through `/api/blog/media/...`. When a post template requests multiple `[image]` placeholders, the browser now requires the exact same number of selected media files in a single chooser step; selecting fewer cancels the entire post instead of partially publishing it.
+`post --image` and inline-image posts share the same Worker path. PNG/JPEG/JPG/WEBP images remain inline in `blog.txt`, while hosted media blocks now cover larger GIFs and MP4 uploads through `/api/blog/media/...`. When a post template requests multiple `[image]` placeholders, the browser now reopens the file chooser once per placeholder and requires the exact same number of selected media files before publishing; stopping early cancels the entire post instead of partially publishing it. Each entry now supports up to 10 attached media blocks.
 
 ---
 
@@ -252,7 +252,7 @@ The terminal command map in `term.js` routes each shell verb to its handler, wit
 | `picture [w h]` | Renders a built-in ASCII portrait |
 | `post <text>` | Appends a text-only blog entry through the Worker |
 | `post --image [text]` | Appends one selected `png/jpg/jpeg/webp/gif/mp4` media file |
-| `post ... [image] ...` | Inserts exact-count selected `png/jpg/jpeg/webp/gif/mp4` media files inline between text blocks; partial selection cancels the post |
+| `post ... [image] ...` | Reopens the chooser once per `[image]` placeholder and inserts the exact-count selected `png/jpg/jpeg/webp/gif/mp4` media files inline; partial selection cancels the post, with up to 10 media blocks per entry |
 | `pretext [text]` | Reports terminal Pretext status or opens the lab with `pretext lab [text]` |
 | `projects` | Opens the dedicated projects terminal page |
 | `pwd` | Prints the simulated working directory |
@@ -521,7 +521,7 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
   fortune                    Random quote
   post <your message>        Append to blog.txt
   post --image [caption]     Append one selected png/jpg/jpeg/webp/gif/mp4 file
-  post hello [image] goodbye Insert exact-count selected png/jpg/jpeg/webp/gif/mp4 file(s) inline
+  post hello [image] goodbye Reopen chooser per [image] and insert exact-count png/jpg/jpeg/webp/gif/mp4 file(s) inline (up to 10)
   picture                    ASCII portrait
   movie                      Live webcam to ASCII art
   userpic                    Uploaded/captured image to ASCII art
