@@ -36,12 +36,19 @@ function buildComputedFont(styles) {
 }
 
 function resolveLineHeight(styles) {
-    const explicitLineHeight = parseFloat(styles.lineHeight);
+    const lineHeightValue = typeof styles.lineHeight === 'string'
+        ? styles.lineHeight.trim()
+        : '';
+    const explicitLineHeight = parseFloat(lineHeightValue);
+    const fontSize = parseFloat(styles.fontSize);
     if (Number.isFinite(explicitLineHeight)) {
+        if (/^[0-9]*\.?[0-9]+$/.test(lineHeightValue) && Number.isFinite(fontSize) && fontSize > 0) {
+            return Math.max(1, Math.round(explicitLineHeight * fontSize));
+        }
+
         return Math.max(1, Math.round(explicitLineHeight));
     }
 
-    const fontSize = parseFloat(styles.fontSize);
     if (Number.isFinite(fontSize)) {
         return Math.max(1, Math.round(fontSize * 1.2));
     }
