@@ -573,6 +573,8 @@ const editorialBlogEntryStates = new WeakMap();
 const editorialBlogEntryContainers = new Set();
 let editorialBlogResizeFrameId = 0;
 const BLOG_EDITORIAL_MEDIA_GUTTER = 18;
+const BLOG_EDITORIAL_MEDIA_ROW_MARGIN_TOP_REM = 0.15;
+const BLOG_EDITORIAL_MEDIA_ROW_MARGIN_BOTTOM_REM = 0.4;
 
 function isRootSessionActive() {
     const snapshot = getPromptSnapshot();
@@ -627,23 +629,6 @@ function resolveEditorialLineHeight(element) {
     return 24;
 }
 
-function buildBlogEntryEditorialText(blocks = []) {
-    const textSections = [];
-
-    blocks.forEach(block => {
-        if (!block || block.type !== 'blog-entry-text-block' || !Array.isArray(block.lines)) {
-            return;
-        }
-
-        const blockText = block.lines.join('\n');
-        if (blockText) {
-            textSections.push(blockText);
-        }
-    });
-
-    return textSections.join('\n\n').trim();
-}
-
 function getBlogEntryMediaBlocks(line) {
     return Array.isArray(line?.blocks)
         ? line.blocks.filter(block => block && (block.type === 'inline-image' || block.type === 'inline-video'))
@@ -668,6 +653,7 @@ function createBlogEditorialMediaState(block, index) {
     return {
         aspectRatio: block.type === 'inline-video' ? 16 / 9 : 4 / 3,
         block,
+        docked: true,
         id: `${block.imageKey || block.src || `media-${index}`}-${index}`,
         index,
         x: null,
@@ -684,30 +670,57 @@ function getBlogEditorialState(container, line) {
             dom: null,
             drag: null,
             media: getBlogEntryMediaBlocks(line).map(createBlogEditorialMediaState),
-            signature,
-            text: buildBlogEntryEditorialText(line.blocks)
+            signature
         };
         editorialBlogEntryStates.set(container, state);
-    } else {
-        state.text = buildBlogEntryEditorialText(line.blocks);
     }
 
     editorialBlogEntryContainers.add(container);
     return state;
 }
 
-function resolveEditorialMediaDimensions(mediaState, stageWidth, mediaCount) {
-    const safeStageWidth = Math.max(180, stageWidth);
-    const preferredRatio = mediaCount > 1 ? 0.28 : 0.36;
-    const maxWidth = Math.max(140, safeStageWidth - 32);
-    const width = clampEditorialNumber(Math.round(safeStageWidth * preferredRatio), 140, Math.min(360, maxWidth));
+function resolveEditorialMediaDimensions(mediaState, stageWidth) {
+    const safeStageWidth = Math.max(140, stageWidth);
     const aspectRatio = mediaState.aspectRatio && mediaState.aspectRatio > 0
         ? mediaState.aspectRatio
         : (mediaState.block.type === 'inline-video' ? 16 / 9 : 4 / 3);
+    const mediaElement = mediaState?.dom?.mediaElement || null;
+    const computedStyles = mediaElement ? window.getComputedStyle(mediaElement) : null;
+    const computedMaxWidth = computedStyles ? Number.parseFloat(computedStyles.maxWidth) : Number.NaN;
+    const availableWidth = Math.max(
+        1,
+        Number.isFinite(computedMaxWidth) && computedMaxWidth > 0
+            ? Math.min(safeStageWidth, computedMaxWidth)
+            : safeStageWidth
+    );
+    const intrinsicWidth = mediaElement?.videoWidth
+        || mediaElement?.naturalWidth
+        || mediaElement?.clientWidth
+        || availableWidth;
+    const width = clampEditorialNumber(
+        Math.round(Math.min(availableWidth, intrinsicWidth || availableWidth)),
+        Math.min(140, availableWidth),
+        availableWidth
+    );
+    const marginTop = computedStyles ? Math.max(0, Number.parseFloat(computedStyles.marginTop) || 0) : 0;
+    const marginBottom = computedStyles ? Math.max(0, Number.parseFloat(computedStyles.marginBottom) || 0) : 0;
+    const height = Math.max(1, Math.round(width / aspectRatio));
 
     return {
-        height: Math.max(110, Math.round(width / aspectRatio)),
+        height,
+        marginBottom,
+        marginTop,
+        outerHeight: height + marginTop + marginBottom,
         width
+    };
+}
+
+function resolveEditorialMediaRowSpacing() {
+    const rootFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize);
+    const rem = Number.isFinite(rootFontSize) && rootFontSize > 0 ? rootFontSize : 16;
+    return {
+        bottom: Math.round(rem * BLOG_EDITORIAL_MEDIA_ROW_MARGIN_BOTTOM_REM),
+        top: Math.round(rem * BLOG_EDITORIAL_MEDIA_ROW_MARGIN_TOP_REM)
     };
 }
 
@@ -827,38 +840,77 @@ function ensureBlogEditorialMediaAspectRatio(container, line, state, mediaState,
 }
 
 function applyBlogEditorialMediaPosition(mediaState, dimensions) {
-    if (!mediaState.dom?.wrapper) {
+    if (!mediaState.dom?.wrapper || !mediaState.dom?.mediaElement) {
         return;
     }
 
     mediaState.dom.wrapper.style.width = `${Math.round(dimensions.width)}px`;
-    mediaState.dom.wrapper.style.height = `${Math.round(dimensions.height)}px`;
+    mediaState.dom.wrapper.style.height = `${Math.round(dimensions.outerHeight)}px`;
     mediaState.dom.wrapper.style.transform = `translate(${Math.round(mediaState.x)}px, ${Math.round(mediaState.y)}px)`;
+    mediaState.dom.mediaElement.style.width = `${Math.round(dimensions.width)}px`;
+    mediaState.dom.mediaElement.style.height = `${Math.round(dimensions.height)}px`;
 }
 
-function buildBlogEditorialObstacleRects(state, stageWidth, lineHeight) {
-    return state.media.map((mediaState, index) => {
-        const dimensions = resolveEditorialMediaDimensions(mediaState, stageWidth, state.media.length);
-        const maximumX = Math.max(8, stageWidth - dimensions.width - 8);
+function ensureBlogEditorialTextBlock(state, index) {
+    if (!state.dom?.textLayer) {
+        return null;
+    }
+
+    if (!Array.isArray(state.dom.textBlocks)) {
+        state.dom.textBlocks = [];
+    }
+
+    let blockElement = state.dom.textBlocks[index];
+    if (!blockElement) {
+        blockElement = document.createElement('div');
+        blockElement.className = 'terminal-editorial-text-block';
+        state.dom.textBlocks[index] = blockElement;
+    }
+
+    if (blockElement.parentElement !== state.dom.textLayer) {
+        state.dom.textLayer.append(blockElement);
+    }
+
+    return blockElement;
+}
+
+function pruneBlogEditorialTextBlocks(state, usedCount) {
+    const textBlocks = Array.isArray(state?.dom?.textBlocks) ? state.dom.textBlocks : [];
+    for (let index = usedCount; index < textBlocks.length; index += 1) {
+        textBlocks[index]?.remove();
+    }
+    textBlocks.length = usedCount;
+}
+
+function buildFloatingBlogEditorialObstacleRects(state, stageWidth) {
+    return state.media.reduce((obstacles, mediaState) => {
+        const dimensions = resolveEditorialMediaDimensions(mediaState, stageWidth);
+        const maximumX = Math.max(0, stageWidth - dimensions.width);
 
         if (!Number.isFinite(mediaState.x) || !Number.isFinite(mediaState.y)) {
-            mediaState.x = index % 2 === 0
-                ? maximumX
-                : 8;
-            mediaState.y = 12 + index * Math.round(lineHeight * 5.4);
+            mediaState.x = 0;
+            mediaState.y = 0;
         }
 
-        mediaState.x = clampEditorialNumber(mediaState.x, 8, maximumX);
-        mediaState.y = Math.max(0, Number(mediaState.y) || 0);
+        if (!mediaState.docked) {
+            mediaState.x = clampEditorialNumber(mediaState.x, 0, maximumX);
+            mediaState.y = Math.max(0, Number(mediaState.y) || 0);
+        }
+
         applyBlogEditorialMediaPosition(mediaState, dimensions);
 
-        return {
-            height: dimensions.height,
-            width: dimensions.width,
-            x: mediaState.x,
-            y: mediaState.y
-        };
-    });
+        if (mediaState.docked) {
+            return obstacles;
+        }
+
+        obstacles.push({
+            height: dimensions.outerHeight + BLOG_EDITORIAL_MEDIA_GUTTER,
+            width: Math.min(stageWidth, dimensions.width + BLOG_EDITORIAL_MEDIA_GUTTER * 2),
+            x: Math.max(0, mediaState.x - BLOG_EDITORIAL_MEDIA_GUTTER),
+            y: Math.max(0, mediaState.y - BLOG_EDITORIAL_MEDIA_GUTTER * 0.5)
+        });
+        return obstacles;
+    }, []);
 }
 
 function syncBlogEditorialEntryLayout(container, line, state) {
@@ -875,39 +927,94 @@ function syncBlogEditorialEntryLayout(container, line, state) {
     }
 
     const lineHeight = resolveEditorialLineHeight(state.dom.textLayer);
-    const mediaRects = buildBlogEditorialObstacleRects(state, stageWidth, lineHeight);
-    const obstacleRects = mediaRects.map(rect => ({
-        height: rect.height + BLOG_EDITORIAL_MEDIA_GUTTER * 1.3,
-        width: Math.min(stageWidth, rect.width + BLOG_EDITORIAL_MEDIA_GUTTER * 2),
-        x: Math.max(0, rect.x - BLOG_EDITORIAL_MEDIA_GUTTER),
-        y: Math.max(0, rect.y - BLOG_EDITORIAL_MEDIA_GUTTER * 0.6)
-    }));
+    const rowSpacing = resolveEditorialMediaRowSpacing();
+    const floatingObstacleRects = buildFloatingBlogEditorialObstacleRects(state, stageWidth);
+    const mediaStatesByBlock = new Map(state.media.map(mediaState => [mediaState.block, mediaState]));
+    const blocks = Array.isArray(line?.blocks) ? line.blocks : [];
+    let currentY = 0;
+    let maxBottom = floatingObstacleRects.reduce((currentMax, rect) => Math.max(currentMax, rect.y + rect.height), 0);
+    let textBlockCount = 0;
 
-    let textLayout = {
-        height: 0,
-        lineCount: 0,
-        lines: []
-    };
+    blocks.forEach(block => {
+        if (!block) {
+            return;
+        }
 
-    if (state.text && typeof window.renderTerminalEditorialLineContent === 'function') {
-        textLayout = window.renderTerminalEditorialLineContent(state.dom.textLayer, state.text, {
-            minSegmentWidth: 56,
-            obstacles: obstacleRects
-        }) || textLayout;
-    } else {
-        state.dom.textLayer.classList.remove('terminal-pretext-enabled', 'terminal-pretext-editorial-enabled');
-        state.dom.textLayer.style.minHeight = '';
-        state.dom.textLayer.replaceChildren();
-    }
+        if (block.type === 'blog-entry-text-block') {
+            const textBlock = ensureBlogEditorialTextBlock(state, textBlockCount);
+            textBlockCount += 1;
+            if (!textBlock) {
+                return;
+            }
 
-    const mediaBottom = mediaRects.reduce((currentMax, rect) => Math.max(currentMax, rect.y + rect.height), 0);
-    const contentHeight = Math.max(Math.ceil(textLayout.height || 0), mediaBottom);
-    state.dom.stage.style.minHeight = `${Math.max(lineHeight * 2, contentHeight)}px`;
+            const blockText = Array.isArray(block.lines) ? block.lines.join('\n') : '';
+            textBlock.style.transform = `translateY(${Math.round(currentY)}px)`;
+
+            if (blockText) {
+                if (typeof window.renderTerminalEditorialLineContent === 'function') {
+                    const layout = window.renderTerminalEditorialLineContent(textBlock, blockText, {
+                        minSegmentWidth: 56,
+                        obstacles: floatingObstacleRects.map(rect => ({
+                            ...rect,
+                            y: rect.y - currentY
+                        }))
+                    }) || {
+                        height: 0,
+                        lineCount: 0,
+                        lines: []
+                    };
+                    currentY += Math.max(lineHeight, Math.ceil(layout.height || 0));
+                } else {
+                    textBlock.classList.remove('terminal-pretext-enabled', 'terminal-pretext-editorial-enabled');
+                    textBlock.style.minHeight = '';
+                    textBlock.replaceChildren();
+                    if (typeof window.renderTerminalLineContent === 'function') {
+                        window.renderTerminalLineContent(textBlock, blockText);
+                    } else {
+                        textBlock.textContent = blockText;
+                    }
+                    currentY += Math.max(lineHeight, Math.ceil(textBlock.getBoundingClientRect().height || 0));
+                }
+            } else {
+                textBlock.classList.remove('terminal-pretext-enabled', 'terminal-pretext-editorial-enabled');
+                textBlock.style.minHeight = '';
+                textBlock.replaceChildren(document.createTextNode('\u00A0'));
+                currentY += lineHeight;
+            }
+
+            maxBottom = Math.max(maxBottom, currentY);
+            return;
+        }
+
+        if (block.type !== 'inline-image' && block.type !== 'inline-video') {
+            return;
+        }
+
+        const mediaState = mediaStatesByBlock.get(block);
+        if (!mediaState) {
+            return;
+        }
+
+        const dimensions = resolveEditorialMediaDimensions(mediaState, stageWidth);
+        if (mediaState.docked) {
+            currentY += rowSpacing.top;
+            mediaState.x = 0;
+            mediaState.y = currentY;
+            applyBlogEditorialMediaPosition(mediaState, dimensions);
+            currentY += dimensions.outerHeight + rowSpacing.bottom;
+        }
+
+        maxBottom = Math.max(maxBottom, mediaState.y + dimensions.outerHeight);
+    });
+
+    pruneBlogEditorialTextBlocks(state, textBlockCount);
+    state.dom.textLayer.style.minHeight = `${Math.max(lineHeight, Math.ceil(maxBottom))}px`;
+    state.dom.stage.style.minHeight = `${Math.max(lineHeight, Math.ceil(maxBottom))}px`;
 }
 
 function mountBlogEditorialEntry(container, line, state) {
     const wrapper = document.createElement('article');
-    wrapper.className = 'terminal-editorial-entry';
+    wrapper.className = 'terminal-blog-entry terminal-editorial-entry';
 
     const header = document.createElement('div');
     header.className = 'terminal-blog-entry-header';
@@ -917,12 +1024,6 @@ function mountBlogEditorialEntry(container, line, state) {
     timestamp.textContent = line.text || '';
     header.append(timestamp);
     appendDeletePostActions(header, line);
-
-    const hint = document.createElement('div');
-    hint.className = 'terminal-editorial-hint';
-    hint.textContent = state.media.length > 0
-        ? 'root editorial mode: drag the media to live-reflow this entry'
-        : 'root editorial mode: text is using the editorial line router';
 
     const stage = document.createElement('div');
     stage.className = 'terminal-editorial-stage';
@@ -939,17 +1040,13 @@ function mountBlogEditorialEntry(container, line, state) {
             wrapperClass: 'terminal-editorial-media'
         });
 
-        const handle = document.createElement('button');
-        handle.type = 'button';
-        handle.className = 'terminal-editorial-media-handle';
-        handle.textContent = 'drag';
-
         const startDrag = event => {
             if (event.button !== 0 && event.pointerType !== 'touch') {
                 return;
             }
 
             event.preventDefault();
+            mediaState.docked = false;
             state.drag = {
                 mediaId: mediaState.id,
                 originX: mediaState.x,
@@ -958,8 +1055,9 @@ function mountBlogEditorialEntry(container, line, state) {
                 startX: event.clientX,
                 startY: event.clientY
             };
-            handle.setPointerCapture(event.pointerId);
+            mediaElement.setPointerCapture(event.pointerId);
             mediaWrapper.classList.add('is-dragging');
+            syncBlogEditorialEntryLayout(container, line, state);
         };
 
         const moveDrag = event => {
@@ -968,11 +1066,11 @@ function mountBlogEditorialEntry(container, line, state) {
             }
 
             const stageWidth = resolveEditorialContainerWidth(stage);
-            const dimensions = resolveEditorialMediaDimensions(mediaState, stageWidth, state.media.length);
+            const dimensions = resolveEditorialMediaDimensions(mediaState, stageWidth);
             mediaState.x = clampEditorialNumber(
                 state.drag.originX + (event.clientX - state.drag.startX),
-                8,
-                Math.max(8, stageWidth - dimensions.width - 8)
+                0,
+                Math.max(0, stageWidth - dimensions.width)
             );
             mediaState.y = Math.max(0, state.drag.originY + (event.clientY - state.drag.startY));
             syncBlogEditorialEntryLayout(container, line, state);
@@ -985,32 +1083,30 @@ function mountBlogEditorialEntry(container, line, state) {
 
             mediaWrapper.classList.remove('is-dragging');
             state.drag = null;
-            if (handle.hasPointerCapture(event.pointerId)) {
-                handle.releasePointerCapture(event.pointerId);
+            if (mediaElement.hasPointerCapture(event.pointerId)) {
+                mediaElement.releasePointerCapture(event.pointerId);
             }
         };
 
-        handle.addEventListener('pointerdown', startDrag);
-        handle.addEventListener('pointermove', moveDrag);
-        handle.addEventListener('pointerup', endDrag);
-        handle.addEventListener('pointercancel', endDrag);
+        mediaElement.addEventListener('pointerdown', startDrag);
+        mediaElement.addEventListener('pointermove', moveDrag);
+        mediaElement.addEventListener('pointerup', endDrag);
+        mediaElement.addEventListener('pointercancel', endDrag);
 
-        mediaWrapper.prepend(handle);
         stage.append(mediaWrapper);
         mediaState.dom = {
-            handle,
             mediaElement,
             wrapper: mediaWrapper
         };
         ensureBlogEditorialMediaAspectRatio(container, line, state, mediaState, mediaElement);
     });
 
-    wrapper.append(header, hint, stage);
+    wrapper.append(header, stage);
     container.append(wrapper);
     state.dom = {
-        hint,
         stage,
         textLayer,
+        textBlocks: [],
         wrapper
     };
 }
