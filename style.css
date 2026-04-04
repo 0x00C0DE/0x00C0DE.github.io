@@ -225,9 +225,14 @@ body.terminal-theme-godlike .terminal-binary-column {
 
 .terminal-command-shell,
 .input-line-shell {
-    display: inline-flex;
+    display: flex;
     align-items: flex-start;
     max-width: 100%;
+    min-width: 0;
+}
+
+.input-line-shell {
+    width: 100%;
 }
 
 .terminal-command-line.terminal-pretext-enabled {
@@ -698,8 +703,10 @@ body.terminal-theme-kali-root .prompt-kali-icon {
 }
 
 .input-line {
-    display: block;
+    display: flex;
+    align-items: flex-start;
     margin-top: 0;
+    min-width: 0;
 }
 
 .terminal-input {
@@ -711,9 +718,11 @@ body.terminal-theme-kali-root .prompt-kali-icon {
     border: none;
     color: var(--terminal-red);
     outline: none;
-    flex: 1;
+    flex: 1 1 auto;
     margin-left: 0;
     caret-color: var(--terminal-red);
+    min-width: 0;
+    width: 100%;
 }
 
 body.terminal-theme-kali .terminal-input {

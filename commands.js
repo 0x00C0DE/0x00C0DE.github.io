@@ -409,6 +409,8 @@ function getSafeTerminalHref(href) {
 
 let terminalPretextReadyPromise = null;
 const TERMINAL_PRETEXT_RUNTIME_MODULE_URL = './terminal-pretext-runtime.mjs?v=20260404a';
+let blogUploadCoreReadyPromise = null;
+const BLOG_UPLOAD_CORE_MODULE_URL = './blog-upload-core.mjs?v=20260404b';
 
 function ensureTerminalPretextReady() {
     if (terminalPretextReadyPromise) {
@@ -428,6 +430,20 @@ function ensureTerminalPretextReady() {
         });
 
     return terminalPretextReadyPromise;
+}
+
+function ensureBlogUploadCoreReady() {
+    if (blogUploadCoreReadyPromise) {
+        return blogUploadCoreReadyPromise;
+    }
+
+    blogUploadCoreReadyPromise = import(BLOG_UPLOAD_CORE_MODULE_URL)
+        .catch(error => {
+            console.error('blog upload core failed to load', error);
+            return null;
+        });
+
+    return blogUploadCoreReadyPromise;
 }
 
 function buildTerminalLinkElement(fragment) {
@@ -1021,151 +1037,10 @@ function resolveUserImageInput(options = {}) {
 }
 
 async function selectUserImageFilesSequentially(requiredCount = 1, options = {}) {
-    const normalizedCount = Number.isInteger(requiredCount) && requiredCount > 0
-        ? requiredCount
-        : 1;
-    const acceptValue = typeof options.accept === 'string' && options.accept.trim()
-        ? options.accept.trim()
-        : BLOG_IMAGE_FILE_ACCEPT;
-
-    if (document.activeElement && typeof document.activeElement.blur === 'function') {
-        document.activeElement.blur();
-    }
-
-    return new Promise(resolve => {
-        let settled = false;
-        let cancelCheckTimerId = 0;
-        let activeCycle = 0;
-        let activeInput = null;
-        let activeListeners = null;
-        const selectedFiles = [];
-
-        const clearCancelCheck = () => {
-            if (!cancelCheckTimerId) {
-                return;
-            }
-
-            window.clearTimeout(cancelCheckTimerId);
-            cancelCheckTimerId = 0;
-        };
-
-        const detachActiveInput = () => {
-            clearCancelCheck();
-            if (activeInput && activeListeners) {
-                activeInput.removeEventListener('change', activeListeners.handleChange);
-                activeInput.removeEventListener('cancel', activeListeners.handleCancel);
-                window.removeEventListener('focus', activeListeners.handleFocus);
-                document.removeEventListener('visibilitychange', activeListeners.handleVisibilityChange);
-            }
-
-            if (activeInput) {
-                activeInput.value = '';
-                removeTransientUserImageInput(activeInput);
-            }
-
-            activeInput = null;
-            activeListeners = null;
-        };
-
-        const finish = files => {
-            if (settled) {
-                return;
-            }
-
-            settled = true;
-            detachActiveInput();
-            resolve(Array.isArray(files) ? files : []);
-        };
-
-        const scheduleCancelCheck = cycleId => {
-            clearCancelCheck();
-            cancelCheckTimerId = window.setTimeout(() => {
-                if (settled || cycleId !== activeCycle || !activeInput) {
-                    return;
-                }
-
-                const files = activeInput.files ? Array.from(activeInput.files).filter(Boolean) : [];
-                if (files.length > 0) {
-                    return;
-                }
-
-                finish(selectedFiles);
-            }, 450);
-        };
-
-        const launchNextPicker = () => {
-            if (settled) {
-                return;
-            }
-
-            detachActiveInput();
-            activeCycle += 1;
-            const cycleId = activeCycle;
-            const input = createTransientUserImageInput({
-                accept: acceptValue,
-                multiple: false
-            });
-            activeInput = input;
-
-            const handleChange = () => {
-                if (settled || cycleId !== activeCycle) {
-                    return;
-                }
-
-                const files = input.files ? Array.from(input.files).filter(Boolean) : [];
-                if (files.length === 0) {
-                    finish(selectedFiles);
-                    return;
-                }
-
-                selectedFiles.push(files[0]);
-                if (selectedFiles.length >= normalizedCount) {
-                    finish(selectedFiles);
-                    return;
-                }
-
-                launchNextPicker();
-            };
-
-            const handleCancel = () => {
-                if (settled || cycleId !== activeCycle) {
-                    return;
-                }
-
-                finish(selectedFiles);
-            };
-
-            const handleFocus = () => {
-                if (settled || cycleId !== activeCycle) {
-                    return;
-                }
-
-                scheduleCancelCheck(cycleId);
-            };
-
-            const handleVisibilityChange = () => {
-                if (settled || cycleId !== activeCycle || document.visibilityState !== 'visible') {
-                    return;
-                }
-
-                scheduleCancelCheck(cycleId);
-            };
-
-            activeListeners = {
-                handleCancel,
-                handleChange,
-                handleFocus,
-                handleVisibilityChange
-            };
-
-            input.addEventListener('change', handleChange, { once: true });
-            input.addEventListener('cancel', handleCancel, { once: true });
-            window.addEventListener('focus', handleFocus, { once: true });
-            document.addEventListener('visibilitychange', handleVisibilityChange);
-            triggerUserImageInputPicker(input);
-        };
-
-        launchNextPicker();
+    return selectUserImageFiles({
+        ...options,
+        exactCount: Number.isInteger(requiredCount) && requiredCount > 0 ? requiredCount : 1,
+        multiple: Number(requiredCount) > 1
     });
 }
 
@@ -1814,22 +1689,24 @@ async function selectPostMediaAttachments(requiredCount = 1) {
     const normalizedCount = Number.isInteger(requiredCount) && requiredCount > 0
         ? requiredCount
         : 1;
-    const files = await selectUserImageFilesSequentially(normalizedCount, {
-        accept: BLOG_POST_FILE_ACCEPT
-    });
-
-    if (files.length === 0) {
-        return { error: 'post: no media selected' };
-    }
-
-    if (files.length !== normalizedCount) {
-        return {
-            error: `post: upload cancelled; expected ${normalizedCount} media item${normalizedCount === 1 ? '' : 's'} but received ${files.length}`
+    const uploadCore = await ensureBlogUploadCoreReady();
+    const selection = uploadCore?.collectExactPostMediaFiles
+        ? await uploadCore.collectExactPostMediaFiles(selectUserImageFiles, normalizedCount, {
+            accept: BLOG_POST_FILE_ACCEPT
+        })
+        : {
+            ok: true,
+            files: await selectUserImageFilesSequentially(normalizedCount, {
+                accept: BLOG_POST_FILE_ACCEPT
+            })
         };
+
+    if (!selection.ok) {
+        return { error: selection.error };
     }
 
     const attachments = [];
-    for (const file of files) {
+    for (const file of selection.files) {
         const attachment = await buildPostMediaAttachmentFromFile(file);
         if (attachment.error) {
             return attachment;
