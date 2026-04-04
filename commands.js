@@ -1603,29 +1603,30 @@ async function selectPostMediaAttachments(requiredCount = 1) {
     const normalizedCount = Number.isInteger(requiredCount) && requiredCount > 0
         ? requiredCount
         : 1;
-    const files = await selectUserImageFiles({
-        accept: BLOG_POST_FILE_ACCEPT,
-        exactCount: normalizedCount,
-        multiple: normalizedCount > 1
-    });
-
-    if (files.length === 0) {
-        return { error: 'post: no media selected' };
-    }
-
-    if (files.length !== normalizedCount) {
-        return {
-            error: `post: upload cancelled; expected ${normalizedCount} media item${normalizedCount === 1 ? '' : 's'} but received ${files.length}`
-        };
-    }
-
     const attachments = [];
-    for (const file of files) {
+    for (let index = 0; index < normalizedCount; index += 1) {
+        const file = await selectUserImageFile({
+            accept: BLOG_POST_FILE_ACCEPT
+        });
+        if (!file) {
+            if (attachments.length === 0) {
+                return { error: 'post: no media selected' };
+            }
+
+            return {
+                error: `post: upload cancelled; expected ${normalizedCount} media item${normalizedCount === 1 ? '' : 's'} but received ${attachments.length}`
+            };
+        }
+
         const attachment = await buildPostMediaAttachmentFromFile(file);
         if (attachment.error) {
             return attachment;
         }
         attachments.push(attachment);
+
+        if (index < normalizedCount - 1) {
+            await new Promise(resolve => window.setTimeout(resolve, 0));
+        }
     }
 
     return { attachments };

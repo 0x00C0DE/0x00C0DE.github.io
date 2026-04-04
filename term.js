@@ -49,17 +49,33 @@ function getPromptSnapshot() {
     return DEFAULT_PROMPT_SNAPSHOT;
 }
 
-function appendPrompt(container, beforeNode = null) {
-    const snapshot = getPromptSnapshot();
+function clonePromptSnapshot(snapshot = null) {
+    const source = snapshot && typeof snapshot === 'object'
+        ? snapshot
+        : getPromptSnapshot();
+    return {
+        host: typeof source.host === 'string' && source.host ? source.host : DEFAULT_PROMPT_SNAPSHOT.host,
+        isGodlike: Boolean(source.isGodlike),
+        isRoot: Boolean(source.isRoot),
+        mode: typeof source.mode === 'string' && source.mode ? source.mode : DEFAULT_PROMPT_SNAPSHOT.mode,
+        path: typeof source.path === 'string' && source.path ? source.path : DEFAULT_PROMPT_SNAPSHOT.path,
+        promptSymbol: typeof source.promptSymbol === 'string' && source.promptSymbol ? source.promptSymbol : DEFAULT_PROMPT_SNAPSHOT.promptSymbol,
+        theme: typeof source.theme === 'string' && source.theme ? source.theme : DEFAULT_PROMPT_SNAPSHOT.theme,
+        user: typeof source.user === 'string' && source.user ? source.user : DEFAULT_PROMPT_SNAPSHOT.user
+    };
+}
+
+function appendPromptWithSnapshot(container, snapshot, beforeNode = null) {
+    const safeSnapshot = clonePromptSnapshot(snapshot);
     const prompt = document.createElement('span');
     prompt.className = 'terminal-prompt';
     const parts = [
-        [getPromptUserClassName(snapshot), snapshot.user],
+        [getPromptUserClassName(safeSnapshot), safeSnapshot.user],
         ['header', '@'],
-        ['prompt-host', snapshot.host],
+        ['prompt-host', safeSnapshot.host],
         ['header', ':'],
-        ['prompt-path', snapshot.path],
-        ['header', `${snapshot.promptSymbol} `]
+        ['prompt-path', safeSnapshot.path],
+        ['header', `${safeSnapshot.promptSymbol} `]
     ];
 
     parts.forEach(([className, text]) => {
@@ -75,6 +91,10 @@ function appendPrompt(container, beforeNode = null) {
         container.append(prompt);
     }
     return prompt;
+}
+
+function appendPrompt(container, beforeNode = null) {
+    return appendPromptWithSnapshot(container, getPromptSnapshot(), beforeNode);
 }
 
 function createBinaryRainColumnElement(column) {
@@ -563,14 +583,33 @@ function syncTerminalSessionAwareLines() {
 
     const lines = document.querySelectorAll('.terminal-line');
     lines.forEach(line => {
-        if (!line.__terminalRenderedObject || typeof line.__terminalRenderedObject !== 'object') {
+        if (line.__terminalRenderedObject && typeof line.__terminalRenderedObject === 'object') {
+            line.replaceChildren();
+            delete line.dataset.blogEntryTimestamp;
+            renderOutputObject(line, line.__terminalRenderedObject);
+            return;
+        }
+
+        if (typeof line.__terminalRenderedCommandText === 'string') {
+            renderCommandLineEcho(
+                line,
+                line.__terminalRenderedCommandText,
+                line.__terminalCommandPromptSnapshot
+            );
+            return;
+        }
+
+        if (typeof line.__terminalRenderedText !== 'string') {
             return;
         }
 
         line.replaceChildren();
-        delete line.dataset.blogEntryTimestamp;
-        renderOutputObject(line, line.__terminalRenderedObject);
+        renderOutputLine(line, line.__terminalRenderedText);
     });
+
+    if (isTerminalEditorialModeActive()) {
+        syncAllBlogEditorialLayouts();
+    }
 }
 
 const editorialBlogEntryStates = new WeakMap();
@@ -766,6 +805,30 @@ function getOrderedTerminalObjectLines() {
 
     return [...terminal.querySelectorAll('.terminal-line')]
         .filter(container => container?.__terminalRenderedObject && typeof container.__terminalRenderedObject === 'object');
+}
+
+function getOrderedTerminalPlainTextLines() {
+    const terminal = document.getElementById('terminal');
+    if (!terminal) {
+        return [];
+    }
+
+    return [...terminal.querySelectorAll('.terminal-line')]
+        .filter(container => (
+            !container.classList.contains('terminal-command-line')
+            && !container.__terminalRenderedObject
+            && typeof container.__terminalRenderedText === 'string'
+        ));
+}
+
+function getOrderedTerminalCommandLines() {
+    const terminal = document.getElementById('terminal');
+    if (!terminal) {
+        return [];
+    }
+
+    return [...terminal.querySelectorAll('.terminal-command-line')]
+        .filter(container => typeof container.__terminalRenderedCommandText === 'string');
 }
 
 function createEditorialMediaPlaceholderRow() {
@@ -1209,32 +1272,67 @@ function syncAllBlogEditorialLayouts() {
     }
 
     const overlay = ensureTerminalEditorialOverlay();
-    const blogContainers = getOrderedEditorialBlogContainers();
-    blogContainers.forEach(container => {
-        if (!container.isConnected) {
-            disposeBlogEditorialState(container);
-            return;
-        }
+    const runLayoutPass = () => {
+        const blogContainers = getOrderedEditorialBlogContainers();
+        blogContainers.forEach(container => {
+            if (!container.isConnected) {
+                disposeBlogEditorialState(container);
+                return;
+            }
 
-        const state = editorialBlogEntryStates.get(container);
-        if (state) {
-            updateBlogEditorialMediaAnchors(state);
-        }
-    });
-
-    getOrderedTerminalObjectLines().forEach(container => {
-        const line = container.__terminalRenderedObject;
-        if (!line) {
-            return;
-        }
-
-        if (line.type === 'blog-entry') {
             const state = editorialBlogEntryStates.get(container);
             if (state) {
-                syncBlogEditorialEntryLayout(container, line, state);
+                updateBlogEditorialMediaAnchors(state);
             }
-        }
-    });
+        });
+
+        const obstacleRects = collectBlogEditorialObstacleRects();
+
+        getOrderedTerminalObjectLines().forEach(container => {
+            const line = container.__terminalRenderedObject;
+            if (!line) {
+                return;
+            }
+
+            if (line.type === 'blog-entry') {
+                const state = editorialBlogEntryStates.get(container);
+                if (state) {
+                    syncBlogEditorialEntryLayout(container, line, state, obstacleRects);
+                }
+                return;
+            }
+
+            if (line.type === 'banner') {
+                syncBannerEditorialLayout(container, line, obstacleRects);
+                return;
+            }
+
+            if (line.type === 'visitor-widget') {
+                syncVisitorWidgetEditorialLayout(container, line, obstacleRects);
+            }
+        });
+
+        getOrderedTerminalPlainTextLines().forEach(container => {
+            syncEditorialTextContainer(container, container.__terminalRenderedText, obstacleRects, {
+                whiteSpace: 'pre-wrap'
+            });
+        });
+
+        getOrderedTerminalCommandLines().forEach(container => {
+            const commandText = container.querySelector(':scope > .terminal-command-text');
+            if (!commandText) {
+                return;
+            }
+
+            syncEditorialTextContainer(commandText, container.__terminalRenderedCommandText, obstacleRects, {
+                tokenizeLinks: false,
+                whiteSpace: 'pre'
+            });
+        });
+    };
+
+    runLayoutPass();
+    runLayoutPass();
 
     if (overlay) {
         const terminal = document.getElementById('terminal');
@@ -1244,7 +1342,7 @@ function syncAllBlogEditorialLayouts() {
     queueEditorialAnimationLoop();
 }
 
-function syncBlogEditorialEntryLayout(container, line, state) {
+function syncBlogEditorialEntryLayout(container, line, state, obstacleRects = []) {
     if (!state?.dom?.wrapper) {
         return;
     }
@@ -1253,6 +1351,32 @@ function syncBlogEditorialEntryLayout(container, line, state) {
     if (overlay && state.dom.overlay !== overlay) {
         state.dom.overlay = overlay;
     }
+
+    if (state.dom.timestamp) {
+        syncEditorialTextContainer(state.dom.timestamp, line.text || '', obstacleRects, {
+            minSegmentWidth: 136,
+            tokenizeLinks: false,
+            whiteSpace: 'pre-wrap'
+        });
+    }
+
+    const textRows = Array.isArray(state.dom.textRows) ? state.dom.textRows : [];
+    textRows.forEach(row => {
+        if (!row?.element) {
+            return;
+        }
+
+        if (!row.text) {
+            row.element.classList.remove('terminal-pretext-enabled', 'terminal-pretext-editorial-enabled');
+            row.element.style.minHeight = '';
+            row.element.replaceChildren(document.createTextNode('\u00A0'));
+            return;
+        }
+
+        syncEditorialTextContainer(row.element, row.text, obstacleRects, {
+            whiteSpace: 'pre-wrap'
+        });
+    });
 }
 
 function buildBannerEditorialSignature(line) {
@@ -1402,31 +1526,25 @@ function mountBlogEditorialEntry(container, line, state) {
     const header = document.createElement('div');
     header.className = 'terminal-blog-entry-header';
 
-    const timestamp = document.createElement('span');
-    timestamp.className = 'terminal-blog-entry-timestamp';
-    timestamp.textContent = line.text || '';
+    const timestamp = createEditorialTextBlockElement('terminal-blog-entry-timestamp terminal-editorial-blog-header-text');
     header.append(timestamp);
     appendDeletePostActions(header, line);
     wrapper.append(header);
 
     const overlay = ensureTerminalEditorialOverlay();
     const mediaStatesByBlock = new Map(state.media.map(mediaState => [mediaState.block, mediaState]));
+    const textRows = [];
 
     (Array.isArray(line.blocks) ? line.blocks : []).forEach(block => {
         if (block.type === 'blog-entry-text-block') {
             block.lines.forEach(textLine => {
                 const row = document.createElement('div');
                 row.className = textLine ? 'terminal-blog-entry-text-line' : 'terminal-blog-entry-text-line terminal-blog-entry-text-line-empty';
-                if (textLine) {
-                    if (typeof window.renderTerminalLineContent === 'function') {
-                        window.renderTerminalLineContent(row, textLine);
-                    } else {
-                        row.textContent = textLine;
-                    }
-                } else {
-                    row.textContent = '\u00A0';
-                }
                 wrapper.append(row);
+                textRows.push({
+                    element: row,
+                    text: textLine || ''
+                });
             });
             return;
         }
@@ -1534,6 +1652,8 @@ function mountBlogEditorialEntry(container, line, state) {
     container.append(wrapper);
     state.dom = {
         overlay,
+        textRows,
+        timestamp,
         wrapper
     };
 }
@@ -1615,6 +1735,9 @@ function renderOutputObject(container, line) {
         return;
     }
 
+    delete container.__terminalRenderedText;
+    delete container.__terminalRenderedCommandText;
+    delete container.__terminalCommandPromptSnapshot;
     container.__terminalRenderedObject = line;
 
     if (typeof line.entryTimestamp === 'string' && line.entryTimestamp) {
@@ -1757,10 +1880,16 @@ function renderOutputObject(container, line) {
 
 function renderOutputLine(container, line) {
     if (line && typeof line === 'object') {
+        delete container.__terminalRenderedText;
         renderOutputObject(container, line);
         return;
     }
 
+    delete container.__terminalRenderedObject;
+    delete container.dataset.blogEntryTimestamp;
+    delete container.__terminalRenderedCommandText;
+    delete container.__terminalCommandPromptSnapshot;
+    container.__terminalRenderedText = String(line ?? '');
     if (typeof window.renderTerminalLineContent === 'function') {
         window.renderTerminalLineContent(container, line);
         return;
@@ -1787,6 +1916,24 @@ function renderCommandEchoText(container, text) {
     }
 
     container.textContent = safeText;
+}
+
+function renderCommandLineEcho(container, commandLine, promptSnapshot = null) {
+    const safeCommandLine = typeof commandLine === 'string' ? commandLine : String(commandLine ?? '');
+    const frozenPromptSnapshot = clonePromptSnapshot(promptSnapshot);
+
+    container.replaceChildren();
+    delete container.__terminalRenderedObject;
+    delete container.__terminalRenderedText;
+    delete container.dataset.blogEntryTimestamp;
+    container.__terminalRenderedCommandText = safeCommandLine;
+    container.__terminalCommandPromptSnapshot = frozenPromptSnapshot;
+
+    appendPromptWithSnapshot(container, frozenPromptSnapshot);
+    const commandText = document.createElement('span');
+    commandText.className = 'terminal-command-text';
+    container.append(commandText);
+    renderCommandEchoText(commandText, safeCommandLine);
 }
 
 function renderAsciiLines(element, asciiLines) {
@@ -2211,12 +2358,9 @@ async function executeCommand(commandLine) {
     const inputLine = terminal.querySelector(".input-line");
     const commandDiv = document.createElement("div");
     commandDiv.className = "terminal-line terminal-command-line";
-    appendPrompt(commandDiv);
+    const promptSnapshot = clonePromptSnapshot(getPromptSnapshot());
     terminal.insertBefore(commandDiv, inputLine);
-    const commandText = document.createElement('span');
-    commandText.className = 'terminal-command-text';
-    commandDiv.append(commandText);
-    renderCommandEchoText(commandText, commandLine);
+    renderCommandLineEcho(commandDiv, commandLine, promptSnapshot);
 
     const parts = commandLine.split(" ");
     const cmd = parts[0].toLowerCase();
@@ -2257,6 +2401,10 @@ async function executeCommand(commandLine) {
             terminal.insertBefore(outputDiv, inputLine);
             renderOutputLine(outputDiv, line);
         });
+    }
+
+    if (isTerminalEditorialModeActive()) {
+        syncAllBlogEditorialLayouts();
     }
 
     document.getElementById("command-input").value = "";
