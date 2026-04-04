@@ -883,26 +883,20 @@ async function renderImageToAscii(imageSource, width, height, options = {}) {
 }
 
 async function selectUserImageFiles(options = {}) {
-    const input = document.getElementById('user-image-input');
-    if (!input) {
-        throw new Error('user image input not found');
-    }
-
     const exactCount = Number.isInteger(options.exactCount) && options.exactCount > 0
         ? options.exactCount
         : null;
     const allowMultiple = Boolean(options.multiple || (exactCount && exactCount > 1));
+    const input = createTransientUserImageInput({
+        accept: typeof options.accept === 'string' && options.accept.trim()
+            ? options.accept.trim()
+            : BLOG_IMAGE_FILE_ACCEPT,
+        multiple: allowMultiple
+    });
 
     if (document.activeElement && typeof document.activeElement.blur === 'function') {
         document.activeElement.blur();
     }
-
-    input.value = '';
-    input.removeAttribute('capture');
-    input.setAttribute('accept', typeof options.accept === 'string' && options.accept.trim()
-        ? options.accept.trim()
-        : BLOG_IMAGE_FILE_ACCEPT);
-    input.multiple = allowMultiple;
 
     return new Promise(resolve => {
         let settled = false;
@@ -915,7 +909,7 @@ async function selectUserImageFiles(options = {}) {
             input.removeEventListener('change', handleChange);
             window.removeEventListener('focus', handleFocus);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
-            input.multiple = false;
+            removeTransientUserImageInput(input);
             resolve(Array.isArray(files) ? files : []);
         };
 
@@ -975,12 +969,58 @@ function triggerUserImageInputPicker(input) {
     input.click();
 }
 
-async function selectUserImageFilesSequentially(requiredCount = 1, options = {}) {
-    const input = document.getElementById('user-image-input');
-    if (!input) {
-        throw new Error('user image input not found');
+function createTransientUserImageInput(options = {}) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.hidden = true;
+    input.tabIndex = -1;
+    input.setAttribute('aria-hidden', 'true');
+    input.style.position = 'fixed';
+    input.style.left = '-10000px';
+    input.style.top = '0';
+    input.style.width = '1px';
+    input.style.height = '1px';
+    input.style.opacity = '0';
+    input.style.pointerEvents = 'none';
+    input.removeAttribute('capture');
+    input.setAttribute(
+        'accept',
+        typeof options.accept === 'string' && options.accept.trim()
+            ? options.accept.trim()
+            : BLOG_IMAGE_FILE_ACCEPT
+    );
+    input.multiple = Boolean(options.multiple);
+    (document.body || document.documentElement).append(input);
+    return input;
+}
+
+function removeTransientUserImageInput(input) {
+    if (!input || !input.isConnected) {
+        return;
     }
 
+    input.remove();
+}
+
+function resolveUserImageInput(options = {}) {
+    const existingInput = document.getElementById('user-image-input');
+    if (existingInput instanceof HTMLInputElement) {
+        existingInput.removeAttribute('capture');
+        existingInput.setAttribute(
+            'accept',
+            typeof options.accept === 'string' && options.accept.trim()
+                ? options.accept.trim()
+                : BLOG_IMAGE_FILE_ACCEPT
+        );
+        existingInput.multiple = Boolean(options.multiple);
+        existingInput.value = '';
+        return existingInput;
+    }
+
+    return createTransientUserImageInput(options);
+}
+
+async function selectUserImageFilesSequentially(requiredCount = 1, options = {}) {
     const normalizedCount = Number.isInteger(requiredCount) && requiredCount > 0
         ? requiredCount
         : 1;
@@ -992,26 +1032,26 @@ async function selectUserImageFilesSequentially(requiredCount = 1, options = {})
         document.activeElement.blur();
     }
 
-    input.value = '';
-    input.removeAttribute('capture');
-    input.setAttribute('accept', acceptValue);
-    input.multiple = false;
-
     return new Promise(resolve => {
         let settled = false;
+        let cancelCheckTimerId = 0;
+        let launchCycle = 0;
         let activeCycle = 0;
-        let activeListeners = null;
+        let usingTransientInput = false;
         const selectedFiles = [];
+        const input = resolveUserImageInput({
+            accept: acceptValue,
+            multiple: false
+        });
+        usingTransientInput = input.id !== 'user-image-input';
 
-        const detachListeners = () => {
-            if (!activeListeners) {
+        const clearCancelCheck = () => {
+            if (!cancelCheckTimerId) {
                 return;
             }
 
-            input.removeEventListener('change', activeListeners.handleChange);
-            window.removeEventListener('focus', activeListeners.handleFocus);
-            document.removeEventListener('visibilitychange', activeListeners.handleVisibilityChange);
-            activeListeners = null;
+            window.clearTimeout(cancelCheckTimerId);
+            cancelCheckTimerId = 0;
         };
 
         const finish = files => {
@@ -1020,82 +1060,86 @@ async function selectUserImageFilesSequentially(requiredCount = 1, options = {})
             }
 
             settled = true;
-            detachListeners();
-            input.multiple = false;
+            clearCancelCheck();
+            input.removeEventListener('change', handleChange);
+            window.removeEventListener('focus', handleFocus);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            input.value = '';
+            if (usingTransientInput) {
+                removeTransientUserImageInput(input);
+            }
             resolve(Array.isArray(files) ? files : []);
         };
 
-        const launchNextPicker = () => {
-            detachListeners();
-            activeCycle += 1;
-            const cycleId = activeCycle;
-            const openedAt = window.performance?.now?.() || Date.now();
-            input.value = '';
-
-            const resolveCurrentSelection = () => {
+        const scheduleCancelCheck = cycleId => {
+            clearCancelCheck();
+            cancelCheckTimerId = window.setTimeout(() => {
                 if (settled || cycleId !== activeCycle) {
                     return;
                 }
 
                 const files = input.files ? Array.from(input.files).filter(Boolean) : [];
                 if (files.length > 0) {
-                    detachListeners();
-                    selectedFiles.push(files[0]);
-                    if (selectedFiles.length >= normalizedCount) {
-                        finish(selectedFiles);
-                        return;
-                    }
-
-                    launchNextPicker();
                     return;
                 }
 
-                if (document.visibilityState === 'hidden') {
-                    return;
-                }
-
-                if (typeof document.hasFocus === 'function' && !document.hasFocus()) {
-                    return;
-                }
-
-                detachListeners();
                 finish(selectedFiles);
-            };
+            }, 450);
+        };
 
-            const handleChange = () => {
-                resolveCurrentSelection();
-            };
+        const launchNextPicker = () => {
+            if (settled) {
+                return;
+            }
 
-            const handleFocus = () => {
-                const elapsed = (window.performance?.now?.() || Date.now()) - openedAt;
-                const delay = elapsed < 150 ? 650 : 400;
-                window.setTimeout(() => {
-                    resolveCurrentSelection();
-                }, delay);
-            };
-
-            const handleVisibilityChange = () => {
-                if (document.visibilityState !== 'visible') {
-                    return;
-                }
-
-                window.setTimeout(() => {
-                    resolveCurrentSelection();
-                }, 400);
-            };
-
-            activeListeners = {
-                handleChange,
-                handleFocus,
-                handleVisibilityChange
-            };
-
-            input.addEventListener('change', handleChange, { once: true });
-            window.addEventListener('focus', handleFocus, { once: true });
-            document.addEventListener('visibilitychange', handleVisibilityChange);
+            launchCycle += 1;
+            activeCycle = launchCycle;
+            clearCancelCheck();
+            input.value = '';
             triggerUserImageInputPicker(input);
         };
 
+        const handleChange = () => {
+            if (settled) {
+                return;
+            }
+
+            const files = input.files ? Array.from(input.files).filter(Boolean) : [];
+            input.value = '';
+            if (files.length === 0) {
+                finish(selectedFiles);
+                return;
+            }
+
+            clearCancelCheck();
+            selectedFiles.push(files[0]);
+            if (selectedFiles.length >= normalizedCount) {
+                finish(selectedFiles);
+                return;
+            }
+
+            launchNextPicker();
+        };
+
+        const handleFocus = () => {
+            if (settled) {
+                return;
+            }
+
+            scheduleCancelCheck(activeCycle);
+        };
+
+        const handleVisibilityChange = () => {
+            if (settled || document.visibilityState !== 'visible') {
+                return;
+            }
+
+            scheduleCancelCheck(activeCycle);
+        };
+
+        input.addEventListener('change', handleChange);
+        window.addEventListener('focus', handleFocus);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
         launchNextPicker();
     });
 }

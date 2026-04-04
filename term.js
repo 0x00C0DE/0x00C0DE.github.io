@@ -619,10 +619,13 @@ function resetTerminalLinePresentation(container) {
 
     container.classList.remove('terminal-pretext-enabled', 'terminal-pretext-editorial-enabled');
     container.style.minHeight = '';
+    container.style.paddingLeft = '';
+    container.style.paddingTop = '';
     container.style.position = '';
 
     const visitorWidget = container.querySelector(':scope > [data-visitor-counter]');
     if (visitorWidget) {
+        visitorWidget.style.margin = '';
         visitorWidget.style.position = '';
         visitorWidget.style.left = '';
         visitorWidget.style.top = '';
@@ -849,14 +852,75 @@ function getOrderedTerminalCommandLines() {
         .filter(container => typeof container.__terminalRenderedCommandText === 'string');
 }
 
-function buildPromptDisplayText(snapshot = null) {
-    const safeSnapshot = clonePromptSnapshot(snapshot);
-    return `${safeSnapshot.user}@${safeSnapshot.host}:${safeSnapshot.path}${safeSnapshot.promptSymbol} `;
+function getTerminalCommandShell(container) {
+    return container?.querySelector(':scope > .terminal-command-shell') || null;
 }
 
-function buildCommandLineDisplayText(snapshot = null, commandText = '') {
-    const safeCommandText = typeof commandText === 'string' ? commandText : String(commandText ?? '');
-    return `${buildPromptDisplayText(snapshot)}${safeCommandText}`;
+function getTerminalInputLine() {
+    const terminal = document.getElementById('terminal');
+    return terminal ? terminal.querySelector('.input-line') : null;
+}
+
+function getTerminalInputShell() {
+    const inputLine = getTerminalInputLine();
+    return inputLine?.querySelector(':scope > .input-line-shell') || null;
+}
+
+function resolveElementOuterMetrics(element) {
+    if (!element) {
+        return null;
+    }
+
+    const rect = element.getBoundingClientRect();
+    const computedStyles = window.getComputedStyle(element);
+    const marginLeft = Math.max(0, Number.parseFloat(computedStyles.marginLeft) || 0);
+    const marginRight = Math.max(0, Number.parseFloat(computedStyles.marginRight) || 0);
+    const marginTop = Math.max(0, Number.parseFloat(computedStyles.marginTop) || 0);
+    const marginBottom = Math.max(0, Number.parseFloat(computedStyles.marginBottom) || 0);
+    const width = Math.ceil(rect.width || element.offsetWidth || element.scrollWidth || 0);
+    const height = Math.ceil(rect.height || element.offsetHeight || element.scrollHeight || 0);
+
+    return {
+        height,
+        marginBottom,
+        marginLeft,
+        marginRight,
+        marginTop,
+        outerHeight: height + marginTop + marginBottom,
+        outerWidth: width + marginLeft + marginRight,
+        width
+    };
+}
+
+function syncEditorialFlowBlockContainer(container, targetElement, obstacleRects = [], options = {}) {
+    if (!container || !targetElement) {
+        return;
+    }
+
+    resetTerminalLinePresentation(container);
+    const metrics = resolveElementOuterMetrics(targetElement);
+    if (!metrics || metrics.outerWidth <= 0 || metrics.outerHeight <= 0) {
+        return;
+    }
+
+    const placement = resolveEditorialBlockPlacement(
+        container,
+        metrics.outerWidth,
+        metrics.outerHeight,
+        obstacleRects,
+        {
+            padding: options.padding,
+            preferredX: Number.isFinite(Number(options.preferredX)) ? Number(options.preferredX) : metrics.marginLeft,
+            preferredY: Number.isFinite(Number(options.preferredY)) ? Number(options.preferredY) : metrics.marginTop,
+            verticalStep: options.verticalStep
+        }
+    );
+    const paddingLeft = Math.max(0, Math.round(placement.x - metrics.marginLeft));
+    const paddingTop = Math.max(0, Math.round(placement.y - metrics.marginTop));
+
+    container.style.paddingLeft = paddingLeft > 0 ? `${paddingLeft}px` : '';
+    container.style.paddingTop = paddingTop > 0 ? `${paddingTop}px` : '';
+    container.style.minHeight = `${Math.max(metrics.outerHeight + paddingTop, placement.height)}px`;
 }
 
 function createEditorialMediaPlaceholderRow() {
@@ -1420,19 +1484,21 @@ function syncAllBlogEditorialLayouts() {
         });
 
         getOrderedTerminalCommandLines().forEach(container => {
-            syncEditorialTextContainer(
-                container,
-                buildCommandLineDisplayText(
-                    container.__terminalCommandPromptSnapshot,
-                    container.__terminalRenderedCommandText
-                ),
-                obstacleRects,
-                {
-                tokenizeLinks: false,
-                whiteSpace: 'pre'
-            }
-            );
+            const shell = getTerminalCommandShell(container) || container;
+            syncEditorialFlowBlockContainer(container, shell, obstacleRects, {
+                padding: 14,
+                verticalStep: 8
+            });
         });
+
+        const inputLine = getTerminalInputLine();
+        const inputShell = getTerminalInputShell();
+        if (inputLine && inputShell) {
+            syncEditorialFlowBlockContainer(inputLine, inputShell, obstacleRects, {
+                padding: 14,
+                verticalStep: 8
+            });
+        }
     };
 
     runLayoutPass();
@@ -1592,25 +1658,12 @@ function syncVisitorWidgetEditorialLayout(container, line, obstacleRects = []) {
         return;
     }
 
-    const measuredWidth = Math.ceil(state.dom.widget.getBoundingClientRect().width || state.dom.widget.offsetWidth || 0);
-    const measuredHeight = Math.ceil(state.dom.widget.getBoundingClientRect().height || state.dom.widget.offsetHeight || 0);
-    if (measuredWidth <= 0 || measuredHeight <= 0) {
-        return;
-    }
-
-    const placement = resolveEditorialBlockPlacement(container, measuredWidth, measuredHeight, obstacleRects, {
+    syncEditorialFlowBlockContainer(container, state.dom.widget, obstacleRects, {
         padding: 12,
         preferredX: 0,
         preferredY: 0,
         verticalStep: 8
     });
-
-    container.style.position = 'relative';
-    container.style.minHeight = `${Math.max(measuredHeight, placement.height)}px`;
-    state.dom.widget.style.position = 'absolute';
-    state.dom.widget.style.left = `${placement.x}px`;
-    state.dom.widget.style.top = `${placement.y}px`;
-    state.dom.widget.style.transform = 'none';
 }
 
 function renderVisitorWidgetEditorial(container, line) {
@@ -2029,10 +2082,14 @@ function renderCommandLineEcho(container, commandLine, promptSnapshot = null) {
     container.__terminalRenderedCommandText = safeCommandLine;
     container.__terminalCommandPromptSnapshot = frozenPromptSnapshot;
 
-    appendPromptWithSnapshot(container, frozenPromptSnapshot);
+    const shell = document.createElement('div');
+    shell.className = 'terminal-command-shell';
+    container.append(shell);
+
+    appendPromptWithSnapshot(shell, frozenPromptSnapshot);
     const commandText = document.createElement('span');
     commandText.className = 'terminal-command-text';
-    container.append(commandText);
+    shell.append(commandText);
     renderCommandEchoText(commandText, safeCommandLine);
 }
 
@@ -2103,17 +2160,25 @@ function setupTerminal() {
     terminal.innerHTML = '';
     const inputLine = document.createElement('div');
     inputLine.className = 'input-line';
-    appendPrompt(inputLine);
+    const inputShell = document.createElement('div');
+    inputShell.className = 'input-line-shell';
+    inputLine.append(inputShell);
+    appendPrompt(inputShell);
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'terminal-input';
     input.id = 'command-input';
     input.autocomplete = 'off';
-    inputLine.append(input);
+    inputShell.append(input);
     terminal.append(inputLine);
     terminal.scrollTop = 0;
     terminal.scrollLeft = 0;
     input.addEventListener("keydown", handleKeyDown);
+    input.addEventListener("input", () => {
+        if (isTerminalEditorialModeActive()) {
+            syncAllBlogEditorialLayouts();
+        }
+    });
     input.focus();
 }
 
