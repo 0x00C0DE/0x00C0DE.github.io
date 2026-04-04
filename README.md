@@ -18,7 +18,7 @@
 ![Pretext](https://img.shields.io/badge/Pretext-terminal%20integrated-B22222?style=flat-square)
 
 **A static, browser-native terminal emulator built as an interactive portfolio.**  
-No frameworks. No build steps. Pure JavaScript + HTML + CSS.
+No frameworks. No frontend build step. Pure JavaScript + HTML + CSS, with npm only managing the Pretext package sync.
 
 [**→ Live Site**](https://0x00c0de.github.io) · [**→ Source**](https://github.com/0x00C0DE/0x00C0DE.github.io)
 
@@ -76,7 +76,8 @@ Credit to Cheng Lou for the original [Pretext](https://github.com/chenglou/prete
 │                                                     │                        │
 │                                   ┌─────────────────▼─────────────────┐      │
 │                                   │ terminal-pretext-core.mjs         │      │
-│                                   │ vendor/pretext/layout.js          │      │
+│                                   │ pretext-browser.mjs              │      │
+│                                   │ vendor/pretext/layout.js         │      │
 │                                   │ (tokenization + wrapped lines)    │      │
 │                                   └─────────────────┬─────────────────┘      │
 │                                                     │                        │
@@ -184,7 +185,11 @@ Next `cat blog.txt` reflects the new entry live
 ├── backend/                          # Local backend/server helpers
 ├── worker/                           # Cloudflare Worker package and deployment scripts
 ├── tests/                            # Node tests for session, visuals, and Pretext logic
-├── vendor/pretext/                   # Vendored Pretext runtime used in-browser
+├── scripts/sync-pretext-package.mjs  # Syncs vendor/pretext from the npm package
+├── pretext-browser.mjs               # Shared browser wrapper around the synced Pretext package
+├── vendor/pretext/                   # npm-synced Pretext runtime used in-browser
+├── package.json                      # Root npm manifest for frontend package tooling
+├── package-lock.json                 # Locked frontend dependency graph
 │
 ├── wrangler.jsonc                    # Worker configuration
 ├── .gitignore
@@ -287,7 +292,7 @@ Responsibilities:
 ### `terminal-pretext-runtime.mjs` — Browser Layout Runtime
 
 Responsibilities:
-- Imports the vendored `vendor/pretext/layout.js` runtime on demand
+- Imports the shared `pretext-browser.mjs` wrapper, which re-exports the npm-synced package files under `vendor/pretext/`
 - Measures container width, computed font, and line height in the browser
 - Renders wrapped output as DOM rows while preserving anchors and text fragments
 - Reflows terminal output on resize so mobile layouts stay aligned

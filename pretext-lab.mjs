@@ -1,4 +1,4 @@
-import * as pretext from './vendor/pretext/layout.js';
+import * as pretext from './pretext-browser.mjs';
 import {
     PRETEXT_DEFAULT_STATE,
     buildPretextLayout,

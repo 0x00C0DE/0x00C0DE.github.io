@@ -404,13 +404,14 @@ function getSafeTerminalHref(href) {
 }
 
 let terminalPretextReadyPromise = null;
+const TERMINAL_PRETEXT_RUNTIME_MODULE_URL = './terminal-pretext-runtime.mjs?v=20260403n';
 
 function ensureTerminalPretextReady() {
     if (terminalPretextReadyPromise) {
         return terminalPretextReadyPromise;
     }
 
-    terminalPretextReadyPromise = import('./terminal-pretext-runtime.mjs')
+    terminalPretextReadyPromise = import(TERMINAL_PRETEXT_RUNTIME_MODULE_URL)
         .then(module => {
             window.renderTerminalTextWithPretext = module.renderTerminalTextWithPretext;
             window.rerenderTerminalPretextContainer = module.rerenderTerminalPretextContainer;

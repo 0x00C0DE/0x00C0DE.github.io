@@ -1,4 +1,4 @@
-import * as pretext from './vendor/pretext/layout.js';
+import * as pretext from './pretext-browser.mjs';
 import { buildTerminalPretextLayout, tokenizeTerminalText } from './terminal-pretext-core.mjs';
 
 const terminalPretextStates = new WeakMap();

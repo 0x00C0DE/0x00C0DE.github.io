@@ -1,0 +1,12 @@
+{
+  "name": "0x00c0de-github-io",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "node scripts/sync-pretext-package.mjs",
+    "sync:pretext": "node scripts/sync-pretext-package.mjs"
+  },
+  "dependencies": {
+    "@chenglou/pretext": "^0.0.4"
+  }
+}
