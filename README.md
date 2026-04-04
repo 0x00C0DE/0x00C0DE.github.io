@@ -48,7 +48,7 @@ No frameworks. No build steps. Pure JavaScript + HTML + CSS.
 
 The design philosophy is **file-system-first**: documentation lives as real `.txt` files fetched over HTTP at runtime, mirroring how a real terminal would `cat` files off disk. This keeps content versionable, diffable, and human-readable without introducing a database or build step.
 
-The live blog still centers on `blog.txt`, but the Worker now supports three image storage modes inside that document: inline `[image-base64]` blocks for `png/jpg/jpeg/webp`, compact reversible `[image-z85]` blocks for smaller GIF payloads, and hosted `[image-url]` blocks for larger GIFs served through the Worker from `R2` with private `B2` fallback.
+The live blog still centers on `blog.txt`, but the Worker now supports three media storage modes inside that document: inline `[image-base64]` blocks for `png/jpg/jpeg/webp`, compact reversible `[image-z85]` blocks for smaller GIF payloads, and hosted `[image-url]` blocks for larger GIF or MP4 assets served through the Worker from `R2` with private `B2` fallback.
 
 The latest terminal updates integrate **Pretext** directly into the live render path and add a constrained `su` session toggle. Plain text output, echoed commands, wrapped links, and the `help` descriptions now reflow through a link-aware layout engine that behaves correctly on mobile and on browser resize, while `su` now only supports `su` for `root` and `su guest` for the default guest shell.
 
@@ -137,7 +137,7 @@ GitHub API appends entry to blog.txt → commits to main branch
 Next `cat blog.txt` reflects the new entry live
 ```
 
-`post --image` and inline-image posts share the same Worker path. PNG/JPEG/JPG/WEBP images remain inline in `blog.txt`, while larger GIFs are stored as hosted `[image-url]` blocks that render through `/api/blog/media/...`.
+`post --image` and inline-image posts share the same Worker path. PNG/JPEG/JPG/WEBP images remain inline in `blog.txt`, while hosted media blocks now cover larger GIFs and MP4 uploads through `/api/blog/media/...`.
 
 ---
 
@@ -243,7 +243,7 @@ The terminal command map in `term.js` routes each shell verb to its handler, wit
 | `movie [w h]` | Activates webcam to live ASCII/glyph output |
 | `picture [w h]` | Renders a built-in ASCII portrait |
 | `post <text>` | Appends a text-only blog entry through the Worker |
-| `post --image [text]` | Appends one selected `png/jpg/jpeg/webp/gif` image |
+| `post --image [text]` | Appends one selected `png/jpg/jpeg/webp/gif/mp4` media file |
 | `post ... [image] ...` | Inserts one selected image inline between text blocks |
 | `pretext [text]` | Reports terminal Pretext status or opens the lab with `pretext lab [text]` |
 | `projects` | Opens the dedicated projects terminal page |
@@ -258,7 +258,7 @@ The terminal command map in `term.js` routes each shell verb to its handler, wit
 
 Commands that require async I/O (`cat`, `post`, `fortune`, `movie`, `userpic`, `qr-totp`, `visitors`) return Promises and can be aborted mid-execution.
 
-For blog rendering, `cat blog.txt` now understands inline base64 image blocks, compact reversible GIF blocks, and hosted image URL blocks. It also attaches password-gated delete controls to rendered blog images and whole entries.
+For blog rendering, `cat blog.txt` now understands inline base64 image blocks, compact reversible GIF blocks, and hosted media URL blocks for GIF and MP4 assets. It also attaches password-gated delete controls to rendered blog media and whole entries.
 
 `commands.js` also exposes the terminal text rendering bridge. It lazy-loads `terminal-pretext-runtime.mjs`, routes plain string output through Pretext when available, falls back to the older regex-based renderer if the module cannot be loaded, parses `[image-base64]`, `[image-z85]`, and `[image-url]` blog blocks, and coordinates the root/guest session toggle plus image/post delete flows with the prompt renderer.
 
@@ -351,7 +351,7 @@ The site has **no database**. Persistent content lives in versioned `.txt` files
 └──────────────┴─────────────────────────────────────────────────────────────┘
 ```
 
-Because `cat` fetches files at runtime over HTTP, content updates are live as soon as a commit lands on `main`. Authorized delete actions remove the matching image block or full entry from `blog.txt`, and hosted GIF deletes also cascade into `R2` or `B2`.
+Because `cat` fetches files at runtime over HTTP, content updates are live as soon as a commit lands on `main`. Authorized delete actions remove the matching media block or full entry from `blog.txt`, and hosted GIF or MP4 deletes also cascade into `R2` or `B2`.
 
 ---
 
@@ -404,11 +404,11 @@ The `post` command enables live, authenticated blog posting from the terminal di
              github.com/.../blog.txt
 ```
 
-The Worker acts as a thin authenticated proxy between the public terminal UI, the GitHub API, and hosted GIF storage. The same package now serves `/api/blog/append`, `/api/blog/delete-image`, `/api/blog/delete-entry`, `/api/blog/media/...`, and visitor endpoints while `R2QuotaGuard` and `B2QuotaGuard` Durable Objects enforce conservative storage and operation thresholds before either provider reaches its free-tier limit.
+The Worker acts as a thin authenticated proxy between the public terminal UI, the GitHub API, and hosted blog media storage. The same package now serves `/api/blog/append`, `/api/blog/delete-image`, `/api/blog/delete-entry`, `/api/blog/media/...`, and visitor endpoints while `R2QuotaGuard` and `B2QuotaGuard` Durable Objects enforce conservative storage and operation thresholds before either provider reaches its free-tier limit.
 
 Secrets live in Cloudflare environment variables and are not committed to the repo. Current runtime secrets include `GITHUB_PAT`, `BLOG_IMAGE_DELETE_PASSWORD`, `B2_APPLICATION_KEY`, and `CLOUDFLARE_BILLING_API_TOKEN`.
 
-Inline `png/jpg/jpeg/webp` images stay inside `blog.txt`, compact GIF payloads can still be serialized directly into the file, and larger GIFs are stored as hosted Worker media URLs with `R2` as the primary store and private `B2` as the backup. The Worker also blocks posts and deletes while GitHub Pages is still catching up to the previous `blog.txt` commit so the live site and the repo do not drift.
+Inline `png/jpg/jpeg/webp` images stay inside `blog.txt`, compact GIF payloads can still be serialized directly into the file, and larger GIF or MP4 uploads are stored as hosted Worker media URLs with `R2` as the primary store and private `B2` as the backup. The Worker also blocks posts and deletes while GitHub Pages is still catching up to the previous `blog.txt` commit so the live site and the repo do not drift.
 
 ### Directories
 
@@ -505,7 +505,7 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
   qr-totp --get-otp          Generate the current 6-digit code
   fortune                    Random quote
   post <your message>        Append to blog.txt
-  post --image [caption]     Append one selected png/jpg/jpeg/webp/gif image
+  post --image [caption]     Append one selected png/jpg/jpeg/webp/gif/mp4 file
   post hello [image] goodbye Insert one selected image inline
   picture                    ASCII portrait
   movie                      Live webcam to ASCII art
@@ -523,7 +523,7 @@ https://0x00c0de.github.io/?command=cat%20blog.txt
 
 The `command` URL parameter is parsed by the entry page and passed directly into the terminal boot flow.
 
-When GIF media is hosted instead of stored inline, the blog still renders through `cat blog.txt` using Worker-backed media URLs. If `R2` or `B2` guardrails trip, those hosted GIFs intentionally stop rendering instead of pushing the provider past its configured threshold.
+When GIF or MP4 media is hosted instead of stored inline, the blog still renders through `cat blog.txt` using Worker-backed media URLs. If `R2` or `B2` guardrails trip, those hosted assets intentionally stop rendering instead of pushing the provider past its configured threshold.
 
 ---
 

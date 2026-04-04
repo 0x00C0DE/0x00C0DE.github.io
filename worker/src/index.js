@@ -730,8 +730,10 @@ const MAX_STAGED_IMAGE_CHUNKS = 2048;
 const MAX_STAGED_IMAGE_CHUNK_LENGTH = 98304;
 const DEFAULT_GITHUB_CONTENTS_MAX_BASE64_BYTES = 95000000;
 const LARGE_STAGED_COMPACT_IMAGE_BYTE_LENGTH = 4000000;
-const ALLOWED_BLOG_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
+const ALLOWED_BLOG_INLINE_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
+const ALLOWED_BLOG_POST_MEDIA_MIME_TYPES = new Set([...ALLOWED_BLOG_INLINE_IMAGE_MIME_TYPES, 'video/mp4']);
 const BLOG_COMPACT_IMAGE_MIME_TYPES = new Set(['image/gif']);
+const BLOG_HOSTED_MEDIA_MIME_TYPES = new Set(['image/gif', 'video/mp4']);
 const BLOG_HOSTED_IMAGE_PROVIDERS = new Set(['r2', 'b2']);
 const BLOG_Z85_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#';
 const BLOG_DEPLOY_PENDING_ERROR = 'site is still deploying previous changes; wait for blog.txt to go live before posting or deleting again';
@@ -1670,13 +1672,13 @@ async function handleHostedBlogMedia(request, env) {
                 });
             }
 
-            return new Response(await object.arrayBuffer(), {
-                status: 200,
-                headers: {
-                    'Content-Type': object.httpMetadata?.contentType || 'image/gif',
-                    'Cache-Control': 'public, max-age=31536000, immutable',
-                    ...corsHeaders(env.ALLOWED_ORIGIN)
-                }
+              return new Response(await object.arrayBuffer(), {
+                  status: 200,
+                  headers: {
+                      'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
+                      'Cache-Control': 'public, max-age=31536000, immutable',
+                      ...corsHeaders(env.ALLOWED_ORIGIN)
+                  }
             });
         }
 
@@ -1709,13 +1711,13 @@ async function handleHostedBlogMedia(request, env) {
 
         await recordB2ReadUsage(env);
 
-        return new Response(await b2Response.arrayBuffer(), {
-            status: 200,
-            headers: {
-                'Content-Type': b2Response.headers.get('Content-Type') || 'image/gif',
-                'Cache-Control': 'public, max-age=31536000, immutable',
-                ...corsHeaders(env.ALLOWED_ORIGIN)
-            }
+          return new Response(await b2Response.arrayBuffer(), {
+              status: 200,
+              headers: {
+                  'Content-Type': b2Response.headers.get('Content-Type') || 'application/octet-stream',
+                  'Cache-Control': 'public, max-age=31536000, immutable',
+                  ...corsHeaders(env.ALLOWED_ORIGIN)
+              }
         });
     } catch (error) {
         console.error('hosted blog media failed', error);
@@ -1755,10 +1757,10 @@ function validateImageDataUrl(value, maxLength) {
     }
 
     const mimeType = match[1].toLowerCase();
-    if (!ALLOWED_BLOG_IMAGE_MIME_TYPES.has(mimeType)) {
+    if (!ALLOWED_BLOG_POST_MEDIA_MIME_TYPES.has(mimeType)) {
         return {
             ok: false,
-            error: 'imageDataUrl must be png, jpg, jpeg, webp, or gif'
+            error: 'imageDataUrl must be png, jpg, jpeg, webp, gif, or mp4'
         };
     }
 
@@ -1772,10 +1774,10 @@ function validateCompactImagePayload({ mimeType, byteLength, encodedPayload, req
         ? encodedPayload.trim()
         : '';
 
-    if (!ALLOWED_BLOG_IMAGE_MIME_TYPES.has(normalizedMimeType)) {
+    if (!BLOG_COMPACT_IMAGE_MIME_TYPES.has(normalizedMimeType)) {
         return {
             ok: false,
-            error: 'compact image payload must be png, jpg, jpeg, webp, or gif'
+            error: 'compact image payload must be gif'
         };
     }
 
@@ -1964,15 +1966,21 @@ function createHostedImageBlock({
     const normalizedStorageKey = String(storageKey || '').trim();
     const normalizedStorageFileId = String(storageFileId || '').trim();
     const normalizedStorageBytes = normalizeStorageBytes(storageBytes);
+    const fallbackMimeType = normalizedMimeType || 'image/gif';
 
-    if (!normalizedImageUrl || !normalizedStorageProvider || !normalizedStorageKey) {
+    if (
+        !normalizedImageUrl ||
+        !normalizedStorageProvider ||
+        !normalizedStorageKey ||
+        !BLOG_HOSTED_MEDIA_MIME_TYPES.has(fallbackMimeType)
+    ) {
         return null;
     }
 
     return {
         type: 'image',
         imageUrl: normalizedImageUrl,
-        mimeType: normalizedMimeType || 'image/gif',
+        mimeType: fallbackMimeType,
         storageProvider: normalizedStorageProvider,
         storageKey: normalizedStorageKey,
         ...(normalizedStorageFileId ? { storageFileId: normalizedStorageFileId } : {}),
@@ -2098,7 +2106,7 @@ function validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLeng
             if (imageCount > MAX_IMAGE_ATTACHMENTS) {
                 return {
                     ok: false,
-                    error: `no more than ${MAX_IMAGE_ATTACHMENTS} images are allowed per entry`
+                    error: `no more than ${MAX_IMAGE_ATTACHMENTS} media attachments are allowed per entry`
                 };
             }
 
@@ -2145,11 +2153,11 @@ function validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLeng
             }
 
             const imageValidation = validateImageDataUrl(String(block.imageDataUrl || '').trim(), maxImageDataUrlLength);
-            if (!imageValidation.ok) {
-                return {
-                    ok: false,
-                    error: imageValidation.error
-                };
+              if (!imageValidation.ok) {
+                  return {
+                      ok: false,
+                      error: imageValidation.error
+                  };
             }
 
             normalized.push({
@@ -2222,42 +2230,64 @@ async function resolveStagedImageBlocks(blocks, maxImageDataUrlLength, env) {
             return stagedUpload;
         }
 
-        const imageValidation = validateImageDataUrl(stagedUpload.dataUrl, maxImageDataUrlLength);
-        if (!imageValidation.ok) {
-            return {
-                ok: false,
-                error: imageValidation.error
-            };
-        }
+          const imageValidation = validateImageDataUrl(stagedUpload.dataUrl, maxImageDataUrlLength);
+          if (!imageValidation.ok) {
+              return {
+                  ok: false,
+                  error: imageValidation.error
+              };
+          }
 
-        const stagedImageParts = parseImageDataUrlParts(stagedUpload.dataUrl);
-        const hostedGifBlock = await uploadGifToHostedStorage(stagedUpload.dataUrl, env);
-        if (!hostedGifBlock && stagedImageParts?.mimeType === 'image/gif' && canStoreGifInHostedMedia(env)) {
-            return {
-                ok: false,
-                error: 'gif hosted media temporarily unavailable'
-            };
-        }
-        resolvedBlocks.push(hostedGifBlock || createCompactImageBlock(stagedUpload.dataUrl));
-    }
+          const stagedImageParts = parseImageDataUrlParts(stagedUpload.dataUrl);
+          const hostedMediaBlock = await uploadHostedBlogMediaToStorage(stagedUpload.dataUrl, env);
+          if (stagedImageParts?.mimeType === 'video/mp4') {
+              if (!hostedMediaBlock) {
+                  return {
+                      ok: false,
+                      error: 'mp4 hosted media temporarily unavailable'
+                  };
+              }
+              resolvedBlocks.push(hostedMediaBlock);
+              continue;
+          }
+
+          if (!hostedMediaBlock && stagedImageParts?.mimeType === 'image/gif' && canStoreHostedBlogMedia(env)) {
+              return {
+                  ok: false,
+                  error: 'gif hosted media temporarily unavailable'
+              };
+          }
+          resolvedBlocks.push(hostedMediaBlock || createCompactImageBlock(stagedUpload.dataUrl));
+      }
 
     const finalizedBlocks = [];
     for (const block of resolvedBlocks) {
         if (block.type !== 'image' || !block.imageDataUrl) {
             finalizedBlocks.push(block);
             continue;
-        }
+          }
 
-        const imageParts = parseImageDataUrlParts(block.imageDataUrl);
-        const hostedGifBlock = await uploadGifToHostedStorage(block.imageDataUrl, env);
-        if (!hostedGifBlock && imageParts?.mimeType === 'image/gif' && canStoreGifInHostedMedia(env)) {
-            return {
-                ok: false,
-                error: 'gif hosted media temporarily unavailable'
-            };
-        }
-        finalizedBlocks.push(hostedGifBlock || createCompactImageBlock(block.imageDataUrl));
-    }
+          const imageParts = parseImageDataUrlParts(block.imageDataUrl);
+          const hostedMediaBlock = await uploadHostedBlogMediaToStorage(block.imageDataUrl, env);
+          if (imageParts?.mimeType === 'video/mp4') {
+              if (!hostedMediaBlock) {
+                  return {
+                      ok: false,
+                      error: 'mp4 hosted media temporarily unavailable'
+                  };
+              }
+              finalizedBlocks.push(hostedMediaBlock);
+              continue;
+          }
+
+          if (!hostedMediaBlock && imageParts?.mimeType === 'image/gif' && canStoreHostedBlogMedia(env)) {
+              return {
+                  ok: false,
+                  error: 'gif hosted media temporarily unavailable'
+              };
+          }
+          finalizedBlocks.push(hostedMediaBlock || createCompactImageBlock(block.imageDataUrl));
+      }
 
     return {
         ok: true,
@@ -2332,7 +2362,7 @@ async function clearStagedUpload(env, uploadToken) {
     });
 }
 
-function canStoreGifInHostedMedia(env) {
+function canStoreHostedBlogMedia(env) {
     return Boolean(env.BLOG_GIF_R2_BUCKET || (env.B2_APPLICATION_KEY_ID && env.B2_APPLICATION_KEY && env.B2_BUCKET_ID));
 }
 
@@ -2597,11 +2627,14 @@ function parseImageBytesFromDataUrl(imageDataUrl) {
     };
 }
 
-function createHostedGifStorageKey() {
-    return `blog-gifs/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}.gif`;
+function createHostedBlogMediaStorageKey(mimeType) {
+    const normalizedMimeType = String(mimeType || '').trim().toLowerCase();
+    const extension = normalizedMimeType === 'video/mp4' ? 'mp4' : 'gif';
+    const directory = normalizedMimeType === 'video/mp4' ? 'blog-videos' : 'blog-gifs';
+    return `${directory}/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}.${extension}`;
 }
 
-function buildHostedGifMediaUrl(env, storageProvider, storageKey, storageFileId = '') {
+function buildHostedBlogMediaUrl(env, storageProvider, storageKey, storageFileId = '') {
     const baseUrl = blogMediaBaseUrl(env);
     if (storageProvider === 'r2') {
         return `${baseUrl}/r2/${encodeBase64Url(storageKey)}`;
@@ -2610,13 +2643,13 @@ function buildHostedGifMediaUrl(env, storageProvider, storageKey, storageFileId 
     return `${baseUrl}/b2/${encodeURIComponent(storageFileId)}`;
 }
 
-async function uploadGifToHostedStorage(imageDataUrl, env) {
+async function uploadHostedBlogMediaToStorage(imageDataUrl, env) {
     const imageBytes = parseImageBytesFromDataUrl(imageDataUrl);
-    if (!imageBytes || imageBytes.mimeType !== 'image/gif' || !canStoreGifInHostedMedia(env)) {
+    if (!imageBytes || !BLOG_HOSTED_MEDIA_MIME_TYPES.has(imageBytes.mimeType) || !canStoreHostedBlogMedia(env)) {
         return null;
     }
 
-    const storageKey = createHostedGifStorageKey();
+    const storageKey = createHostedBlogMediaStorageKey(imageBytes.mimeType);
 
     if (env.BLOG_GIF_R2_BUCKET) {
         const decision = await getR2QuotaDecision(env, 'write', imageBytes.bytes.byteLength);
@@ -2630,17 +2663,17 @@ async function uploadGifToHostedStorage(imageDataUrl, env) {
                 await recordR2WriteUsage(env, storageKey, imageBytes.bytes.byteLength);
 
                 return createHostedImageBlock({
-                    imageUrl: buildHostedGifMediaUrl(env, 'r2', storageKey),
+                    imageUrl: buildHostedBlogMediaUrl(env, 'r2', storageKey),
                     mimeType: imageBytes.mimeType,
                     storageProvider: 'r2',
                     storageKey,
                     storageBytes: imageBytes.bytes.byteLength
                 });
             } catch (error) {
-                console.warn('R2 gif upload failed, falling back to B2', error);
+                console.warn('R2 media upload failed, falling back to B2', error);
             }
         } else {
-            console.warn(`R2 gif upload guardrail active (${decision.reason}), falling back to B2`);
+            console.warn(`R2 media upload guardrail active (${decision.reason}), falling back to B2`);
         }
     }
 
@@ -2650,14 +2683,14 @@ async function uploadGifToHostedStorage(imageDataUrl, env) {
 
     const b2Decision = await getB2QuotaDecision(env, 'write', imageBytes.bytes.byteLength);
     if (!b2Decision.allowed) {
-        console.warn(`B2 gif upload guardrail active (${b2Decision.reason}), refusing hosted gif upload`);
+        console.warn(`B2 media upload guardrail active (${b2Decision.reason}), refusing hosted media upload`);
         return null;
     }
 
-    const uploadedFile = await uploadGifToPrivateB2(env, storageKey, imageBytes.bytes, imageBytes.mimeType);
+    const uploadedFile = await uploadHostedBlogMediaToPrivateB2(env, storageKey, imageBytes.bytes, imageBytes.mimeType);
     await recordB2WriteUsage(env, uploadedFile.fileName, imageBytes.bytes.byteLength);
     return createHostedImageBlock({
-        imageUrl: buildHostedGifMediaUrl(env, 'b2', uploadedFile.fileName, uploadedFile.fileId),
+        imageUrl: buildHostedBlogMediaUrl(env, 'b2', uploadedFile.fileName, uploadedFile.fileId),
         mimeType: imageBytes.mimeType,
         storageProvider: 'b2',
         storageKey: uploadedFile.fileName,
@@ -2703,7 +2736,7 @@ async function authorizeB2Account(env) {
     return payload;
 }
 
-async function uploadGifToPrivateB2(env, storageKey, bytes, mimeType) {
+async function uploadHostedBlogMediaToPrivateB2(env, storageKey, bytes, mimeType) {
     const authorization = await authorizeB2Account(env);
     const uploadUrlResponse = await fetch(`${authorization.apiUrl}/b2api/v3/b2_get_upload_url`, {
         method: 'POST',
@@ -3522,9 +3555,9 @@ function parseCompactImageBlockLines(imageLines) {
 
     const mimeType = mimeTypeMatch[1].trim().toLowerCase();
     const byteLength = Number.parseInt(byteLengthMatch[1], 10);
-    if (!ALLOWED_BLOG_IMAGE_MIME_TYPES.has(mimeType) || !Number.isInteger(byteLength) || byteLength <= 0) {
-        return null;
-    }
+      if (!BLOG_COMPACT_IMAGE_MIME_TYPES.has(mimeType) || !Number.isInteger(byteLength) || byteLength <= 0) {
+          return null;
+      }
 
     if (!/^[0-9a-zA-Z.\-:+=\^!/*?&<>()\[\]{}@%$#]+$/.test(encodedPayload)) {
         return null;
@@ -3579,9 +3612,9 @@ function normalizeBlogEntryBlocks(contentBlocks) {
                     ? block.encodedPayload.trim()
                     : '';
                 const stagedUploadToken = sanitizeUploadToken(block.stagedUploadToken);
-                if (!ALLOWED_BLOG_IMAGE_MIME_TYPES.has(mimeType) || !Number.isInteger(byteLength) || byteLength <= 0 || (!encodedPayload && !stagedUploadToken)) {
-                    continue;
-                }
+                  if (!BLOG_COMPACT_IMAGE_MIME_TYPES.has(mimeType) || !Number.isInteger(byteLength) || byteLength <= 0 || (!encodedPayload && !stagedUploadToken)) {
+                      continue;
+                  }
 
                 blocks.push({
                     type: 'image',

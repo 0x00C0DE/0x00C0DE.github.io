@@ -1266,6 +1266,105 @@ test('append endpoint uploads gif image data urls to R2 and stores a hosted imag
     assert.equal(uploaded.httpMetadata.contentType, 'image/gif');
 });
 
+test('append endpoint uploads mp4 data urls to R2 and stores a hosted image-url block in blog.txt', async t => {
+    const originalFetch = globalThis.fetch;
+    let githubUpdateBody = null;
+    const r2Bucket = new FakeR2Bucket();
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+        const method = options.method || 'GET';
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/contents/blog.txt?ref=main') {
+            if (method === 'PUT') {
+                githubUpdateBody = JSON.parse(options.body);
+                return new Response(JSON.stringify({
+                    commit: {
+                        sha: 'r2mp4123'
+                    }
+                }), {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json; charset=utf-8'
+                    }
+                });
+            }
+
+            return new Response(JSON.stringify({
+                sha: 'oldsha123',
+                content: Buffer.from([
+                    '0x00C0DE Blog',
+                    '=============',
+                    ''
+                ].join('\n'), 'utf8').toString('base64')
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response([
+                '0x00C0DE Blog',
+                '=============',
+                ''
+            ].join('\n'), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${method} ${urlString}`);
+    };
+
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        GITHUB_OWNER: 'owner',
+        GITHUB_REPO: 'repo',
+        GITHUB_PAT: 'token',
+        GITHUB_BRANCH: 'main',
+        BLOG_MEDIA_BASE_URL: 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media',
+        BLOG_GIF_R2_BUCKET: r2Bucket,
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
+    };
+
+    const mp4DataUrl = 'data:video/mp4;base64,AAECAwQF';
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            contentBlocks: [
+                { type: 'text', text: 'hosted mp4 post' },
+                { type: 'image', imageDataUrl: mp4DataUrl }
+            ]
+        })
+    }), env);
+
+    assert.equal(response.status, 201);
+    const updatedBlogContent = Buffer.from(githubUpdateBody.content, 'base64').toString('utf8');
+    assert.match(updatedBlogContent, /hosted mp4 post/);
+    assert.match(updatedBlogContent, /\[image-url\]/);
+    assert.match(updatedBlogContent, /src:https:\/\/0x00c0de-blog-append\.0x00c0de\.workers\.dev\/api\/blog\/media\/r2\//);
+    assert.match(updatedBlogContent, /mime:video\/mp4/);
+    assert.match(updatedBlogContent, /provider:r2/);
+    assert.match(updatedBlogContent, /storage-key:blog-videos\//);
+    assert.doesNotMatch(updatedBlogContent, /data:video\/mp4;base64/);
+    assert.equal(r2Bucket.objects.size, 1);
+    const uploaded = [...r2Bucket.objects.values()][0];
+    assert.equal(Buffer.from(uploaded.body).toString('base64'), 'AAECAwQF');
+    assert.equal(uploaded.httpMetadata.contentType, 'video/mp4');
+});
+
 test('append endpoint falls back to private B2 when R2 gif upload fails', async t => {
     const originalFetch = globalThis.fetch;
     let githubUpdateBody = null;
@@ -2632,6 +2731,27 @@ test('media endpoint serves hosted gifs from R2 primary storage', async () => {
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('Content-Type'), 'image/gif');
     assert.equal(Buffer.from(await response.arrayBuffer()).toString('utf8'), 'GIF89a');
+});
+
+test('media endpoint serves hosted mp4s from R2 primary storage', async () => {
+    const r2Bucket = new FakeR2Bucket();
+    await r2Bucket.put('blog-videos/test.mp4', Buffer.from([0, 1, 2, 3, 4]), {
+        httpMetadata: {
+            contentType: 'video/mp4'
+        }
+    });
+
+    const response = await blogWorker.fetch(
+        new Request(`https://example.com/api/blog/media/r2/${Buffer.from('blog-videos/test.mp4').toString('base64url')}`),
+        {
+            ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+            BLOG_GIF_R2_BUCKET: r2Bucket
+        }
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('Content-Type'), 'video/mp4');
+    assert.deepEqual(Array.from(new Uint8Array(await response.arrayBuffer())), [0, 1, 2, 3, 4]);
 });
 
 test('media endpoint stops R2 reads when billing guardrails are near the class B threshold', async t => {

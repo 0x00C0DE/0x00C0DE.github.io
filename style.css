@@ -222,7 +222,8 @@ body.terminal-theme-root .terminal-binary-rain {
     white-space: nowrap;
 }
 
-.terminal-inline-image {
+.terminal-inline-image,
+.terminal-inline-video {
     display: block;
     max-width: min(100%, 34rem);
     width: auto;
@@ -231,6 +232,10 @@ body.terminal-theme-root .terminal-binary-rain {
     border: 1px solid rgba(255, 143, 153, 0.45);
     background: rgba(12, 0, 1, 0.75);
     box-shadow: 0 0 0.65rem rgba(120, 15, 31, 0.2);
+}
+
+.terminal-inline-video {
+    width: min(100%, 34rem);
 }
 
 .terminal-inline-image-wrapper {

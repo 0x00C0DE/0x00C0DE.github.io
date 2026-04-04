@@ -103,8 +103,12 @@ const BLOG_DIRECT_POST_IMAGE_DATA_URL_LENGTH = 4000000;
 const BLOG_STAGED_IMAGE_CHUNK_LENGTH = 98304;
 const BLOG_MAX_STAGED_IMAGE_CHUNKS = 2048;
 const BLOG_MAX_IMAGE_ATTACHMENTS = 4;
-const BLOG_SUPPORTED_IMAGE_TYPES_LABEL = 'png/jpg/jpeg/webp/gif';
+const BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL = 'png/jpg/jpeg/webp/gif/mp4';
 const BLOG_ALLOWED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
+const BLOG_ALLOWED_POST_MEDIA_MIME_TYPES = new Set([...BLOG_ALLOWED_IMAGE_MIME_TYPES, 'video/mp4']);
+const BLOG_ALLOWED_HOSTED_MEDIA_MIME_TYPES = new Set(['image/gif', 'video/mp4']);
+const BLOG_IMAGE_FILE_ACCEPT = 'image/*';
+const BLOG_POST_FILE_ACCEPT = 'image/*,video/mp4';
 const BLOG_IMAGE_DATA_URL_PATTERN = /^data:([^;]+);base64,([A-Za-z0-9+/=\r\n]+)$/i;
 const BLOG_Z85_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#';
 const BLOG_Z85_CHAR_TO_VALUE = (() => {
@@ -543,15 +547,16 @@ function parseBlogTextFile(lines) {
                 }
             }
         } else if (isHostedImageBlock) {
-            const hostedImage = parseHostedBlogImageBlockLines(imageLines);
-            if (hostedImage) {
+            const hostedMedia = parseHostedBlogImageBlockLines(imageLines);
+            if (hostedMedia) {
                 output.push({
-                    type: 'inline-image',
-                    src: hostedImage.src,
-                    alt: 'Embedded blog image',
+                    type: hostedMedia.mediaType === 'video' ? 'inline-video' : 'inline-image',
+                    src: hostedMedia.src,
+                    alt: hostedMedia.mediaType === 'video' ? 'Embedded blog video' : 'Embedded blog image',
+                    mimeType: hostedMedia.mimeType,
                     deletable: true,
                     imageBlockIndex,
-                    imageKey: createBlogImageKey(hostedImage.src),
+                    imageKey: createBlogImageKey(hostedMedia.src),
                     entryTimestamp: currentEntryTimestamp,
                     entryImageIndex: currentEntryImageIndex,
                     previousTextLine,
@@ -677,8 +682,8 @@ function help_command() {
         ['picture [w h]', 'Display 0x00C0DE\'s picture as ASCII art at size w x h'],
         ['pretext [lab] [text]', 'Show terminal Pretext status or open the layout lab'],
         ['post <text>', 'Append a blog entry through the backend API (may take a short time to appear)'],
-        ['post --image [text]', `Append a blog entry with a selected image (${BLOG_SUPPORTED_IMAGE_TYPES_LABEL})`],
-        ['post hello [image] goodbye', `Insert a selected inline image between text blocks (${BLOG_SUPPORTED_IMAGE_TYPES_LABEL})`],
+        ['post --image [text]', `Append a blog entry with a selected image or mp4 (${BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL})`],
+        ['post hello [image] goodbye', `Insert a selected image or mp4 between text blocks (${BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL})`],
         ['pwd', 'Print working directory'],
         ['qr-totp', 'Browser QR enrollment + TOTP generator for the cs370 project'],
         ['resume', 'Open my resume PDF in a new tab'],
@@ -778,7 +783,7 @@ async function renderImageToAscii(imageSource, width, height, options = {}) {
     return processImage(context, dimensions.width, dimensions.height);
 }
 
-async function selectUserImageFile() {
+async function selectUserImageFile(options = {}) {
     const input = document.getElementById('user-image-input');
     if (!input) {
         throw new Error('user image input not found');
@@ -790,6 +795,9 @@ async function selectUserImageFile() {
 
     input.value = '';
     input.removeAttribute('capture');
+    input.setAttribute('accept', typeof options.accept === 'string' && options.accept.trim()
+        ? options.accept.trim()
+        : BLOG_IMAGE_FILE_ACCEPT);
 
     return new Promise(resolve => {
         let settled = false;
@@ -953,7 +961,7 @@ async function resolvePostContentBlocks(templateBlocks) {
             imageCount += 1;
             if (imageCount > BLOG_MAX_IMAGE_ATTACHMENTS) {
                 return {
-                    error: `post: no more than ${BLOG_MAX_IMAGE_ATTACHMENTS} images are allowed per entry`
+                    error: `post: no more than ${BLOG_MAX_IMAGE_ATTACHMENTS} media attachments are allowed per entry`
                 };
             }
 
@@ -1008,7 +1016,7 @@ async function resolvePostContentBlocks(templateBlocks) {
 
     if (contentBlocks.length === 0) {
         return {
-            error: 'post: missing blog text or image'
+            error: 'post: missing blog text or media'
         };
     }
 
@@ -1112,6 +1120,14 @@ async function deleteBlogEntryByTimestamp(entryTimestamp, password) {
 function getDataUrlMimeType(dataUrl) {
     const match = BLOG_IMAGE_DATA_URL_PATTERN.exec(dataUrl || '');
     return match ? match[1].toLowerCase() : '';
+}
+
+function isHostedBlogMediaMimeType(mimeType) {
+    return BLOG_ALLOWED_HOSTED_MEDIA_MIME_TYPES.has(String(mimeType || '').trim().toLowerCase());
+}
+
+function isMp4MimeType(mimeType) {
+    return String(mimeType || '').trim().toLowerCase() === 'video/mp4';
 }
 
 function normalizeBlogImageDataUrl(dataUrl) {
@@ -1259,13 +1275,14 @@ function parseHostedBlogImageBlockLines(imageLines) {
 
     const src = normalizeBlogImageUrl(blockData.src);
     const mimeType = String(blockData.mime || '').trim().toLowerCase();
-    if (!src || mimeType !== 'image/gif' || !isSafeHostedBlogImageUrl(src)) {
+    if (!src || !isHostedBlogMediaMimeType(mimeType) || !isSafeHostedBlogImageUrl(src)) {
         return null;
     }
 
     return {
         src,
-        mimeType
+        mimeType,
+        mediaType: isMp4MimeType(mimeType) ? 'video' : 'image'
     };
 }
 
@@ -1381,23 +1398,36 @@ async function buildCompactGifImageAttachment(file) {
 }
 
 async function selectPostImageDataUrl() {
-    const file = await selectUserImageFile();
+    const file = await selectUserImageFile({ accept: BLOG_POST_FILE_ACCEPT });
     if (!file) {
-        return { error: 'post: no image selected' };
-    }
-
-    if (!file.type.startsWith('image/')) {
-        return { error: 'post: selected file is not an image' };
+        return { error: 'post: no media selected' };
     }
 
     const dataUrl = await readFileAsDataUrl(file);
     const mimeType = getDataUrlMimeType(dataUrl);
-    if (!BLOG_ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) {
-        return { error: `post: image must be ${BLOG_SUPPORTED_IMAGE_TYPES_LABEL}` };
+    if (!BLOG_ALLOWED_POST_MEDIA_MIME_TYPES.has(mimeType)) {
+        return { error: `post: media must be ${BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL}` };
     }
 
     if (dataUrl.length > BLOG_MAX_IMAGE_DATA_URL_LENGTH) {
-        return { error: 'post: selected image is too large to store in blog.txt as base64' };
+        return {
+            error: isMp4MimeType(mimeType)
+                ? 'post: selected mp4 is too large to upload right now'
+                : 'post: selected image is too large to store in blog.txt as base64'
+        };
+    }
+
+    if (isMp4MimeType(mimeType)) {
+        const staged = await stageBlogUploadPayload(dataUrl, 'mp4 upload');
+        if (!staged.ok) {
+            return { error: staged.error };
+        }
+
+        return {
+            stagedUploadToken: staged.token,
+            mimeType,
+            fileName: file.name || 'media'
+        };
     }
 
     if (dataUrl.length > BLOG_DIRECT_POST_IMAGE_DATA_URL_LENGTH) {
@@ -1412,14 +1442,14 @@ async function selectPostImageDataUrl() {
         return {
             stagedUploadToken: staged.token,
             mimeType,
-            fileName: file.name || 'image'
+            fileName: file.name || 'media'
         };
     }
 
     return {
         dataUrl,
         mimeType,
-        fileName: file.name || 'image'
+        fileName: file.name || 'media'
     };
 }
 
@@ -1603,14 +1633,14 @@ function su_command(args) {
 async function post_command(args) {
     const { includeImage, text } = parsePostArgs(args);
     if (!text && !includeImage) {
-        return [
-            'post: missing blog text',
-            'usage: post Your blog entry goes here',
-            '       post --image Optional caption text',
-            '       post hello [image] goodbye',
-            `       image types: ${BLOG_SUPPORTED_IMAGE_TYPES_LABEL}`
-        ];
-    }
+            return [
+                'post: missing blog text',
+                'usage: post Your blog entry goes here',
+                '       post --image Optional caption text',
+                '       post hello [image] goodbye',
+                `       media types: ${BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL}`
+            ];
+        }
 
     try {
         const templateBlocks = parsePostTemplateBlocks(text, includeImage);
@@ -1634,11 +1664,11 @@ async function post_command(args) {
             return [`post: ${payload.error || 'unable to append entry right now'}`];
         }
 
-        const output = ['post: blog entry appended successfully'];
-        const imageCount = resolved.contentBlocks.filter(block => block.type === 'image').length;
-        if (imageCount > 0) {
-            output.push(`post: attached ${imageCount} image${imageCount === 1 ? '' : 's'} in the entry`);
-        }
+          const output = ['post: blog entry appended successfully'];
+          const imageCount = resolved.contentBlocks.filter(block => block.type === 'image').length;
+          if (imageCount > 0) {
+              output.push(`post: attached ${imageCount} media item${imageCount === 1 ? '' : 's'} in the entry`);
+          }
         if (payload.commitUrl) {
             output.push({
                 type: 'text-link',
