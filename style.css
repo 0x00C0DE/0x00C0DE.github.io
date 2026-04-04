@@ -237,6 +237,11 @@ body.terminal-theme-godlike .terminal-binary-column {
     word-break: normal;
 }
 
+.terminal-command-text.terminal-pretext-enabled {
+    flex: 1 1 auto;
+    white-space: normal;
+}
+
 .terminal-pretext-enabled {
     display: block;
     white-space: normal;
