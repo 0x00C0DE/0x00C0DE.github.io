@@ -76,8 +76,8 @@ Credit to Cheng Lou for the original [Pretext](https://github.com/chenglou/prete
 │                                                     │                        │
 │                                   ┌─────────────────▼─────────────────┐      │
 │                                   │ terminal-pretext-core.mjs         │      │
-│                                   │ pretext-browser.mjs              │      │
-│                                   │ vendor/pretext/layout.js         │      │
+│                                   │ pretext-browser.mjs               │      │
+│                                   │ vendor/pretext/layout.js          │      │
 │                                   │ (tokenization + wrapped lines)    │      │
 │                                   └─────────────────┬─────────────────┘      │
 │                                                     │                        │
