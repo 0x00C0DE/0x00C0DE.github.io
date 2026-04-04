@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 import {
-    buildPostMediaPickerOptions,
-    collectExactPostMediaFiles
+    buildSequentialPostMediaPickerPlan,
+    collectSequentialPostMediaFiles
 } from '../blog-upload-core.mjs';
 
 const SAMPLE_MEDIA_FIXTURES = [
@@ -32,43 +32,83 @@ async function loadSampleMediaFiles() {
     }));
 }
 
-test('buildPostMediaPickerOptions uses one exact-count multi-select picker for multiple placeholders', () => {
+test('buildSequentialPostMediaPickerPlan creates one single-file picker step per placeholder', () => {
     assert.deepEqual(
-        buildPostMediaPickerOptions(3, { accept: 'image/*,video/mp4' }),
-        {
-            accept: 'image/*,video/mp4',
-            exactCount: 3,
-            multiple: true
-        }
+        buildSequentialPostMediaPickerPlan(3, { accept: 'image/*,video/mp4' }),
+        [
+            {
+                accept: 'image/*,video/mp4',
+                exactCount: 1,
+                multiple: false,
+                selectionIndex: 0,
+                totalSelections: 3
+            },
+            {
+                accept: 'image/*,video/mp4',
+                exactCount: 1,
+                multiple: false,
+                selectionIndex: 1,
+                totalSelections: 3
+            },
+            {
+                accept: 'image/*,video/mp4',
+                exactCount: 1,
+                multiple: false,
+                selectionIndex: 2,
+                totalSelections: 3
+            }
+        ]
     );
 
     assert.deepEqual(
-        buildPostMediaPickerOptions(1, { accept: 'image/*,video/mp4' }),
-        {
-            accept: 'image/*,video/mp4',
-            exactCount: 1,
-            multiple: false
-        }
+        buildSequentialPostMediaPickerPlan(1, { accept: 'image/*,video/mp4' }),
+        [
+            {
+                accept: 'image/*,video/mp4',
+                exactCount: 1,
+                multiple: false,
+                selectionIndex: 0,
+                totalSelections: 1
+            }
+        ]
     );
 });
 
-test('collectExactPostMediaFiles accepts the three sample jpg fixtures in one picker interaction', async () => {
+test('collectSequentialPostMediaFiles accepts the three sample jpg fixtures across three picker interactions', async () => {
     const sampleFiles = await loadSampleMediaFiles();
     const pickerCalls = [];
 
-    const result = await collectExactPostMediaFiles(async pickerOptions => {
+    const result = await collectSequentialPostMediaFiles(async pickerOptions => {
         pickerCalls.push(pickerOptions);
-        return sampleFiles;
+        return [sampleFiles[pickerOptions.selectionIndex]];
     }, 3, {
         accept: 'image/*,video/mp4'
     });
 
-    assert.equal(pickerCalls.length, 1);
-    assert.deepEqual(pickerCalls[0], {
-        accept: 'image/*,video/mp4',
-        exactCount: 3,
-        multiple: true
-    });
+    assert.equal(pickerCalls.length, 3);
+    assert.deepEqual(pickerCalls, [
+        {
+            accept: 'image/*,video/mp4',
+            exactCount: 1,
+            multiple: false,
+            selectionIndex: 0,
+            totalSelections: 3
+        },
+        {
+            accept: 'image/*,video/mp4',
+            exactCount: 1,
+            multiple: false,
+            selectionIndex: 1,
+            totalSelections: 3
+        },
+        {
+            accept: 'image/*,video/mp4',
+            exactCount: 1,
+            multiple: false,
+            selectionIndex: 2,
+            totalSelections: 3
+        }
+    ]);
     assert.equal(result.ok, true);
     assert.equal(result.files.length, 3);
     assert.deepEqual(
@@ -77,23 +117,18 @@ test('collectExactPostMediaFiles accepts the three sample jpg fixtures in one pi
     );
 });
 
-test('collectExactPostMediaFiles rejects incomplete multi-image selections without hanging', async () => {
+test('collectSequentialPostMediaFiles rejects incomplete multi-image selections without hanging', async () => {
     const [singleFile] = await loadSampleMediaFiles();
     let callCount = 0;
 
-    const result = await collectExactPostMediaFiles(async pickerOptions => {
+    const result = await collectSequentialPostMediaFiles(async pickerOptions => {
         callCount += 1;
-        assert.deepEqual(pickerOptions, {
-            accept: 'image/*,video/mp4',
-            exactCount: 3,
-            multiple: true
-        });
-        return [singleFile];
+        return pickerOptions.selectionIndex === 0 ? [singleFile] : [];
     }, 3, {
         accept: 'image/*,video/mp4'
     });
 
-    assert.equal(callCount, 1);
+    assert.equal(callCount, 2);
     assert.equal(result.ok, false);
     assert.equal(
         result.error,

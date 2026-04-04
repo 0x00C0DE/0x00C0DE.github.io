@@ -16,9 +16,19 @@ export function buildPostMediaPickerOptions(requiredCount, options = {}) {
         accept: typeof options.accept === 'string' && options.accept.trim()
             ? options.accept.trim()
             : 'image/*,video/mp4',
-        exactCount,
-        multiple: exactCount > 1
+        exactCount: Math.min(exactCount, 1),
+        multiple: false
     };
+}
+
+export function buildSequentialPostMediaPickerPlan(requiredCount, options = {}) {
+    const exactCount = normalizeRequiredMediaCount(requiredCount);
+    const baseOptions = buildPostMediaPickerOptions(1, options);
+    return Array.from({ length: exactCount }, (_, index) => ({
+        ...baseOptions,
+        selectionIndex: index,
+        totalSelections: exactCount
+    }));
 }
 
 export function validateExactPostMediaFiles(files, requiredCount) {
@@ -59,5 +69,34 @@ export async function collectExactPostMediaFiles(openPicker, requiredCount, opti
     return {
         ...result,
         pickerOptions
+    };
+}
+
+export async function collectSequentialPostMediaFiles(openPicker, requiredCount, options = {}) {
+    if (typeof openPicker !== 'function') {
+        throw new TypeError('openPicker must be a function');
+    }
+
+    const pickerPlan = buildSequentialPostMediaPickerPlan(requiredCount, options);
+    const files = [];
+
+    for (const pickerOptions of pickerPlan) {
+        const selectedFiles = normalizeSelectedFiles(await openPicker(pickerOptions));
+        if (selectedFiles.length === 0) {
+            const result = validateExactPostMediaFiles(files, pickerPlan.length);
+            return {
+                ...result,
+                files,
+                pickerPlan
+            };
+        }
+
+        files.push(selectedFiles[0]);
+    }
+
+    const result = validateExactPostMediaFiles(files, pickerPlan.length);
+    return {
+        ...result,
+        pickerPlan
     };
 }
