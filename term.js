@@ -780,22 +780,6 @@ function createEditorialTextBlockElement(className = 'terminal-editorial-text-bl
     return element;
 }
 
-function rerenderTerminalEditorialChromeLines() {
-    if (!isTerminalEditorialModeActive()) {
-        return;
-    }
-
-    getOrderedTerminalObjectLines().forEach(container => {
-        const line = container.__terminalRenderedObject;
-        if (!line || (line.type !== 'banner' && line.type !== 'visitor-widget')) {
-            return;
-        }
-
-        container.replaceChildren();
-        renderOutputObject(container, line);
-    });
-}
-
 function getBlogEntryMediaBlocks(line) {
     return Array.isArray(line?.blocks)
         ? line.blocks.filter(block => block && (block.type === 'inline-image' || block.type === 'inline-video'))
@@ -1238,27 +1222,16 @@ function syncAllBlogEditorialLayouts() {
         }
     });
 
-    const obstacleRects = collectBlogEditorialObstacleRects();
     getOrderedTerminalObjectLines().forEach(container => {
         const line = container.__terminalRenderedObject;
         if (!line) {
             return;
         }
 
-        if (line.type === 'banner') {
-            syncBannerEditorialLayout(container, line, obstacleRects);
-            return;
-        }
-
-        if (line.type === 'visitor-widget') {
-            syncVisitorWidgetEditorialLayout(container, line, obstacleRects);
-            return;
-        }
-
         if (line.type === 'blog-entry') {
             const state = editorialBlogEntryStates.get(container);
             if (state) {
-                syncBlogEditorialEntryLayout(container, line, state, obstacleRects);
+                syncBlogEditorialEntryLayout(container, line, state);
             }
         }
     });
@@ -1271,7 +1244,7 @@ function syncAllBlogEditorialLayouts() {
     queueEditorialAnimationLoop();
 }
 
-function syncBlogEditorialEntryLayout(container, line, state, obstacleRects = []) {
+function syncBlogEditorialEntryLayout(container, line, state) {
     if (!state?.dom?.wrapper) {
         return;
     }
@@ -1280,19 +1253,6 @@ function syncBlogEditorialEntryLayout(container, line, state, obstacleRects = []
     if (overlay && state.dom.overlay !== overlay) {
         state.dom.overlay = overlay;
     }
-
-    syncEditorialTextContainer(state.dom.headerText, line.text || '', obstacleRects, {
-        minSegmentWidth: 96,
-        tokenizeLinks: false,
-        whiteSpace: 'pre-wrap'
-    });
-
-    (Array.isArray(state.dom.textBlocks) ? state.dom.textBlocks : []).forEach(textBlockState => {
-        syncEditorialTextContainer(textBlockState.element, textBlockState.text, obstacleRects, {
-            minSegmentWidth: 56,
-            whiteSpace: 'pre-wrap'
-        });
-    });
 }
 
 function buildBannerEditorialSignature(line) {
@@ -1442,22 +1402,31 @@ function mountBlogEditorialEntry(container, line, state) {
     const header = document.createElement('div');
     header.className = 'terminal-blog-entry-header';
 
-    const timestamp = createEditorialTextBlockElement('terminal-blog-entry-timestamp terminal-editorial-blog-header-text');
+    const timestamp = document.createElement('span');
+    timestamp.className = 'terminal-blog-entry-timestamp';
+    timestamp.textContent = line.text || '';
     header.append(timestamp);
     appendDeletePostActions(header, line);
     wrapper.append(header);
 
     const overlay = ensureTerminalEditorialOverlay();
     const mediaStatesByBlock = new Map(state.media.map(mediaState => [mediaState.block, mediaState]));
-    const textBlocks = [];
 
     (Array.isArray(line.blocks) ? line.blocks : []).forEach(block => {
         if (block.type === 'blog-entry-text-block') {
-            const textBlock = createEditorialTextBlockElement('terminal-editorial-text-block terminal-blog-entry-text-block');
-            wrapper.append(textBlock);
-            textBlocks.push({
-                element: textBlock,
-                text: Array.isArray(block.lines) ? block.lines.join('\n') : ''
+            block.lines.forEach(textLine => {
+                const row = document.createElement('div');
+                row.className = textLine ? 'terminal-blog-entry-text-line' : 'terminal-blog-entry-text-line terminal-blog-entry-text-line-empty';
+                if (textLine) {
+                    if (typeof window.renderTerminalLineContent === 'function') {
+                        window.renderTerminalLineContent(row, textLine);
+                    } else {
+                        row.textContent = textLine;
+                    }
+                } else {
+                    row.textContent = '\u00A0';
+                }
+                wrapper.append(row);
             });
             return;
         }
@@ -1564,9 +1533,7 @@ function mountBlogEditorialEntry(container, line, state) {
 
     container.append(wrapper);
     state.dom = {
-        headerText: timestamp,
         overlay,
-        textBlocks,
         wrapper
     };
 }
@@ -1574,7 +1541,6 @@ function mountBlogEditorialEntry(container, line, state) {
 function renderBlogEntryEditorial(container, line) {
     const state = getBlogEditorialState(container, line);
     mountBlogEditorialEntry(container, line, state);
-    rerenderTerminalEditorialChromeLines();
     syncAllBlogEditorialLayouts();
 }
 
@@ -1656,11 +1622,6 @@ function renderOutputObject(container, line) {
     }
 
     if (line.type === 'banner') {
-        if (isTerminalEditorialModeActive()) {
-            renderBannerEditorial(container, line);
-            return;
-        }
-
         appendBannerWaveText(container, line.title || '', 'banner-art');
 
         if (line.subtitle) {
@@ -1670,11 +1631,6 @@ function renderOutputObject(container, line) {
     }
 
     if (line.type === 'visitor-widget' && typeof window.buildVisitorWidgetElement === 'function') {
-        if (isTerminalEditorialModeActive()) {
-            renderVisitorWidgetEditorial(container, line);
-            return;
-        }
-
         container.append(window.buildVisitorWidgetElement(line.stats));
         return;
     }
@@ -2009,6 +1965,27 @@ function renderAsciiArtToCanvas(asciiLines, options = {}) {
     return canvas;
 }
 
+function scheduleTerminalViewportRestore(terminal, scrollTop, scrollLeft = 0) {
+    if (!terminal) {
+        return;
+    }
+
+    const restoreViewport = () => {
+        const maximumScrollTop = Math.max(0, terminal.scrollHeight - terminal.clientHeight);
+        const maximumScrollLeft = Math.max(0, terminal.scrollWidth - terminal.clientWidth);
+        terminal.scrollTop = Math.min(Math.max(0, scrollTop), maximumScrollTop);
+        terminal.scrollLeft = Math.min(Math.max(0, scrollLeft), maximumScrollLeft);
+    };
+
+    restoreViewport();
+    if (typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(() => {
+            restoreViewport();
+            window.requestAnimationFrame(restoreViewport);
+        });
+    }
+}
+
 function exportCanvasAsBlob(canvas, type = "image/png") {
     return new Promise((resolve, reject) => {
         canvas.toBlob(blob => {
@@ -2244,6 +2221,14 @@ async function executeCommand(commandLine) {
     const parts = commandLine.split(" ");
     const cmd = parts[0].toLowerCase();
     const args = parts.slice(1);
+    const shouldPreserveViewport = (
+        cmd === 'cat' &&
+        typeof args[0] === 'string' &&
+        args[0].trim().toLowerCase() === 'blog.txt' &&
+        isRootSessionActive()
+    );
+    const previousScrollTop = terminal.scrollTop;
+    const previousScrollLeft = terminal.scrollLeft;
 
     if (cmd === "clear") {
         setupTerminal();
@@ -2275,6 +2260,11 @@ async function executeCommand(commandLine) {
     }
 
     document.getElementById("command-input").value = "";
+    if (shouldPreserveViewport) {
+        scheduleTerminalViewportRestore(terminal, previousScrollTop, previousScrollLeft);
+        return;
+    }
+
     terminal.scrollTop = terminal.scrollHeight;
 }
 
