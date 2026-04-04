@@ -1212,6 +1212,48 @@ test('append endpoint accepts gif image data urls and commits them to blog.txt i
     assert.match(updatedBlogContent, /\[\/image-z85\]/);
 });
 
+test('append endpoint rejects entries with more than 10 media attachments before hitting GitHub', async t => {
+    const originalFetch = globalThis.fetch;
+    let fetchCalled = false;
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async () => {
+        fetchCalled = true;
+        throw new Error('unexpected fetch');
+    };
+
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        GITHUB_OWNER: 'owner',
+        GITHUB_REPO: 'repo',
+        GITHUB_PAT: 'token',
+        GITHUB_BRANCH: 'main',
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
+    };
+
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            contentBlocks: Array.from({ length: 11 }, (_, index) => ({
+                type: 'image',
+                imageDataUrl: `data:image/png;base64,AAAA${index}`
+            }))
+        })
+    }), env);
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), {
+        error: 'no more than 10 media attachments are allowed per entry'
+    });
+    assert.equal(fetchCalled, false);
+});
+
 test('append endpoint uploads gif image data urls to R2 and stores a hosted image-url block in blog.txt', async t => {
     const originalFetch = globalThis.fetch;
     let githubUpdateBody = null;
