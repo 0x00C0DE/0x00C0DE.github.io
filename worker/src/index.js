@@ -455,6 +455,269 @@ export class BlogUploadSession {
     }
 }
 
+export class R2QuotaGuard {
+    constructor(state) {
+        this.state = state;
+    }
+
+    async fetch(request) {
+        const url = new URL(request.url);
+        if (request.method !== 'POST') {
+            return this.jsonErrorResponse('not found', 404);
+        }
+
+        const body = await request.json().catch(() => null);
+        if (url.pathname === '/decision') {
+            return this.handleDecision(body);
+        }
+
+        if (url.pathname === '/record-write') {
+            return this.handleRecordWrite(body);
+        }
+
+        if (url.pathname === '/record-read') {
+            return this.handleRecordRead(body);
+        }
+
+        if (url.pathname === '/record-delete') {
+            return this.handleRecordDelete(body);
+        }
+
+        return this.jsonErrorResponse('not found', 404);
+    }
+
+    async handleDecision(body) {
+        const now = normalizeGuardTimestamp(body?.now);
+        const config = normalizeR2QuotaConfig(body);
+        if (!config.enabled) {
+            return this.jsonSuccessResponse({
+                allowed: true,
+                reason: 'guard_disabled'
+            });
+        }
+
+        const snapshot = await this.getSnapshot(now, config);
+        if (!snapshot) {
+            return this.jsonSuccessResponse({
+                allowed: true,
+                reason: 'analytics_unavailable'
+            });
+        }
+
+        const decision = evaluateR2QuotaDecision(snapshot, config, {
+            action: String(body?.action || '').trim().toLowerCase(),
+            bytesDelta: normalizeStorageBytes(body?.bytesDelta)
+        });
+        return this.jsonSuccessResponse(decision);
+    }
+
+    async handleRecordWrite(body) {
+        const now = normalizeGuardTimestamp(body?.now);
+        const storageKey = String(body?.storageKey || '').trim();
+        const bytes = normalizeStorageBytes(body?.bytes);
+        if (!storageKey || bytes <= 0) {
+            return this.jsonErrorResponse('storageKey and bytes are required', 400);
+        }
+
+        const snapshot = await this.state.storage.get('snapshot');
+        if (snapshot) {
+            applyLocalR2Write(snapshot, storageKey, bytes, now);
+            await this.state.storage.put('snapshot', snapshot);
+        }
+
+        return this.jsonSuccessResponse({ recorded: true });
+    }
+
+    async handleRecordRead(body) {
+        const now = normalizeGuardTimestamp(body?.now);
+        const snapshot = await this.state.storage.get('snapshot');
+        if (snapshot) {
+            applyLocalR2Read(snapshot, now);
+            await this.state.storage.put('snapshot', snapshot);
+        }
+
+        return this.jsonSuccessResponse({ recorded: true });
+    }
+
+    async handleRecordDelete(body) {
+        const now = normalizeGuardTimestamp(body?.now);
+        const storageKey = String(body?.storageKey || '').trim();
+        const bytes = normalizeStorageBytes(body?.bytes);
+        if (!storageKey) {
+            return this.jsonErrorResponse('storageKey is required', 400);
+        }
+
+        const snapshot = await this.state.storage.get('snapshot');
+        if (snapshot) {
+            applyLocalR2Delete(snapshot, storageKey, bytes, now);
+            await this.state.storage.put('snapshot', snapshot);
+        }
+
+        return this.jsonSuccessResponse({ recorded: true });
+    }
+
+    async getSnapshot(now, config) {
+        const storedSnapshot = await this.state.storage.get('snapshot');
+        if (storedSnapshot && !shouldRefreshR2QuotaSnapshot(storedSnapshot, config, now)) {
+            return storedSnapshot;
+        }
+
+        try {
+            const freshSnapshot = await fetchCloudflareR2QuotaSnapshot(config, now);
+            await this.state.storage.put('snapshot', freshSnapshot);
+            return freshSnapshot;
+        } catch (error) {
+            console.error('r2 quota analytics fetch failed', error);
+            return storedSnapshot || null;
+        }
+    }
+
+    jsonSuccessResponse(payload) {
+        return new Response(JSON.stringify({
+            ok: true,
+            ...payload
+        }), {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/json; charset=utf-8'
+            }
+        });
+    }
+
+    jsonErrorResponse(error, status) {
+        return new Response(JSON.stringify({ error }), {
+            status,
+            headers: {
+                'Content-Type': 'application/json; charset=utf-8'
+            }
+        });
+    }
+}
+
+export class B2QuotaGuard {
+    constructor(state) {
+        this.state = state;
+    }
+
+    async fetch(request) {
+        const url = new URL(request.url);
+        if (request.method !== 'POST') {
+            return this.jsonErrorResponse('not found', 404);
+        }
+
+        const body = await request.json().catch(() => null);
+        if (url.pathname === '/decision') {
+            return this.handleDecision(body);
+        }
+
+        if (url.pathname === '/record-write') {
+            return this.handleRecordWrite(body);
+        }
+
+        if (url.pathname === '/record-read') {
+            return this.handleRecordRead(body);
+        }
+
+        if (url.pathname === '/record-delete') {
+            return this.handleRecordDelete(body);
+        }
+
+        return this.jsonErrorResponse('not found', 404);
+    }
+
+    async handleDecision(body) {
+        const now = normalizeGuardTimestamp(body?.now);
+        const config = normalizeB2QuotaConfig(body);
+        if (!config.enabled) {
+            return this.jsonSuccessResponse({
+                allowed: true,
+                reason: 'guard_disabled'
+            });
+        }
+
+        const snapshot = await this.getSnapshot(now, config);
+        const decision = evaluateB2QuotaDecision(snapshot, config, {
+            action: String(body?.action || '').trim().toLowerCase(),
+            bytesDelta: normalizeStorageBytes(body?.bytesDelta)
+        });
+        return this.jsonSuccessResponse(decision);
+    }
+
+    async handleRecordWrite(body) {
+        const now = normalizeGuardTimestamp(body?.now);
+        const storageKey = String(body?.storageKey || '').trim();
+        const bytes = normalizeStorageBytes(body?.bytes);
+        if (!storageKey || bytes <= 0) {
+            return this.jsonErrorResponse('storageKey and bytes are required', 400);
+        }
+
+        const snapshot = await this.getSnapshot(now, normalizeB2QuotaConfig(body));
+        applyLocalB2Write(snapshot, storageKey, bytes, now);
+        await this.state.storage.put('snapshot', snapshot);
+        return this.jsonSuccessResponse({ recorded: true });
+    }
+
+    async handleRecordRead(body) {
+        const now = normalizeGuardTimestamp(body?.now);
+        const snapshot = await this.getSnapshot(now, normalizeB2QuotaConfig(body));
+        applyLocalB2Read(snapshot, now);
+        await this.state.storage.put('snapshot', snapshot);
+        return this.jsonSuccessResponse({ recorded: true });
+    }
+
+    async handleRecordDelete(body) {
+        const now = normalizeGuardTimestamp(body?.now);
+        const storageKey = String(body?.storageKey || '').trim();
+        const bytes = normalizeStorageBytes(body?.bytes);
+        if (!storageKey) {
+            return this.jsonErrorResponse('storageKey is required', 400);
+        }
+
+        const snapshot = await this.getSnapshot(now, normalizeB2QuotaConfig(body));
+        applyLocalB2Delete(snapshot, storageKey, bytes, now);
+        await this.state.storage.put('snapshot', snapshot);
+        return this.jsonSuccessResponse({ recorded: true });
+    }
+
+    async getSnapshot(now, config) {
+        const storedSnapshot = await this.state.storage.get('snapshot');
+        const snapshot = normalizeB2QuotaSnapshot(storedSnapshot, now, config.bucketName);
+        if (!shouldRefreshB2QuotaSnapshot(snapshot, config, now)) {
+            return snapshot;
+        }
+
+        try {
+            const refreshedSnapshot = await fetchManagedB2QuotaSnapshot(config, now, snapshot);
+            await this.state.storage.put('snapshot', refreshedSnapshot);
+            return refreshedSnapshot;
+        } catch (error) {
+            console.error('b2 quota snapshot refresh failed', error);
+            return snapshot;
+        }
+    }
+
+    jsonSuccessResponse(payload) {
+        return new Response(JSON.stringify({
+            ok: true,
+            ...payload
+        }), {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/json; charset=utf-8'
+            }
+        });
+    }
+
+    jsonErrorResponse(error, status) {
+        return new Response(JSON.stringify({ error }), {
+            status,
+            headers: {
+                'Content-Type': 'application/json; charset=utf-8'
+            }
+        });
+    }
+}
+
 // Keep the timeout comfortably above the persisted heartbeat cadence so
 // active visitors do not disappear if the Durable Object is reloaded
 // between storage flushes.
@@ -474,6 +737,589 @@ const BLOG_Z85_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ
 const BLOG_DEPLOY_PENDING_ERROR = 'site is still deploying previous changes; wait for blog.txt to go live before posting or deleting again';
 const DEFAULT_BLOG_MEDIA_BASE_URL = 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media';
 const B2_AUTHORIZE_ACCOUNT_URL = 'https://api.backblazeb2.com/b2api/v3/b2_authorize_account';
+const CLOUDFLARE_API_BASE_URL = 'https://api.cloudflare.com/client/v4';
+const DEFAULT_R2_STORAGE_GUARD_GB_MONTH_THRESHOLD = 8;
+const DEFAULT_R2_CLASS_A_GUARD_THRESHOLD = 800000;
+const DEFAULT_R2_CLASS_B_GUARD_THRESHOLD = 8000000;
+const DEFAULT_R2_BILLING_REFRESH_MS = 300000;
+const DEFAULT_B2_STORAGE_GUARD_GB_THRESHOLD = 8;
+const DEFAULT_B2_CLASS_B_GUARD_THRESHOLD = 2000;
+const DEFAULT_B2_CLASS_C_GUARD_THRESHOLD = 2000;
+const DEFAULT_B2_USAGE_REFRESH_MS = 300000;
+const BYTES_PER_GIGABYTE = 1000 * 1000 * 1000;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function normalizeGuardTimestamp(value) {
+    const normalizedValue = Number(value);
+    return Number.isFinite(normalizedValue) && normalizedValue > 0 ? normalizedValue : Date.now();
+}
+
+function normalizeStorageBytes(value) {
+    const normalizedValue = Number.parseInt(value, 10);
+    return Number.isInteger(normalizedValue) && normalizedValue > 0 ? normalizedValue : 0;
+}
+
+function normalizePositiveInteger(value, fallback) {
+    const normalizedValue = Number.parseInt(value, 10);
+    return Number.isInteger(normalizedValue) && normalizedValue > 0 ? normalizedValue : fallback;
+}
+
+function normalizePositiveNumber(value, fallback) {
+    const normalizedValue = Number(value);
+    return Number.isFinite(normalizedValue) && normalizedValue > 0 ? normalizedValue : fallback;
+}
+
+function currentMonthWindow(now = Date.now()) {
+    const timestamp = normalizeGuardTimestamp(now);
+    const currentDate = new Date(timestamp);
+    const monthStart = Date.UTC(currentDate.getUTCFullYear(), currentDate.getUTCMonth(), 1);
+    const monthEnd = Date.UTC(currentDate.getUTCFullYear(), currentDate.getUTCMonth() + 1, 1);
+    const monthDayCount = Math.max(1, Math.round((monthEnd - monthStart) / MS_PER_DAY));
+    return {
+        monthKey: `${currentDate.getUTCFullYear()}-${String(currentDate.getUTCMonth() + 1).padStart(2, '0')}`,
+        monthStart,
+        monthEnd,
+        monthDayCount,
+        currentDayKey: new Date(timestamp).toISOString().slice(0, 10)
+    };
+}
+
+function currentUtcDayKey(now = Date.now()) {
+    return new Date(normalizeGuardTimestamp(now)).toISOString().slice(0, 10);
+}
+
+function normalizeR2QuotaConfig(value) {
+    const window = currentMonthWindow(value?.now);
+    const bucketName = String(value?.bucketName || '').trim();
+    const accountId = String(value?.accountId || value?.analyticsAccountId || '').trim();
+    const billingApiToken = String(value?.billingApiToken || value?.analyticsApiToken || '').trim();
+    const storageGbMonthThreshold = normalizePositiveNumber(
+        value?.storageGbMonthThreshold,
+        DEFAULT_R2_STORAGE_GUARD_GB_MONTH_THRESHOLD
+    );
+    const classAThreshold = normalizePositiveInteger(value?.classAThreshold, DEFAULT_R2_CLASS_A_GUARD_THRESHOLD);
+    const classBThreshold = normalizePositiveInteger(value?.classBThreshold, DEFAULT_R2_CLASS_B_GUARD_THRESHOLD);
+    const refreshMs = normalizePositiveInteger(value?.refreshMs, DEFAULT_R2_BILLING_REFRESH_MS);
+
+    return {
+        enabled: Boolean(value?.enabled !== false && bucketName && accountId && billingApiToken),
+        bucketName,
+        accountId,
+        billingApiToken,
+        storageGbMonthThreshold,
+        classAThreshold,
+        classBThreshold,
+        refreshMs,
+        monthKey: window.monthKey,
+        monthDayCount: window.monthDayCount,
+        currentDayKey: window.currentDayKey,
+        monthStart: window.monthStart
+    };
+}
+
+function normalizeB2QuotaConfig(value) {
+    return {
+        enabled: Boolean(value?.enabled !== false && String(value?.bucketName || '').trim()),
+        bucketName: String(value?.bucketName || '').trim(),
+        storageGbThreshold: normalizePositiveNumber(
+            value?.storageGbThreshold,
+            DEFAULT_B2_STORAGE_GUARD_GB_THRESHOLD
+        ),
+        classBThreshold: normalizePositiveInteger(
+            value?.classBThreshold,
+            DEFAULT_B2_CLASS_B_GUARD_THRESHOLD
+        ),
+        classCThreshold: normalizePositiveInteger(
+            value?.classCThreshold,
+            DEFAULT_B2_CLASS_C_GUARD_THRESHOLD
+        ),
+        refreshMs: normalizePositiveInteger(
+            value?.refreshMs,
+            DEFAULT_B2_USAGE_REFRESH_MS
+        ),
+        githubOwner: String(value?.githubOwner || '').trim(),
+        githubRepo: String(value?.githubRepo || '').trim(),
+        githubBranch: String(value?.githubBranch || 'main').trim() || 'main',
+        githubBlogPath: String(value?.githubBlogPath || 'blog.txt').trim() || 'blog.txt',
+        githubPat: String(value?.githubPat || '').trim()
+    };
+}
+
+function shouldRefreshR2QuotaSnapshot(snapshot, config, now) {
+    if (!snapshot) {
+        return true;
+    }
+
+    const window = currentMonthWindow(now);
+    if (snapshot.monthKey !== window.monthKey) {
+        return true;
+    }
+
+    const fetchedAt = Number(snapshot.fetchedAt || 0);
+    return !Number.isFinite(fetchedAt) || fetchedAt <= 0 || (normalizeGuardTimestamp(now) - fetchedAt) >= config.refreshMs;
+}
+
+function shouldRefreshB2QuotaSnapshot(snapshot, config, now) {
+    if (!snapshot) {
+        return true;
+    }
+
+    const currentDay = currentUtcDayKey(now);
+    if (snapshot.currentDayKey !== currentDay) {
+        return true;
+    }
+
+    const fetchedAt = Number(snapshot.fetchedAt || 0);
+    return !Number.isFinite(fetchedAt) || fetchedAt <= 0 || (normalizeGuardTimestamp(now) - fetchedAt) >= config.refreshMs;
+}
+
+function evaluateR2QuotaDecision(snapshot, config, {
+    action,
+    bytesDelta = 0
+}) {
+    const normalizedAction = String(action || '').trim().toLowerCase();
+    const normalizedBytesDelta = normalizeStorageBytes(bytesDelta);
+    const storageThresholdBytes = storageThresholdBytesPerMonth(config);
+    const projectedStorageBytes = normalizedAction === 'write'
+        ? Math.max(0, Number(snapshot.currentStorageBytes || 0) + normalizedBytesDelta)
+        : Math.max(0, Number(snapshot.currentStorageBytes || 0));
+
+    if (Number(snapshot.storageGbMonthUsed || 0) >= config.storageGbMonthThreshold || projectedStorageBytes >= storageThresholdBytes) {
+        return {
+            allowed: false,
+            reason: 'storage_guardrail',
+            snapshot
+        };
+    }
+
+    if (normalizedAction === 'write' && (Number(snapshot.classAOps || 0) + 1) >= config.classAThreshold) {
+        return {
+            allowed: false,
+            reason: 'class_a_guardrail',
+            snapshot
+        };
+    }
+
+    if (normalizedAction === 'read' && (Number(snapshot.classBOps || 0) + 1) >= config.classBThreshold) {
+        return {
+            allowed: false,
+            reason: 'class_b_guardrail',
+            snapshot
+        };
+    }
+
+    return {
+        allowed: true,
+        reason: 'ok',
+        snapshot
+    };
+}
+
+function evaluateB2QuotaDecision(snapshot, config, {
+    action,
+    bytesDelta = 0
+}) {
+    const normalizedAction = String(action || '').trim().toLowerCase();
+    const normalizedBytesDelta = normalizeStorageBytes(bytesDelta);
+    const projectedStorageBytes = normalizedAction === 'write'
+        ? Math.max(0, Number(snapshot.currentStorageBytes || 0) + normalizedBytesDelta)
+        : Math.max(0, Number(snapshot.currentStorageBytes || 0));
+    const storageThresholdBytes = normalizePositiveNumber(
+        config?.storageGbThreshold,
+        DEFAULT_B2_STORAGE_GUARD_GB_THRESHOLD
+    ) * BYTES_PER_GIGABYTE;
+
+    if (projectedStorageBytes >= storageThresholdBytes) {
+        return {
+            allowed: false,
+            reason: 'storage_guardrail',
+            snapshot
+        };
+    }
+
+    if (normalizedAction === 'write' && (Number(snapshot.classCOps || 0) + 1) >= config.classCThreshold) {
+        return {
+            allowed: false,
+            reason: 'class_c_guardrail',
+            snapshot
+        };
+    }
+
+    if (normalizedAction === 'read' && (Number(snapshot.classBOps || 0) + 1) >= config.classBThreshold) {
+        return {
+            allowed: false,
+            reason: 'class_b_guardrail',
+            snapshot
+        };
+    }
+
+    if (normalizedAction === 'read' && (Number(snapshot.classCOps || 0) + 1) >= config.classCThreshold) {
+        return {
+            allowed: false,
+            reason: 'class_c_guardrail',
+            snapshot
+        };
+    }
+
+    return {
+        allowed: true,
+        reason: 'ok',
+        snapshot
+    };
+}
+
+function storageThresholdBytesPerMonth(config) {
+    return normalizePositiveNumber(config?.storageGbMonthThreshold, DEFAULT_R2_STORAGE_GUARD_GB_MONTH_THRESHOLD) * BYTES_PER_GIGABYTE;
+}
+
+function normalizeB2QuotaSnapshot(snapshot, now, bucketName = '') {
+    const currentDay = currentUtcDayKey(now);
+    const normalizedObjectSizes = snapshot?.objectSizes && typeof snapshot.objectSizes === 'object'
+        ? snapshot.objectSizes
+        : {};
+    const normalizedSnapshot = {
+        currentDayKey: currentDay,
+        currentStorageBytes: Math.max(0, Number(snapshot?.currentStorageBytes || 0)),
+        classBOps: Math.max(0, Number(snapshot?.classBOps || 0)),
+        classCOps: Math.max(0, Number(snapshot?.classCOps || 0)),
+        fetchedAt: Number(snapshot?.fetchedAt || 0),
+        bucketName: String(snapshot?.bucketName || bucketName || '').trim(),
+        objectSizes: normalizedObjectSizes
+    };
+
+    if (snapshot?.currentDayKey !== currentDay) {
+        normalizedSnapshot.classBOps = 0;
+        normalizedSnapshot.classCOps = 0;
+        normalizedSnapshot.currentDayKey = currentDay;
+    }
+
+    return normalizedSnapshot;
+}
+
+function dayIndexWithinMonth(dayKey, monthKey) {
+    if (typeof dayKey !== 'string' || typeof monthKey !== 'string' || !dayKey.startsWith(`${monthKey}-`)) {
+        return 0;
+    }
+
+    const day = Number.parseInt(dayKey.slice(-2), 10);
+    return Number.isInteger(day) && day > 0 ? day - 1 : 0;
+}
+
+function resetR2QuotaSnapshotForMonth(snapshot, now) {
+    const window = currentMonthWindow(now);
+    snapshot.monthKey = window.monthKey;
+    snapshot.monthDayCount = window.monthDayCount;
+    snapshot.currentDayKey = window.currentDayKey;
+    snapshot.storageGbMonthUsed = 0;
+    snapshot.currentStorageBytes = 0;
+    snapshot.completedDayPeakByteSum = 0;
+    snapshot.currentDayPeakBytes = 0;
+    snapshot.classAOps = 0;
+    snapshot.classBOps = 0;
+    snapshot.objectSizes = {};
+}
+
+function applyLocalR2Write(snapshot, storageKey, bytes, now) {
+    if (snapshot.monthKey !== currentMonthWindow(now).monthKey) {
+        resetR2QuotaSnapshotForMonth(snapshot, now);
+    }
+
+    const currentStorageBytes = Math.max(0, Number(snapshot.currentStorageBytes || 0));
+    const previousBytes = normalizeStorageBytes(snapshot.objectSizes?.[storageKey]);
+    const nextStorageBytes = Math.max(0, currentStorageBytes - previousBytes + bytes);
+
+    snapshot.currentStorageBytes = nextStorageBytes;
+    snapshot.currentDayKey = currentMonthWindow(now).currentDayKey;
+    snapshot.currentDayPeakBytes = Math.max(Number(snapshot.currentDayPeakBytes || 0), nextStorageBytes);
+    snapshot.classAOps = Math.max(0, Number(snapshot.classAOps || 0)) + 1;
+    snapshot.objectSizes = {
+        ...(snapshot.objectSizes && typeof snapshot.objectSizes === 'object' ? snapshot.objectSizes : {}),
+        [storageKey]: bytes
+    };
+}
+
+function applyLocalR2Read(snapshot, now) {
+    if (snapshot.monthKey !== currentMonthWindow(now).monthKey) {
+        resetR2QuotaSnapshotForMonth(snapshot, now);
+    }
+
+    snapshot.currentDayKey = currentMonthWindow(now).currentDayKey;
+    snapshot.classBOps = Math.max(0, Number(snapshot.classBOps || 0)) + 1;
+}
+
+function applyLocalR2Delete(snapshot, storageKey, bytes, now) {
+    if (snapshot.monthKey !== currentMonthWindow(now).monthKey) {
+        resetR2QuotaSnapshotForMonth(snapshot, now);
+    }
+
+    const previousBytes = normalizeStorageBytes(snapshot.objectSizes?.[storageKey]) || bytes;
+    snapshot.currentStorageBytes = Math.max(0, Number(snapshot.currentStorageBytes || 0) - previousBytes);
+    snapshot.currentDayKey = currentMonthWindow(now).currentDayKey;
+    if (snapshot.objectSizes && typeof snapshot.objectSizes === 'object') {
+        delete snapshot.objectSizes[storageKey];
+    }
+}
+
+function applyLocalB2Write(snapshot, storageKey, bytes, now) {
+    const normalizedSnapshot = normalizeB2QuotaSnapshot(snapshot, now, snapshot?.bucketName);
+    const previousBytes = normalizeStorageBytes(normalizedSnapshot.objectSizes?.[storageKey]);
+    const nextStorageBytes = Math.max(
+        0,
+        Number(normalizedSnapshot.currentStorageBytes || 0) - previousBytes + bytes
+    );
+
+    normalizedSnapshot.currentStorageBytes = nextStorageBytes;
+    normalizedSnapshot.classCOps = Math.max(0, Number(normalizedSnapshot.classCOps || 0)) + 1;
+    normalizedSnapshot.objectSizes = {
+        ...normalizedSnapshot.objectSizes,
+        [storageKey]: bytes
+    };
+    Object.assign(snapshot, normalizedSnapshot);
+}
+
+function applyLocalB2Read(snapshot, now) {
+    const normalizedSnapshot = normalizeB2QuotaSnapshot(snapshot, now, snapshot?.bucketName);
+    normalizedSnapshot.classBOps = Math.max(0, Number(normalizedSnapshot.classBOps || 0)) + 1;
+    normalizedSnapshot.classCOps = Math.max(0, Number(normalizedSnapshot.classCOps || 0)) + 1;
+    Object.assign(snapshot, normalizedSnapshot);
+}
+
+function applyLocalB2Delete(snapshot, storageKey, bytes, now) {
+    const normalizedSnapshot = normalizeB2QuotaSnapshot(snapshot, now, snapshot?.bucketName);
+    const previousBytes = normalizeStorageBytes(normalizedSnapshot.objectSizes?.[storageKey]) || bytes;
+    normalizedSnapshot.currentStorageBytes = Math.max(
+        0,
+        Number(normalizedSnapshot.currentStorageBytes || 0) - previousBytes
+    );
+    if (normalizedSnapshot.objectSizes && typeof normalizedSnapshot.objectSizes === 'object') {
+        delete normalizedSnapshot.objectSizes[storageKey];
+    }
+    Object.assign(snapshot, normalizedSnapshot);
+}
+
+async function fetchManagedB2QuotaSnapshot(config, now, existingSnapshot = null) {
+    const timestamp = normalizeGuardTimestamp(now);
+    const snapshot = normalizeB2QuotaSnapshot(existingSnapshot, timestamp, config.bucketName);
+    if (!config.githubOwner || !config.githubRepo || !config.githubPat) {
+        snapshot.fetchedAt = timestamp;
+        return snapshot;
+    }
+
+    const githubFile = await fetchGithubFile({
+        GITHUB_OWNER: config.githubOwner,
+        GITHUB_REPO: config.githubRepo,
+        GITHUB_BRANCH: config.githubBranch,
+        GITHUB_BLOG_PATH: config.githubBlogPath,
+        GITHUB_PAT: config.githubPat
+    });
+    const blogDocument = parseBlogDocument(githubFile.content);
+    let currentStorageBytes = 0;
+    const objectSizes = {};
+
+    for (const entry of blogDocument.entries) {
+        for (const block of entry.blocks) {
+            if (
+                block?.type === 'image' &&
+                block.storageProvider === 'b2' &&
+                typeof block.storageKey === 'string' &&
+                block.storageKey &&
+                normalizeStorageBytes(block.storageBytes) > 0
+            ) {
+                const blockBytes = normalizeStorageBytes(block.storageBytes);
+                currentStorageBytes += blockBytes;
+                objectSizes[block.storageKey] = blockBytes;
+            }
+        }
+    }
+
+    snapshot.currentStorageBytes = currentStorageBytes;
+    snapshot.objectSizes = objectSizes;
+    snapshot.fetchedAt = timestamp;
+    return snapshot;
+}
+
+async function fetchCloudflareR2QuotaSnapshot(config, now) {
+    const timestamp = normalizeGuardTimestamp(now);
+    const window = currentMonthWindow(timestamp);
+    const requestHeaders = {
+        Authorization: `Bearer ${config.billingApiToken}`,
+        'Content-Type': 'application/json'
+    };
+    const billingUsageUrl = `${CLOUDFLARE_API_BASE_URL}/accounts/${encodeURIComponent(config.accountId)}/billing/usage/paygo`;
+    const r2MetricsUrl = `${CLOUDFLARE_API_BASE_URL}/accounts/${encodeURIComponent(config.accountId)}/r2/metrics`;
+
+    const [billingUsageResponse, r2MetricsResponse] = await Promise.all([
+        fetch(billingUsageUrl, {
+            headers: requestHeaders
+        }),
+        fetch(r2MetricsUrl, {
+            headers: requestHeaders
+        })
+    ]);
+
+    if (!billingUsageResponse.ok) {
+        throw new Error(`cloudflare billing usage failed with ${billingUsageResponse.status}`);
+    }
+
+    if (!r2MetricsResponse.ok) {
+        throw new Error(`cloudflare r2 metrics failed with ${r2MetricsResponse.status}`);
+    }
+
+    const billingUsagePayload = await billingUsageResponse.json();
+    if (Array.isArray(billingUsagePayload?.errors) && billingUsagePayload.errors.length > 0) {
+        throw new Error(`cloudflare billing usage returned errors: ${billingUsagePayload.errors[0]?.message || 'unknown error'}`);
+    }
+
+    const r2MetricsPayload = await r2MetricsResponse.json();
+    if (Array.isArray(r2MetricsPayload?.errors) && r2MetricsPayload.errors.length > 0) {
+        throw new Error(`cloudflare r2 metrics returned errors: ${r2MetricsPayload.errors[0]?.message || 'unknown error'}`);
+    }
+
+    const billingRecords = Array.isArray(billingUsagePayload?.result)
+        ? billingUsagePayload.result
+        : (Array.isArray(billingUsagePayload) ? billingUsagePayload : []);
+    const billingTotals = extractR2BillingTotals(billingRecords, window);
+    const currentStorageBytes = extractR2MetricsCurrentStorageBytes(r2MetricsPayload?.result);
+
+    return {
+        monthKey: window.monthKey,
+        monthDayCount: window.monthDayCount,
+        currentDayKey: window.currentDayKey,
+        storageGbMonthUsed: billingTotals.storageGbMonthUsed,
+        currentStorageBytes,
+        completedDayPeakByteSum: 0,
+        currentDayPeakBytes: currentStorageBytes,
+        classAOps: billingTotals.classAOps,
+        classBOps: billingTotals.classBOps,
+        fetchedAt: timestamp,
+        bucketName: config.bucketName,
+        objectSizes: {}
+    };
+}
+
+function normalizeBillingText(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function selectBillingUsageQuantity(record) {
+    const quantities = [
+        Number(record?.CumulatedPricingQuantity),
+        Number(record?.PricingQuantity),
+        Number(record?.ConsumedQuantity)
+    ].filter(value => Number.isFinite(value) && value >= 0);
+    return quantities.length > 0 ? Math.max(...quantities) : 0;
+}
+
+function convertBillingOperationQuantity(quantity, unit) {
+    const normalizedUnit = normalizeBillingText(unit);
+    if (normalizedUnit.includes('billion')) {
+        return quantity * 1000000000;
+    }
+    if (normalizedUnit.includes('million')) {
+        return quantity * 1000000;
+    }
+    if (normalizedUnit.includes('thousand')) {
+        return quantity * 1000;
+    }
+    return quantity;
+}
+
+function convertBillingStorageQuantityToGbMonth(quantity, unit) {
+    const normalizedUnit = normalizeBillingText(unit);
+    if (normalizedUnit.includes('tb')) {
+        return quantity * 1000;
+    }
+    if (normalizedUnit.includes('gb')) {
+        return quantity;
+    }
+    if (normalizedUnit.includes('mb')) {
+        return quantity / 1000;
+    }
+    if (normalizedUnit.includes('kb')) {
+        return quantity / 1000000;
+    }
+    if (normalizedUnit.includes('byte')) {
+        return quantity / BYTES_PER_GIGABYTE;
+    }
+    return quantity;
+}
+
+function billingRecordBelongsToMonth(record, window) {
+    const candidateDates = [
+        record?.BillingPeriodStart,
+        record?.ChargePeriodStart,
+        record?.ChargePeriodEnd
+    ];
+
+    return candidateDates.some(value => String(value || '').slice(0, 7) === window.monthKey);
+}
+
+function extractR2BillingTotals(records, window) {
+    let storageGbMonthUsed = 0;
+    let classAOps = 0;
+    let classBOps = 0;
+
+    for (const record of Array.isArray(records) ? records : []) {
+        if (!billingRecordBelongsToMonth(record, window)) {
+            continue;
+        }
+
+        const serviceName = normalizeBillingText(record?.ServiceName);
+        const consumedUnit = normalizeBillingText(record?.ConsumedUnit);
+        if (!serviceName.includes('r2')) {
+            continue;
+        }
+
+        const quantity = selectBillingUsageQuantity(record);
+        if (quantity <= 0) {
+            continue;
+        }
+
+        if (serviceName.includes('class a') || consumedUnit.includes('class a')) {
+            classAOps = Math.max(classAOps, convertBillingOperationQuantity(quantity, consumedUnit));
+            continue;
+        }
+
+        if (serviceName.includes('class b') || consumedUnit.includes('class b')) {
+            classBOps = Math.max(classBOps, convertBillingOperationQuantity(quantity, consumedUnit));
+            continue;
+        }
+
+        if (serviceName.includes('storage') || consumedUnit.includes('month') || consumedUnit.includes('storage')) {
+            storageGbMonthUsed = Math.max(storageGbMonthUsed, convertBillingStorageQuantityToGbMonth(quantity, consumedUnit));
+        }
+    }
+
+    return {
+        storageGbMonthUsed,
+        classAOps,
+        classBOps
+    };
+}
+
+function extractR2MetricsCurrentStorageBytes(result) {
+    const metrics = result && typeof result === 'object' ? result : {};
+    let totalBytes = 0;
+
+    for (const storageClassKey of ['standard', 'infrequentAccess']) {
+        const storageClass = metrics?.[storageClassKey];
+        if (!storageClass || typeof storageClass !== 'object') {
+            continue;
+        }
+
+        for (const stateKey of ['published', 'uploaded']) {
+            const stateMetrics = storageClass?.[stateKey];
+            if (!stateMetrics || typeof stateMetrics !== 'object') {
+                continue;
+            }
+
+            totalBytes += Math.max(0, Number(stateMetrics.payloadSize || 0));
+            totalBytes += Math.max(0, Number(stateMetrics.metadataSize || 0));
+        }
+    }
+
+    return totalBytes;
+}
 
 function normalizeSnapshot(snapshot) {
     return {
@@ -804,7 +1650,19 @@ async function handleHostedBlogMedia(request, env) {
                 });
             }
 
+            const decision = await getR2QuotaDecision(env, 'read');
+            if (!decision.allowed) {
+                return new Response('r2 media temporarily unavailable', {
+                    status: 503,
+                    headers: {
+                        'Cache-Control': 'no-store',
+                        ...corsHeaders(env.ALLOWED_ORIGIN)
+                    }
+                });
+            }
+
             const object = await env.BLOG_GIF_R2_BUCKET.get(storageKey);
+            await recordR2ReadUsage(env);
             if (!object) {
                 return new Response('not found', {
                     status: 404,
@@ -830,6 +1688,17 @@ async function handleHostedBlogMedia(request, env) {
             });
         }
 
+        const b2Decision = await getB2QuotaDecision(env, 'read');
+        if (!b2Decision.allowed) {
+            return new Response('b2 media temporarily unavailable', {
+                status: 503,
+                headers: {
+                    'Cache-Control': 'no-store',
+                    ...corsHeaders(env.ALLOWED_ORIGIN)
+                }
+            });
+        }
+
         const b2Response = await downloadPrivateB2FileById(env, fileId);
         if (!b2Response.ok) {
             return new Response('not found', {
@@ -837,6 +1706,8 @@ async function handleHostedBlogMedia(request, env) {
                 headers: corsHeaders(env.ALLOWED_ORIGIN)
             });
         }
+
+        await recordB2ReadUsage(env);
 
         return new Response(await b2Response.arrayBuffer(), {
             status: 200,
@@ -1084,13 +1955,15 @@ function createHostedImageBlock({
     mimeType = 'image/gif',
     storageProvider,
     storageKey,
-    storageFileId = ''
+    storageFileId = '',
+    storageBytes = 0
 }) {
     const normalizedImageUrl = normalizeImageUrl(imageUrl);
     const normalizedMimeType = String(mimeType || '').trim().toLowerCase();
     const normalizedStorageProvider = normalizeHostedImageProvider(storageProvider);
     const normalizedStorageKey = String(storageKey || '').trim();
     const normalizedStorageFileId = String(storageFileId || '').trim();
+    const normalizedStorageBytes = normalizeStorageBytes(storageBytes);
 
     if (!normalizedImageUrl || !normalizedStorageProvider || !normalizedStorageKey) {
         return null;
@@ -1102,7 +1975,8 @@ function createHostedImageBlock({
         mimeType: normalizedMimeType || 'image/gif',
         storageProvider: normalizedStorageProvider,
         storageKey: normalizedStorageKey,
-        ...(normalizedStorageFileId ? { storageFileId: normalizedStorageFileId } : {})
+        ...(normalizedStorageFileId ? { storageFileId: normalizedStorageFileId } : {}),
+        ...(normalizedStorageBytes > 0 ? { storageBytes: normalizedStorageBytes } : {})
     };
 }
 
@@ -1356,7 +2230,14 @@ async function resolveStagedImageBlocks(blocks, maxImageDataUrlLength, env) {
             };
         }
 
+        const stagedImageParts = parseImageDataUrlParts(stagedUpload.dataUrl);
         const hostedGifBlock = await uploadGifToHostedStorage(stagedUpload.dataUrl, env);
+        if (!hostedGifBlock && stagedImageParts?.mimeType === 'image/gif' && canStoreGifInHostedMedia(env)) {
+            return {
+                ok: false,
+                error: 'gif hosted media temporarily unavailable'
+            };
+        }
         resolvedBlocks.push(hostedGifBlock || createCompactImageBlock(stagedUpload.dataUrl));
     }
 
@@ -1367,7 +2248,14 @@ async function resolveStagedImageBlocks(blocks, maxImageDataUrlLength, env) {
             continue;
         }
 
+        const imageParts = parseImageDataUrlParts(block.imageDataUrl);
         const hostedGifBlock = await uploadGifToHostedStorage(block.imageDataUrl, env);
+        if (!hostedGifBlock && imageParts?.mimeType === 'image/gif' && canStoreGifInHostedMedia(env)) {
+            return {
+                ok: false,
+                error: 'gif hosted media temporarily unavailable'
+            };
+        }
         finalizedBlocks.push(hostedGifBlock || createCompactImageBlock(block.imageDataUrl));
     }
 
@@ -1448,6 +2336,227 @@ function canStoreGifInHostedMedia(env) {
     return Boolean(env.BLOG_GIF_R2_BUCKET || (env.B2_APPLICATION_KEY_ID && env.B2_APPLICATION_KEY && env.B2_BUCKET_ID));
 }
 
+function canUseR2Guardrails(env) {
+    return Boolean(
+        env.R2_QUOTA_GUARD &&
+        env.BLOG_GIF_R2_BUCKET &&
+        env.BLOG_GIF_R2_BUCKET_NAME &&
+        env.CLOUDFLARE_ACCOUNT_ID &&
+        env.CLOUDFLARE_BILLING_API_TOKEN
+    );
+}
+
+function canUseB2Guardrails(env) {
+    return Boolean(
+        env.B2_QUOTA_GUARD &&
+        env.B2_BUCKET_NAME
+    );
+}
+
+function r2QuotaGuardRequestBody(env, action, bytesDelta = 0) {
+    return {
+        enabled: canUseR2Guardrails(env),
+        action,
+        bytesDelta: normalizeStorageBytes(bytesDelta),
+        bucketName: String(env.BLOG_GIF_R2_BUCKET_NAME || '').trim(),
+        accountId: String(env.CLOUDFLARE_ACCOUNT_ID || '').trim(),
+        billingApiToken: String(env.CLOUDFLARE_BILLING_API_TOKEN || '').trim(),
+        storageGbMonthThreshold: Number(env.R2_STORAGE_GUARD_GB_MONTH_THRESHOLD || DEFAULT_R2_STORAGE_GUARD_GB_MONTH_THRESHOLD),
+        classAThreshold: Number(env.R2_CLASS_A_GUARD_THRESHOLD || DEFAULT_R2_CLASS_A_GUARD_THRESHOLD),
+        classBThreshold: Number(env.R2_CLASS_B_GUARD_THRESHOLD || DEFAULT_R2_CLASS_B_GUARD_THRESHOLD),
+        refreshMs: Number(env.R2_BILLING_REFRESH_MS || env.R2_ANALYTICS_REFRESH_MS || DEFAULT_R2_BILLING_REFRESH_MS),
+        now: Date.now()
+    };
+}
+
+function b2QuotaGuardRequestBody(env, action, bytesDelta = 0) {
+    return {
+        enabled: canUseB2Guardrails(env),
+        action,
+        bytesDelta: normalizeStorageBytes(bytesDelta),
+        bucketName: String(env.B2_BUCKET_NAME || '').trim(),
+        storageGbThreshold: Number(env.B2_STORAGE_GUARD_GB_THRESHOLD || DEFAULT_B2_STORAGE_GUARD_GB_THRESHOLD),
+        classBThreshold: Number(env.B2_CLASS_B_GUARD_THRESHOLD || DEFAULT_B2_CLASS_B_GUARD_THRESHOLD),
+        classCThreshold: Number(env.B2_CLASS_C_GUARD_THRESHOLD || DEFAULT_B2_CLASS_C_GUARD_THRESHOLD),
+        refreshMs: Number(env.B2_USAGE_REFRESH_MS || DEFAULT_B2_USAGE_REFRESH_MS),
+        githubOwner: String(env.GITHUB_OWNER || '').trim(),
+        githubRepo: String(env.GITHUB_REPO || '').trim(),
+        githubBranch: String(env.GITHUB_BRANCH || 'main').trim() || 'main',
+        githubBlogPath: String(env.GITHUB_BLOG_PATH || 'blog.txt').trim() || 'blog.txt',
+        githubPat: String(env.GITHUB_PAT || '').trim(),
+        now: Date.now()
+    };
+}
+
+async function getR2QuotaDecision(env, action, bytesDelta = 0) {
+    if (!canUseR2Guardrails(env)) {
+        return {
+            allowed: true,
+            reason: 'guard_disabled'
+        };
+    }
+
+    const response = await getR2QuotaGuardStub(env).fetch('https://r2-quota/decision', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(r2QuotaGuardRequestBody(env, action, bytesDelta))
+    });
+    if (!response.ok) {
+        return {
+            allowed: true,
+            reason: 'analytics_unavailable'
+        };
+    }
+
+    const payload = await response.json().catch(() => null);
+    return payload && typeof payload.allowed === 'boolean'
+        ? payload
+        : {
+            allowed: true,
+            reason: 'analytics_unavailable'
+        };
+}
+
+async function getB2QuotaDecision(env, action, bytesDelta = 0) {
+    if (!canUseB2Guardrails(env)) {
+        return {
+            allowed: true,
+            reason: 'guard_disabled'
+        };
+    }
+
+    const response = await getB2QuotaGuardStub(env).fetch('https://b2-quota/decision', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(b2QuotaGuardRequestBody(env, action, bytesDelta))
+    });
+    if (!response.ok) {
+        return {
+            allowed: true,
+            reason: 'quota_unavailable'
+        };
+    }
+
+    const payload = await response.json().catch(() => null);
+    return payload && typeof payload.allowed === 'boolean'
+        ? payload
+        : {
+            allowed: true,
+            reason: 'quota_unavailable'
+        };
+}
+
+async function recordR2WriteUsage(env, storageKey, bytes) {
+    if (!canUseR2Guardrails(env) || !storageKey || normalizeStorageBytes(bytes) <= 0) {
+        return;
+    }
+
+    await getR2QuotaGuardStub(env).fetch('https://r2-quota/record-write', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            storageKey,
+            bytes,
+            now: Date.now()
+        })
+    });
+}
+
+async function recordB2WriteUsage(env, storageKey, bytes) {
+    if (!canUseB2Guardrails(env) || !storageKey || normalizeStorageBytes(bytes) <= 0) {
+        return;
+    }
+
+    await getB2QuotaGuardStub(env).fetch('https://b2-quota/record-write', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            ...b2QuotaGuardRequestBody(env, 'write', bytes),
+            storageKey,
+            bytes,
+            now: Date.now()
+        })
+    });
+}
+
+async function recordR2ReadUsage(env) {
+    if (!canUseR2Guardrails(env)) {
+        return;
+    }
+
+    await getR2QuotaGuardStub(env).fetch('https://r2-quota/record-read', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            now: Date.now()
+        })
+    });
+}
+
+async function recordB2ReadUsage(env) {
+    if (!canUseB2Guardrails(env)) {
+        return;
+    }
+
+    await getB2QuotaGuardStub(env).fetch('https://b2-quota/record-read', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            ...b2QuotaGuardRequestBody(env, 'read'),
+            now: Date.now()
+        })
+    });
+}
+
+async function recordR2DeleteUsage(env, storageKey, bytes = 0) {
+    if (!canUseR2Guardrails(env) || !storageKey) {
+        return;
+    }
+
+    await getR2QuotaGuardStub(env).fetch('https://r2-quota/record-delete', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            storageKey,
+            bytes,
+            now: Date.now()
+        })
+    });
+}
+
+async function recordB2DeleteUsage(env, storageKey, bytes = 0) {
+    if (!canUseB2Guardrails(env) || !storageKey) {
+        return;
+    }
+
+    await getB2QuotaGuardStub(env).fetch('https://b2-quota/record-delete', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            ...b2QuotaGuardRequestBody(env, 'delete', bytes),
+            storageKey,
+            bytes,
+            now: Date.now()
+        })
+    });
+}
+
 function blogMediaBaseUrl(env) {
     return String(env.BLOG_MEDIA_BASE_URL || DEFAULT_BLOG_MEDIA_BASE_URL).trim().replace(/\/+$/g, '');
 }
@@ -1510,21 +2619,28 @@ async function uploadGifToHostedStorage(imageDataUrl, env) {
     const storageKey = createHostedGifStorageKey();
 
     if (env.BLOG_GIF_R2_BUCKET) {
-        try {
-            await env.BLOG_GIF_R2_BUCKET.put(storageKey, imageBytes.bytes, {
-                httpMetadata: {
-                    contentType: imageBytes.mimeType
-                }
-            });
+        const decision = await getR2QuotaDecision(env, 'write', imageBytes.bytes.byteLength);
+        if (decision.allowed) {
+            try {
+                await env.BLOG_GIF_R2_BUCKET.put(storageKey, imageBytes.bytes, {
+                    httpMetadata: {
+                        contentType: imageBytes.mimeType
+                    }
+                });
+                await recordR2WriteUsage(env, storageKey, imageBytes.bytes.byteLength);
 
-            return createHostedImageBlock({
-                imageUrl: buildHostedGifMediaUrl(env, 'r2', storageKey),
-                mimeType: imageBytes.mimeType,
-                storageProvider: 'r2',
-                storageKey
-            });
-        } catch (error) {
-            console.warn('R2 gif upload failed, falling back to B2', error);
+                return createHostedImageBlock({
+                    imageUrl: buildHostedGifMediaUrl(env, 'r2', storageKey),
+                    mimeType: imageBytes.mimeType,
+                    storageProvider: 'r2',
+                    storageKey,
+                    storageBytes: imageBytes.bytes.byteLength
+                });
+            } catch (error) {
+                console.warn('R2 gif upload failed, falling back to B2', error);
+            }
+        } else {
+            console.warn(`R2 gif upload guardrail active (${decision.reason}), falling back to B2`);
         }
     }
 
@@ -1532,13 +2648,21 @@ async function uploadGifToHostedStorage(imageDataUrl, env) {
         return null;
     }
 
+    const b2Decision = await getB2QuotaDecision(env, 'write', imageBytes.bytes.byteLength);
+    if (!b2Decision.allowed) {
+        console.warn(`B2 gif upload guardrail active (${b2Decision.reason}), refusing hosted gif upload`);
+        return null;
+    }
+
     const uploadedFile = await uploadGifToPrivateB2(env, storageKey, imageBytes.bytes, imageBytes.mimeType);
+    await recordB2WriteUsage(env, uploadedFile.fileName, imageBytes.bytes.byteLength);
     return createHostedImageBlock({
         imageUrl: buildHostedGifMediaUrl(env, 'b2', uploadedFile.fileName, uploadedFile.fileId),
         mimeType: imageBytes.mimeType,
         storageProvider: 'b2',
         storageKey: uploadedFile.fileName,
-        storageFileId: uploadedFile.fileId
+        storageFileId: uploadedFile.fileId,
+        storageBytes: imageBytes.bytes.byteLength
     });
 }
 
@@ -1549,11 +2673,13 @@ async function cleanupHostedImageBlock(env, block) {
 
     if (block.storageProvider === 'r2' && env.BLOG_GIF_R2_BUCKET && block.storageKey) {
         await env.BLOG_GIF_R2_BUCKET.delete(block.storageKey);
+        await recordR2DeleteUsage(env, block.storageKey, block.storageBytes);
         return;
     }
 
     if (block.storageProvider === 'b2' && block.storageFileId && block.storageKey) {
         await deletePrivateB2File(env, block.storageFileId, block.storageKey);
+        await recordB2DeleteUsage(env, block.storageKey, block.storageBytes);
     }
 }
 
@@ -2374,7 +3500,8 @@ function parseHostedImageBlockLines(imageLines) {
         mimeType: blockData.mime,
         storageProvider: blockData.provider,
         storageKey: blockData['storage-key'],
-        storageFileId: blockData['storage-file-id']
+        storageFileId: blockData['storage-file-id'],
+        storageBytes: blockData['storage-bytes']
     });
 }
 
@@ -2434,7 +3561,8 @@ function normalizeBlogEntryBlocks(contentBlocks) {
                     mimeType: block.mimeType,
                     storageProvider: block.storageProvider,
                     storageKey: block.storageKey,
-                    storageFileId: block.storageFileId
+                    storageFileId: block.storageFileId,
+                    storageBytes: block.storageBytes
                 });
                 if (!hostedImageBlock) {
                     continue;
@@ -2505,12 +3633,15 @@ function serializeBlogDocument(blogDocument) {
                     lines.push(`mime:${String(block.mimeType || 'image/gif').toLowerCase()}`);
                     lines.push(`provider:${block.storageProvider}`);
                     lines.push(`storage-key:${block.storageKey}`);
-                    if (block.storageFileId) {
-                        lines.push(`storage-file-id:${block.storageFileId}`);
-                    }
-                    lines.push('[/image-url]');
-                    continue;
+                if (block.storageFileId) {
+                    lines.push(`storage-file-id:${block.storageFileId}`);
                 }
+                if (block.storageBytes) {
+                    lines.push(`storage-bytes:${Number(block.storageBytes || 0)}`);
+                }
+                lines.push('[/image-url]');
+                continue;
+            }
 
                 if (block.imageEncoding === 'z85') {
                     lines.push('[image-z85]');
@@ -2902,6 +4033,16 @@ function getRateLimiterStub(env, ip) {
 function getBlogUploadSessionStub(env, uploadId) {
     const id = env.BLOG_UPLOAD_SESSION.idFromName(`upload:${uploadId}`);
     return env.BLOG_UPLOAD_SESSION.get(id);
+}
+
+function getR2QuotaGuardStub(env) {
+    const id = env.R2_QUOTA_GUARD.idFromName('r2-monthly-guard');
+    return env.R2_QUOTA_GUARD.get(id);
+}
+
+function getB2QuotaGuardStub(env) {
+    const id = env.B2_QUOTA_GUARD.idFromName('b2-daily-guard');
+    return env.B2_QUOTA_GUARD.get(id);
 }
 
 function jsonResponse(payload, status, origin, extraHeaders = {}) {

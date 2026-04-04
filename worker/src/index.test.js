@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import blogWorker, { BlogUploadSession, VisitorCounter, appendBlogEntry, createBlogImageKey, removeBlogEntry, removeImageBlock } from './index.js';
+import blogWorker, { B2QuotaGuard, BlogUploadSession, R2QuotaGuard, VisitorCounter, appendBlogEntry, createBlogImageKey, removeBlogEntry, removeImageBlock } from './index.js';
 
 class FakeStorage {
     constructor() {
@@ -49,6 +49,7 @@ class FakeR2Bucket {
     constructor() {
         this.objects = new Map();
         this.failPut = null;
+        this.getCalls = 0;
     }
 
     async put(key, value, options = {}) {
@@ -68,6 +69,7 @@ class FakeR2Bucket {
     }
 
     async get(key) {
+        this.getCalls += 1;
         const stored = this.objects.get(key);
         if (!stored) {
             return null;
@@ -147,6 +149,38 @@ function createUploadSessionBindingWithMapReads() {
                 });
             }
             return sessions.get(id);
+        }
+    };
+}
+
+function createR2QuotaGuardBinding() {
+    const guard = new R2QuotaGuard({ storage: new FakeStorage() });
+    return {
+        idFromName(name) {
+            return name;
+        },
+        get() {
+            return {
+                async fetch(url, options) {
+                    return guard.fetch(new Request(url, options));
+                }
+            };
+        }
+    };
+}
+
+function createB2QuotaGuardBinding() {
+    const guard = new B2QuotaGuard({ storage: new FakeStorage() });
+    return {
+        idFromName(name) {
+            return name;
+        },
+        get() {
+            return {
+                async fetch(url, options) {
+                    return guard.fetch(new Request(url, options));
+                }
+            };
         }
     };
 }
@@ -558,6 +592,463 @@ test('removeBlogEntry removes the targeted entry and returns its blocks for casc
     assert.match(removal.content, /\[2026-04-03T12:00:00.000Z\]/);
     assert.equal(removal.removedEntry?.timestampLine, '[2026-04-03T11:00:00.000Z]');
     assert.equal(removal.removedEntry?.blocks.filter(block => block.type === 'image').length, 2);
+});
+
+test('R2QuotaGuard uses Cloudflare billing usage and R2 metrics to block reads when monthly storage is near threshold', async t => {
+    const originalFetch = globalThis.fetch;
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async url => {
+        if (String(url) === 'https://api.cloudflare.com/client/v4/accounts/account-id/billing/usage/paygo') {
+            return new Response(JSON.stringify({
+                result: [{
+                    BillingPeriodStart: '2026-04-01T00:00:00Z',
+                    ChargePeriodStart: '2026-04-01T00:00:00Z',
+                    ChargePeriodEnd: '2026-04-15T12:00:00Z',
+                    ServiceName: 'R2 Storage',
+                    ConsumedUnit: 'GB-Month',
+                    ConsumedQuantity: 7.95,
+                    PricingQuantity: 7.95,
+                    CumulatedPricingQuantity: 7.95
+                }]
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (String(url) === 'https://api.cloudflare.com/client/v4/accounts/account-id/r2/metrics') {
+            return new Response(JSON.stringify({
+                result: {
+                    standard: {
+                        uploaded: {
+                            payloadSize: 8050000000,
+                            metadataSize: 0
+                        }
+                    }
+                }
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${String(url)}`);
+    };
+
+    const guard = new R2QuotaGuard({ storage: new FakeStorage() });
+    const response = await guard.fetch(new Request('https://guard/decision', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            enabled: true,
+            action: 'read',
+            bucketName: '0x00c0de-github-r2',
+            accountId: 'account-id',
+            billingApiToken: 'billing-token',
+            storageGbMonthThreshold: 8,
+            classAThreshold: 800000,
+            classBThreshold: 8000000,
+            refreshMs: 300000,
+            now: Date.UTC(2026, 3, 15, 12, 0, 0)
+        })
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.allowed, false);
+    assert.equal(payload.reason, 'storage_guardrail');
+});
+
+test('B2QuotaGuard bootstraps managed storage from blog.txt and blocks writes when storage is near threshold', async t => {
+    const originalFetch = globalThis.fetch;
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+        const method = options.method || 'GET';
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/contents/blog.txt?ref=main' && method === 'GET') {
+            return new Response(JSON.stringify({
+                sha: 'blogsha123',
+                encoding: 'base64',
+                content: Buffer.from([
+                    '0x00C0DE Blog',
+                    '=============',
+                    '',
+                    '[2026-04-03T12:00:00.000Z]',
+                    'hosted b2 gif',
+                    '[image-url]',
+                    'src:https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media/b2/file-123',
+                    'mime:image/gif',
+                    'provider:b2',
+                    'storage-key:blog-gifs/existing.gif',
+                    'storage-file-id:file-123',
+                    'storage-bytes:7900000000',
+                    '[/image-url]',
+                    ''
+                ].join('\n'), 'utf8').toString('base64')
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${method} ${urlString}`);
+    };
+
+    const guard = new B2QuotaGuard({ storage: new FakeStorage() });
+    const response = await guard.fetch(new Request('https://guard/decision', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            enabled: true,
+            action: 'write',
+            bytesDelta: 200000000,
+            bucketName: '0x00C0DE-github-b2',
+            storageGbThreshold: 8,
+            classBThreshold: 2000,
+            classCThreshold: 2000,
+            refreshMs: 300000,
+            githubOwner: 'owner',
+            githubRepo: 'repo',
+            githubBranch: 'main',
+            githubBlogPath: 'blog.txt',
+            githubPat: 'token',
+            now: Date.UTC(2026, 3, 3, 12, 0, 0)
+        })
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.allowed, false);
+    assert.equal(payload.reason, 'storage_guardrail');
+});
+
+test('append endpoint falls back to private B2 when billing guardrails stop R2 writes early', async t => {
+    const originalFetch = globalThis.fetch;
+    let githubUpdateBody = null;
+    let b2UploadHeaders = null;
+    const r2Bucket = new FakeR2Bucket();
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+        const method = options.method || 'GET';
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/contents/blog.txt?ref=main') {
+            if (method === 'PUT') {
+                githubUpdateBody = JSON.parse(options.body);
+                return new Response(JSON.stringify({
+                    commit: {
+                        sha: 'guarded-b2gif123'
+                    }
+                }), {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json; charset=utf-8'
+                    }
+                });
+            }
+
+            return new Response(JSON.stringify({
+                sha: 'oldsha123',
+                content: Buffer.from([
+                    '0x00C0DE Blog',
+                    '=============',
+                    ''
+                ].join('\n'), 'utf8').toString('base64')
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response([
+                '0x00C0DE Blog',
+                '=============',
+                ''
+            ].join('\n'), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === 'https://api.cloudflare.com/client/v4/accounts/account-id/billing/usage/paygo') {
+            return new Response(JSON.stringify({
+                result: [{
+                    BillingPeriodStart: '2026-04-01T00:00:00Z',
+                    ChargePeriodStart: '2026-04-01T00:00:00Z',
+                    ChargePeriodEnd: '2026-04-03T12:00:00Z',
+                    ServiceName: 'R2 Class A Operations',
+                    ConsumedUnit: 'requests',
+                    ConsumedQuantity: 4,
+                    PricingQuantity: 4,
+                    CumulatedPricingQuantity: 4
+                }]
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === 'https://api.cloudflare.com/client/v4/accounts/account-id/r2/metrics') {
+            return new Response(JSON.stringify({
+                result: {
+                    standard: {
+                        uploaded: {
+                            payloadSize: 1024,
+                            metadataSize: 0
+                        }
+                    }
+                }
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.includes('b2_authorize_account')) {
+            return new Response(JSON.stringify({
+                apiUrl: 'https://api001.backblazeb2.com',
+                downloadUrl: 'https://f001.backblazeb2.com',
+                authorizationToken: 'b2-auth-token'
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.includes('b2_get_upload_url')) {
+            return new Response(JSON.stringify({
+                uploadUrl: 'https://pod-001.backblazeb2.com/b2api/v3/b2_upload_file/upload-001',
+                authorizationToken: 'b2-upload-token'
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://pod-001.backblazeb2.com/b2api/v3/b2_upload_file/')) {
+            b2UploadHeaders = options.headers;
+            return new Response(JSON.stringify({
+                fileId: 'b2-file-id-guarded',
+                fileName: 'blog-gifs/guarded.gif'
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${method} ${urlString}`);
+    };
+
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        GITHUB_OWNER: 'owner',
+        GITHUB_REPO: 'repo',
+        GITHUB_PAT: 'token',
+        GITHUB_BRANCH: 'main',
+        BLOG_MEDIA_BASE_URL: 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media',
+        BLOG_GIF_R2_BUCKET: r2Bucket,
+        BLOG_GIF_R2_BUCKET_NAME: '0x00c0de-github-r2',
+        CLOUDFLARE_ACCOUNT_ID: 'account-id',
+        CLOUDFLARE_BILLING_API_TOKEN: 'billing-token',
+        R2_STORAGE_GUARD_GB_MONTH_THRESHOLD: '8',
+        R2_CLASS_A_GUARD_THRESHOLD: '5',
+        R2_CLASS_B_GUARD_THRESHOLD: '8000000',
+        R2_BILLING_REFRESH_MS: '300000',
+        R2_QUOTA_GUARD: createR2QuotaGuardBinding(),
+        B2_APPLICATION_KEY_ID: 'key-id',
+        B2_APPLICATION_KEY: 'app-key',
+        B2_BUCKET_ID: 'bucket-id-123',
+        B2_BUCKET_NAME: '0x00C0DE-github-b2',
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
+    };
+
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            contentBlocks: [
+                { type: 'text', text: 'guarded gif post' },
+                { type: 'image', imageDataUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBA==' }
+            ]
+        })
+    }), env);
+
+    assert.equal(response.status, 201);
+    const updatedBlogContent = Buffer.from(githubUpdateBody.content, 'base64').toString('utf8');
+    assert.match(updatedBlogContent, /guarded gif post/);
+    assert.match(updatedBlogContent, /provider:b2/);
+    assert.equal(r2Bucket.objects.size, 0);
+    assert.equal(b2UploadHeaders.Authorization, 'b2-upload-token');
+});
+
+test('append endpoint fails cleanly when both R2 and B2 guardrails prevent hosted gif storage', async t => {
+    const originalFetch = globalThis.fetch;
+    const r2Bucket = new FakeR2Bucket();
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+        const method = options.method || 'GET';
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/contents/blog.txt?ref=main') {
+            return new Response(JSON.stringify({
+                sha: 'oldsha123',
+                content: Buffer.from([
+                    '0x00C0DE Blog',
+                    '=============',
+                    ''
+                ].join('\n'), 'utf8').toString('base64')
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response([
+                '0x00C0DE Blog',
+                '=============',
+                ''
+            ].join('\n'), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === 'https://api.cloudflare.com/client/v4/accounts/account-id/billing/usage/paygo') {
+            return new Response(JSON.stringify({
+                result: [{
+                    BillingPeriodStart: '2026-04-01T00:00:00Z',
+                    ChargePeriodStart: '2026-04-01T00:00:00Z',
+                    ChargePeriodEnd: '2026-04-03T12:00:00Z',
+                    ServiceName: 'R2 Class A Operations',
+                    ConsumedUnit: 'requests',
+                    ConsumedQuantity: 0,
+                    PricingQuantity: 0,
+                    CumulatedPricingQuantity: 0
+                }]
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === 'https://api.cloudflare.com/client/v4/accounts/account-id/r2/metrics') {
+            return new Response(JSON.stringify({
+                result: {
+                    standard: {
+                        uploaded: {
+                            payloadSize: 1024,
+                            metadataSize: 0
+                        }
+                    }
+                }
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${method} ${urlString}`);
+    };
+
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        GITHUB_OWNER: 'owner',
+        GITHUB_REPO: 'repo',
+        GITHUB_PAT: 'token',
+        GITHUB_BRANCH: 'main',
+        BLOG_MEDIA_BASE_URL: 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media',
+        BLOG_GIF_R2_BUCKET: r2Bucket,
+        BLOG_GIF_R2_BUCKET_NAME: '0x00c0de-github-r2',
+        CLOUDFLARE_ACCOUNT_ID: 'account-id',
+        CLOUDFLARE_BILLING_API_TOKEN: 'billing-token',
+        R2_CLASS_A_GUARD_THRESHOLD: '1',
+        R2_CLASS_B_GUARD_THRESHOLD: '8000000',
+        R2_STORAGE_GUARD_GB_MONTH_THRESHOLD: '8',
+        R2_BILLING_REFRESH_MS: '300000',
+        R2_QUOTA_GUARD: createR2QuotaGuardBinding(),
+        B2_BUCKET_NAME: '0x00C0DE-github-b2',
+        B2_BUCKET_ID: 'bucket-id-123',
+        B2_APPLICATION_KEY_ID: 'key-id',
+        B2_APPLICATION_KEY: 'app-key',
+        B2_CLASS_B_GUARD_THRESHOLD: '2000',
+        B2_CLASS_C_GUARD_THRESHOLD: '1',
+        B2_STORAGE_GUARD_GB_THRESHOLD: '8',
+        B2_USAGE_REFRESH_MS: '300000',
+        B2_QUOTA_GUARD: createB2QuotaGuardBinding(),
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
+    };
+
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            contentBlocks: [
+                { type: 'text', text: 'blocked gif post' },
+                { type: 'image', imageDataUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBA==' }
+            ]
+        })
+    }), env);
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), {
+        error: 'gif hosted media temporarily unavailable'
+    });
+    assert.equal(r2Bucket.objects.size, 0);
 });
 
 test('append endpoint accepts gif image data urls and commits them to blog.txt in compact reversible form', async t => {
@@ -2141,6 +2632,112 @@ test('media endpoint serves hosted gifs from R2 primary storage', async () => {
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('Content-Type'), 'image/gif');
     assert.equal(Buffer.from(await response.arrayBuffer()).toString('utf8'), 'GIF89a');
+});
+
+test('media endpoint stops R2 reads when billing guardrails are near the class B threshold', async t => {
+    const originalFetch = globalThis.fetch;
+    const r2Bucket = new FakeR2Bucket();
+    await r2Bucket.put('blog-gifs/test.gif', Buffer.from('GIF89a', 'utf8'), {
+        httpMetadata: {
+            contentType: 'image/gif'
+        }
+    });
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async url => {
+        const urlString = String(url);
+
+        if (urlString === 'https://api.cloudflare.com/client/v4/accounts/account-id/billing/usage/paygo') {
+            return new Response(JSON.stringify({
+                result: [{
+                    BillingPeriodStart: '2026-04-01T00:00:00Z',
+                    ChargePeriodStart: '2026-04-01T00:00:00Z',
+                    ChargePeriodEnd: '2026-04-03T12:00:00Z',
+                    ServiceName: 'R2 Class B Operations',
+                    ConsumedUnit: 'requests',
+                    ConsumedQuantity: 9,
+                    PricingQuantity: 9,
+                    CumulatedPricingQuantity: 9
+                }]
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString === 'https://api.cloudflare.com/client/v4/accounts/account-id/r2/metrics') {
+            return new Response(JSON.stringify({
+                result: {
+                    standard: {
+                        uploaded: {
+                            payloadSize: 1024,
+                            metadataSize: 0
+                        }
+                    }
+                }
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${urlString}`);
+    };
+
+    const response = await blogWorker.fetch(
+        new Request(`https://example.com/api/blog/media/r2/${Buffer.from('blog-gifs/test.gif').toString('base64url')}`),
+        {
+            ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+            BLOG_GIF_R2_BUCKET: r2Bucket,
+            BLOG_GIF_R2_BUCKET_NAME: '0x00c0de-github-r2',
+            CLOUDFLARE_ACCOUNT_ID: 'account-id',
+            CLOUDFLARE_BILLING_API_TOKEN: 'billing-token',
+            R2_STORAGE_GUARD_GB_MONTH_THRESHOLD: '8',
+            R2_CLASS_A_GUARD_THRESHOLD: '800000',
+            R2_CLASS_B_GUARD_THRESHOLD: '10',
+            R2_BILLING_REFRESH_MS: '300000',
+            R2_QUOTA_GUARD: createR2QuotaGuardBinding()
+        }
+    );
+
+    assert.equal(response.status, 503);
+    assert.equal(await response.text(), 'r2 media temporarily unavailable');
+    assert.equal(r2Bucket.getCalls, 0);
+});
+
+test('media endpoint stops B2 reads when B2 guardrails are near the class B threshold', async t => {
+    const originalFetch = globalThis.fetch;
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async url => {
+        throw new Error(`unexpected fetch: ${String(url)}`);
+    };
+
+    const response = await blogWorker.fetch(
+        new Request('https://example.com/api/blog/media/b2/b2-file-id-123'),
+        {
+            ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+            B2_BUCKET_NAME: '0x00C0DE-github-b2',
+            B2_CLASS_B_GUARD_THRESHOLD: '1',
+            B2_CLASS_C_GUARD_THRESHOLD: '2000',
+            B2_STORAGE_GUARD_GB_THRESHOLD: '8',
+            B2_USAGE_REFRESH_MS: '300000',
+            B2_QUOTA_GUARD: createB2QuotaGuardBinding()
+        }
+    );
+
+    assert.equal(response.status, 503);
+    assert.equal(await response.text(), 'b2 media temporarily unavailable');
 });
 
 test('media endpoint serves hosted gifs from private B2 fallback storage', async t => {

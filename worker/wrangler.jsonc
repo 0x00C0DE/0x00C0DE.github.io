@@ -23,6 +23,14 @@
       {
         "name": "BLOG_UPLOAD_SESSION",
         "class_name": "BlogUploadSession"
+      },
+      {
+        "name": "R2_QUOTA_GUARD",
+        "class_name": "R2QuotaGuard"
+      },
+      {
+        "name": "B2_QUOTA_GUARD",
+        "class_name": "B2QuotaGuard"
       }
     ]
   },
@@ -44,6 +52,18 @@
       "new_sqlite_classes": [
         "BlogUploadSession"
       ]
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": [
+        "R2QuotaGuard"
+      ]
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": [
+        "B2QuotaGuard"
+      ]
     }
   ],
   "observability": {
@@ -52,6 +72,7 @@
   "vars": {
     "ALLOWED_ORIGIN": "https://0x00c0de.github.io",
     "BLOG_MEDIA_BASE_URL": "https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media",
+    "BLOG_GIF_R2_BUCKET_NAME": "0x00c0de-github-r2",
     "GITHUB_OWNER": "0x00C0DE",
     "GITHUB_REPO": "0x00C0DE.github.io",
     "GITHUB_BRANCH": "main",
@@ -60,8 +81,17 @@
     "MAX_IMAGE_DATA_URL_LENGTH": "100000000",
     "RATE_LIMIT_WINDOW_MS": "3600000",
     "RATE_LIMIT_MAX": "50",
+    "CLOUDFLARE_ACCOUNT_ID": "1261ff0d822d155f78024307d6c50213",
+    "R2_STORAGE_GUARD_GB_MONTH_THRESHOLD": "8",
+    "R2_CLASS_A_GUARD_THRESHOLD": "800000",
+    "R2_CLASS_B_GUARD_THRESHOLD": "8000000",
+    "R2_BILLING_REFRESH_MS": "300000",
     "B2_BUCKET_NAME": "0x00C0DE-github-b2",
     "B2_BUCKET_ID": "448479a5ec4c5d5396dd061a",
-    "B2_APPLICATION_KEY_ID": "0044495ccd36d6a0000000003"
+    "B2_APPLICATION_KEY_ID": "0044495ccd36d6a0000000003",
+    "B2_STORAGE_GUARD_GB_THRESHOLD": "8",
+    "B2_CLASS_B_GUARD_THRESHOLD": "2000",
+    "B2_CLASS_C_GUARD_THRESHOLD": "2000",
+    "B2_USAGE_REFRESH_MS": "300000"
   }
 }
