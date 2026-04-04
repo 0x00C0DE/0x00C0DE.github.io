@@ -557,6 +557,10 @@ function appendDeleteMediaActions(wrapper, line, mediaElement) {
 }
 
 function syncTerminalSessionAwareLines() {
+    if (!isRootSessionActive()) {
+        stopEditorialAnimationLoop();
+    }
+
     const lines = document.querySelectorAll('.terminal-line');
     lines.forEach(line => {
         if (!line.__terminalRenderedObject || typeof line.__terminalRenderedObject !== 'object') {
@@ -572,10 +576,14 @@ function syncTerminalSessionAwareLines() {
 const editorialBlogEntryStates = new WeakMap();
 const editorialBlogEntryContainers = new Set();
 let editorialBlogResizeFrameId = 0;
+let editorialBlogAnimationFrameId = 0;
 const BLOG_EDITORIAL_MEDIA_GUTTER = 18;
 const BLOG_EDITORIAL_MEDIA_ROW_MARGIN_TOP_REM = 0.15;
 const BLOG_EDITORIAL_MEDIA_ROW_MARGIN_BOTTOM_REM = 0.4;
 const TERMINAL_EDITORIAL_OVERLAY_CLASS = 'terminal-editorial-overlay';
+const EDITORIAL_MEDIA_FLOAT_AMPLITUDE_X = 10;
+const EDITORIAL_MEDIA_FLOAT_AMPLITUDE_Y = 14;
+const EDITORIAL_MEDIA_FLOAT_PADDING = 22;
 
 function isRootSessionActive() {
     const snapshot = getPromptSnapshot();
@@ -584,6 +592,30 @@ function isRootSessionActive() {
     }
 
     return Boolean(snapshot.isRoot) || String(snapshot.user || '').trim().toLowerCase() === 'root';
+}
+
+function hasActiveEditorialBlogEntries() {
+    let hasConnectedEntry = false;
+    editorialBlogEntryContainers.forEach(container => {
+        if (hasConnectedEntry) {
+            return;
+        }
+
+        if (container?.isConnected && editorialBlogEntryStates.has(container)) {
+            hasConnectedEntry = true;
+        }
+    });
+
+    return hasConnectedEntry;
+}
+
+function isTerminalEditorialModeActive() {
+    return isRootSessionActive() && hasActiveEditorialBlogEntries();
+}
+
+function formatEditorialVisitorValue(value, width = 7) {
+    const safeValue = Math.max(0, Number.isFinite(Number(value)) ? Math.floor(Number(value)) : 0);
+    return String(safeValue).padStart(width, '0');
 }
 
 function clampEditorialNumber(value, minimum, maximum) {
@@ -726,10 +758,42 @@ function getOrderedEditorialBlogContainers() {
     });
 }
 
+function getOrderedTerminalObjectLines() {
+    const terminal = document.getElementById('terminal');
+    if (!terminal) {
+        return [];
+    }
+
+    return [...terminal.querySelectorAll('.terminal-line')]
+        .filter(container => container?.__terminalRenderedObject && typeof container.__terminalRenderedObject === 'object');
+}
+
 function createEditorialMediaPlaceholderRow() {
     const row = document.createElement('div');
     row.className = 'terminal-blog-entry-media-row terminal-editorial-media-placeholder';
     return row;
+}
+
+function createEditorialTextBlockElement(className = 'terminal-editorial-text-block') {
+    const element = document.createElement('div');
+    element.className = className;
+    return element;
+}
+
+function rerenderTerminalEditorialChromeLines() {
+    if (!isTerminalEditorialModeActive()) {
+        return;
+    }
+
+    getOrderedTerminalObjectLines().forEach(container => {
+        const line = container.__terminalRenderedObject;
+        if (!line || (line.type !== 'banner' && line.type !== 'visitor-widget')) {
+            return;
+        }
+
+        container.replaceChildren();
+        renderOutputObject(container, line);
+    });
 }
 
 function getBlogEntryMediaBlocks(line) {
@@ -757,8 +821,16 @@ function createBlogEditorialMediaState(block, index) {
         aspectRatio: block.type === 'inline-video' ? 16 / 9 : 4 / 3,
         block,
         docked: true,
+        floatAmplitudeX: EDITORIAL_MEDIA_FLOAT_AMPLITUDE_X * (0.7 + Math.random() * 0.6),
+        floatAmplitudeY: EDITORIAL_MEDIA_FLOAT_AMPLITUDE_Y * (0.65 + Math.random() * 0.55),
+        floatPhaseX: Math.random() * Math.PI * 2,
+        floatPhaseY: Math.random() * Math.PI * 2,
+        floatSpeedX: 0.00055 + Math.random() * 0.00045,
+        floatSpeedY: 0.00045 + Math.random() * 0.00035,
         id: `${block.imageKey || block.src || `media-${index}`}-${index}`,
         index,
+        renderX: null,
+        renderY: null,
         x: null,
         y: null
     };
@@ -825,6 +897,82 @@ function resolveEditorialMediaRowSpacing() {
     return {
         bottom: Math.round(rem * BLOG_EDITORIAL_MEDIA_ROW_MARGIN_BOTTOM_REM),
         top: Math.round(rem * BLOG_EDITORIAL_MEDIA_ROW_MARGIN_TOP_REM)
+    };
+}
+
+function getAllBlogEditorialMediaStates() {
+    return getOrderedEditorialBlogContainers().flatMap(container => {
+        const state = editorialBlogEntryStates.get(container);
+        return Array.isArray(state?.media) ? state.media : [];
+    });
+}
+
+function buildRelativeEditorialObstacles(element, obstacleRects, padding = EDITORIAL_MEDIA_FLOAT_PADDING) {
+    const maxWidth = resolveEditorialContainerWidth(element);
+    if (!element || maxWidth <= 0 || !Array.isArray(obstacleRects) || obstacleRects.length === 0) {
+        return [];
+    }
+
+    const elementLeft = resolveElementLeftInTerminal(element);
+    const elementTop = resolveElementTopInTerminal(element);
+    const horizontalPadding = Math.round(padding * 0.4);
+    const verticalPadding = Math.round(padding * 0.35);
+
+    return obstacleRects.reduce((relativeRects, rect) => {
+        const relativeLeft = rect.x - elementLeft - horizontalPadding;
+        const relativeRight = rect.x + rect.width - elementLeft + horizontalPadding;
+        const relativeTop = rect.y - elementTop - verticalPadding;
+        const relativeBottom = rect.y + rect.height - elementTop + verticalPadding;
+
+        const clippedLeft = clampEditorialNumber(relativeLeft, 0, maxWidth);
+        const clippedRight = clampEditorialNumber(relativeRight, 0, maxWidth);
+        const clippedTop = Math.max(0, relativeTop);
+        const clippedBottom = Math.max(0, relativeBottom);
+
+        if (clippedRight <= clippedLeft || clippedBottom <= clippedTop) {
+            return relativeRects;
+        }
+
+        relativeRects.push({
+            height: clippedBottom - clippedTop,
+            width: clippedRight - clippedLeft,
+            x: clippedLeft,
+            y: clippedTop
+        });
+        return relativeRects;
+    }, []);
+}
+
+function syncEditorialTextContainer(element, text, obstacleRects, options = {}) {
+    if (!element) {
+        return {
+            height: 0,
+            lineCount: 0,
+            lines: []
+        };
+    }
+
+    if (typeof window.renderTerminalEditorialLineContent === 'function') {
+        return window.renderTerminalEditorialLineContent(element, text, {
+            ...options,
+            obstacles: buildRelativeEditorialObstacles(element, obstacleRects, options.padding)
+        }) || {
+            height: element.getBoundingClientRect().height || 0,
+            lineCount: 0,
+            lines: []
+        };
+    }
+
+    if (typeof window.renderTerminalLineContent === 'function') {
+        window.renderTerminalLineContent(element, text);
+    } else {
+        element.textContent = text;
+    }
+
+    return {
+        height: element.getBoundingClientRect().height || 0,
+        lineCount: 0,
+        lines: []
     };
 }
 
@@ -945,52 +1093,38 @@ function ensureBlogEditorialMediaAspectRatio(container, line, state, mediaState,
     }
 }
 
-function applyBlogEditorialMediaPosition(mediaState, dimensions) {
-    if (!mediaState.dom?.wrapper || !mediaState.dom?.mediaElement) {
-        return;
+function resolveAnimatedEditorialMediaPosition(mediaState, dimensions, now = window.performance?.now?.() || Date.now()) {
+    const terminalWidth = resolveEditorialTerminalWidth();
+    const maximumX = Math.max(0, terminalWidth - dimensions.width);
+    const baseX = clampEditorialNumber(Number(mediaState.x) || 0, 0, maximumX);
+    const baseY = clampEditorialNumber(Number(mediaState.y) || 0, 0, Number.MAX_SAFE_INTEGER);
+
+    if (mediaState.docked || mediaState.isDragging) {
+        return {
+            x: baseX,
+            y: baseY
+        };
     }
 
-    mediaState.dom.wrapper.style.width = `${Math.round(dimensions.width)}px`;
-    mediaState.dom.wrapper.style.height = `${Math.round(dimensions.outerHeight)}px`;
-    mediaState.dom.wrapper.style.transform = `translate(${Math.round(mediaState.x)}px, ${Math.round(mediaState.y)}px)`;
-    mediaState.dom.mediaElement.style.width = `${Math.round(dimensions.width)}px`;
-    mediaState.dom.mediaElement.style.height = `${Math.round(dimensions.height)}px`;
+    const animatedX = clampEditorialNumber(
+        baseX + Math.sin(now * mediaState.floatSpeedX + mediaState.floatPhaseX) * mediaState.floatAmplitudeX,
+        0,
+        maximumX
+    );
+    const animatedY = Math.max(
+        0,
+        baseY + Math.cos(now * mediaState.floatSpeedY + mediaState.floatPhaseY) * mediaState.floatAmplitudeY
+    );
+
+    return {
+        x: animatedX,
+        y: animatedY
+    };
 }
 
-function syncAllBlogEditorialLayouts() {
-    if (!isRootSessionActive()) {
+function updateBlogEditorialMediaAnchors(state, now = window.performance?.now?.() || Date.now()) {
+    if (!state) {
         return;
-    }
-
-    const overlay = ensureTerminalEditorialOverlay();
-    const containers = getOrderedEditorialBlogContainers();
-    containers.forEach(container => {
-        if (!container.isConnected) {
-            disposeBlogEditorialState(container);
-            return;
-        }
-
-        const state = editorialBlogEntryStates.get(container);
-        const line = container.__terminalRenderedObject;
-        if (state && line && line.type === 'blog-entry') {
-            syncBlogEditorialEntryLayout(container, line, state);
-        }
-    });
-
-    if (overlay) {
-        const terminal = document.getElementById('terminal');
-        overlay.style.height = `${Math.max(terminal?.scrollHeight || 0, terminal?.clientHeight || 0)}px`;
-    }
-}
-
-function syncBlogEditorialEntryLayout(container, line, state) {
-    if (!state?.dom?.wrapper) {
-        return;
-    }
-
-    const overlay = ensureTerminalEditorialOverlay();
-    if (overlay && state.dom.overlay !== overlay) {
-        state.dom.overlay = overlay;
     }
 
     const terminalWidth = resolveEditorialTerminalWidth();
@@ -1001,20 +1135,306 @@ function syncBlogEditorialEntryLayout(container, line, state) {
         }
 
         const dimensions = resolveEditorialMediaDimensions(mediaState, terminalWidth);
-        placeholder.style.height = `${Math.round(dimensions.outerHeight)}px`;
-        placeholder.style.minHeight = `${Math.round(dimensions.outerHeight)}px`;
-
         if (mediaState.docked) {
+            placeholder.style.height = `${Math.round(dimensions.outerHeight)}px`;
+            placeholder.style.minHeight = `${Math.round(dimensions.outerHeight)}px`;
+            placeholder.classList.remove('is-floating');
+            mediaState.dom?.wrapper?.classList.remove('is-floating');
             mediaState.x = resolveElementLeftInTerminal(placeholder);
             mediaState.y = resolveElementTopInTerminal(placeholder);
         } else {
-            const maximumX = Math.max(0, terminalWidth - dimensions.width);
-            mediaState.x = clampEditorialNumber(Number(mediaState.x) || 0, 0, maximumX);
+            placeholder.style.height = '0px';
+            placeholder.style.minHeight = '0px';
+            placeholder.classList.add('is-floating');
+            mediaState.dom?.wrapper?.classList.add('is-floating');
+            mediaState.x = clampEditorialNumber(Number(mediaState.x) || 0, 0, Math.max(0, terminalWidth - dimensions.width));
             mediaState.y = clampEditorialNumber(Number(mediaState.y) || 0, 0, Number.MAX_SAFE_INTEGER);
         }
 
+        const animatedPosition = resolveAnimatedEditorialMediaPosition(mediaState, dimensions, now);
+        mediaState.renderX = animatedPosition.x;
+        mediaState.renderY = animatedPosition.y;
         applyBlogEditorialMediaPosition(mediaState, dimensions);
     });
+}
+
+function collectBlogEditorialObstacleRects() {
+    return getAllBlogEditorialMediaStates().reduce((rects, mediaState) => {
+        const wrapper = mediaState?.dom?.wrapper;
+        if (!wrapper) {
+            return rects;
+        }
+
+        const width = wrapper.getBoundingClientRect().width || wrapper.offsetWidth || 0;
+        const height = wrapper.getBoundingClientRect().height || wrapper.offsetHeight || 0;
+        if (width <= 0 || height <= 0) {
+            return rects;
+        }
+
+        rects.push({
+            height,
+            width,
+            x: Number.isFinite(mediaState.renderX) ? mediaState.renderX : (Number.isFinite(mediaState.x) ? mediaState.x : 0),
+            y: Number.isFinite(mediaState.renderY) ? mediaState.renderY : (Number.isFinite(mediaState.y) ? mediaState.y : 0)
+        });
+        return rects;
+    }, []);
+}
+
+function applyBlogEditorialMediaPosition(mediaState, dimensions) {
+    if (!mediaState.dom?.wrapper || !mediaState.dom?.mediaElement) {
+        return;
+    }
+
+    const renderX = Number.isFinite(mediaState.renderX) ? mediaState.renderX : mediaState.x;
+    const renderY = Number.isFinite(mediaState.renderY) ? mediaState.renderY : mediaState.y;
+    mediaState.dom.wrapper.style.width = `${Math.round(dimensions.width)}px`;
+    mediaState.dom.wrapper.style.height = `${Math.round(dimensions.outerHeight)}px`;
+    mediaState.dom.wrapper.style.transform = `translate(${Math.round(renderX || 0)}px, ${Math.round(renderY || 0)}px)`;
+    mediaState.dom.mediaElement.style.width = `${Math.round(dimensions.width)}px`;
+    mediaState.dom.mediaElement.style.height = `${Math.round(dimensions.height)}px`;
+}
+
+function stopEditorialAnimationLoop() {
+    if (!editorialBlogAnimationFrameId) {
+        return;
+    }
+
+    window.cancelAnimationFrame(editorialBlogAnimationFrameId);
+    editorialBlogAnimationFrameId = 0;
+}
+
+function shouldAnimateEditorialMedia() {
+    return getAllBlogEditorialMediaStates().some(mediaState => !mediaState.docked || mediaState.isDragging);
+}
+
+function queueEditorialAnimationLoop() {
+    if (editorialBlogAnimationFrameId || !isTerminalEditorialModeActive() || !shouldAnimateEditorialMedia()) {
+        return;
+    }
+
+    editorialBlogAnimationFrameId = window.requestAnimationFrame(() => {
+        editorialBlogAnimationFrameId = 0;
+        syncAllBlogEditorialLayouts();
+        queueEditorialAnimationLoop();
+    });
+}
+
+function syncAllBlogEditorialLayouts() {
+    if (!isTerminalEditorialModeActive()) {
+        stopEditorialAnimationLoop();
+        return;
+    }
+
+    const overlay = ensureTerminalEditorialOverlay();
+    const blogContainers = getOrderedEditorialBlogContainers();
+    blogContainers.forEach(container => {
+        if (!container.isConnected) {
+            disposeBlogEditorialState(container);
+            return;
+        }
+
+        const state = editorialBlogEntryStates.get(container);
+        if (state) {
+            updateBlogEditorialMediaAnchors(state);
+        }
+    });
+
+    const obstacleRects = collectBlogEditorialObstacleRects();
+    getOrderedTerminalObjectLines().forEach(container => {
+        const line = container.__terminalRenderedObject;
+        if (!line) {
+            return;
+        }
+
+        if (line.type === 'banner') {
+            syncBannerEditorialLayout(container, line, obstacleRects);
+            return;
+        }
+
+        if (line.type === 'visitor-widget') {
+            syncVisitorWidgetEditorialLayout(container, line, obstacleRects);
+            return;
+        }
+
+        if (line.type === 'blog-entry') {
+            const state = editorialBlogEntryStates.get(container);
+            if (state) {
+                syncBlogEditorialEntryLayout(container, line, state, obstacleRects);
+            }
+        }
+    });
+
+    if (overlay) {
+        const terminal = document.getElementById('terminal');
+        overlay.style.height = `${Math.max(terminal?.scrollHeight || 0, terminal?.clientHeight || 0)}px`;
+    }
+
+    queueEditorialAnimationLoop();
+}
+
+function syncBlogEditorialEntryLayout(container, line, state, obstacleRects = []) {
+    if (!state?.dom?.wrapper) {
+        return;
+    }
+
+    const overlay = ensureTerminalEditorialOverlay();
+    if (overlay && state.dom.overlay !== overlay) {
+        state.dom.overlay = overlay;
+    }
+
+    syncEditorialTextContainer(state.dom.headerText, line.text || '', obstacleRects, {
+        minSegmentWidth: 96,
+        tokenizeLinks: false,
+        whiteSpace: 'pre-wrap'
+    });
+
+    (Array.isArray(state.dom.textBlocks) ? state.dom.textBlocks : []).forEach(textBlockState => {
+        syncEditorialTextContainer(textBlockState.element, textBlockState.text, obstacleRects, {
+            minSegmentWidth: 56,
+            whiteSpace: 'pre-wrap'
+        });
+    });
+}
+
+function buildBannerEditorialSignature(line) {
+    return `${line?.title || ''}::${line?.subtitle || ''}`;
+}
+
+function mountBannerEditorial(container, line, state) {
+    const title = createEditorialTextBlockElement('banner-art terminal-editorial-banner-text');
+    container.append(title);
+
+    let subtitle = null;
+    if (line.subtitle) {
+        subtitle = createEditorialTextBlockElement('banner-subtitle terminal-editorial-banner-text');
+        container.append(subtitle);
+    }
+
+    state.dom = {
+        subtitle,
+        title
+    };
+}
+
+function syncBannerEditorialLayout(container, line, obstacleRects = []) {
+    if (!isTerminalEditorialModeActive()) {
+        return;
+    }
+
+    let state = container.__terminalEditorialBannerState;
+    const signature = buildBannerEditorialSignature(line);
+    if (!state || state.signature !== signature || !state.dom?.title) {
+        container.replaceChildren();
+        state = { dom: null, signature };
+        mountBannerEditorial(container, line, state);
+        container.__terminalEditorialBannerState = state;
+    }
+
+    syncEditorialTextContainer(state.dom.title, line.title || '', obstacleRects, {
+        minSegmentWidth: 132,
+        tokenizeLinks: false,
+        whiteSpace: 'pre-wrap'
+    });
+
+    if (state.dom.subtitle) {
+        syncEditorialTextContainer(state.dom.subtitle, line.subtitle || '', obstacleRects, {
+            minSegmentWidth: 96,
+            tokenizeLinks: false,
+            whiteSpace: 'pre-wrap'
+        });
+    }
+}
+
+function renderBannerEditorial(container, line) {
+    syncBannerEditorialLayout(container, line, []);
+}
+
+function buildVisitorWidgetEditorialSignature(stats = null) {
+    const safeStats = stats || {};
+    return [
+        safeStats.visits ?? '',
+        safeStats.uniqueVisitors ?? '',
+        safeStats.onSite ?? ''
+    ].join(':');
+}
+
+function buildVisitorWidgetEditorialRows(stats = null) {
+    const safeStats = stats || {};
+    return [
+        {
+            className: 'visitor-widget-row visitor-widget-row-editorial',
+            text: `Visits: ${formatEditorialVisitorValue(safeStats.visits)}`
+        },
+        {
+            className: 'visitor-widget-row visitor-widget-row-editorial',
+            text: `Uniq. Visitors: ${formatEditorialVisitorValue(safeStats.uniqueVisitors)}`
+        },
+        {
+            className: 'visitor-widget-row visitor-widget-row-editorial',
+            text: `On-site: ${formatEditorialVisitorValue(safeStats.onSite)}`
+        }
+    ];
+}
+
+function mountVisitorWidgetEditorial(container, line, state) {
+    const widget = document.createElement('div');
+    widget.className = 'visitor-widget terminal-editorial-visitor-widget';
+    widget.setAttribute('data-visitor-counter', '');
+
+    const rows = buildVisitorWidgetEditorialRows(line.stats).map(rowDefinition => {
+        const row = document.createElement('div');
+        row.className = rowDefinition.className;
+
+        const text = createEditorialTextBlockElement('visitor-widget-editorial-text');
+        row.append(text);
+        widget.append(row);
+
+        return {
+            element: text,
+            text: rowDefinition.text
+        };
+    });
+
+    container.append(widget);
+    state.dom = {
+        rows,
+        widget
+    };
+}
+
+function syncVisitorWidgetEditorialLayout(container, line, obstacleRects = []) {
+    if (!isTerminalEditorialModeActive()) {
+        return;
+    }
+
+    let state = container.__terminalEditorialVisitorState;
+    const signature = buildVisitorWidgetEditorialSignature(line.stats);
+    if (!state || state.signature !== signature || !state.dom?.widget) {
+        container.replaceChildren();
+        state = { dom: null, signature };
+        mountVisitorWidgetEditorial(container, line, state);
+        container.__terminalEditorialVisitorState = state;
+    }
+
+    const rows = buildVisitorWidgetEditorialRows(line.stats);
+    rows.forEach((rowDefinition, index) => {
+        const row = state.dom.rows[index];
+        if (!row) {
+            return;
+        }
+
+        row.text = rowDefinition.text;
+        syncEditorialTextContainer(row.element, row.text, obstacleRects, {
+            minSegmentWidth: 84,
+            tokenizeLinks: false,
+            whiteSpace: 'pre-wrap'
+        });
+    });
+}
+
+function renderVisitorWidgetEditorial(container, line) {
+    syncVisitorWidgetEditorialLayout(container, line, []);
 }
 
 function mountBlogEditorialEntry(container, line, state) {
@@ -1024,31 +1444,22 @@ function mountBlogEditorialEntry(container, line, state) {
     const header = document.createElement('div');
     header.className = 'terminal-blog-entry-header';
 
-    const timestamp = document.createElement('span');
-    timestamp.className = 'terminal-blog-entry-timestamp';
-    timestamp.textContent = line.text || '';
+    const timestamp = createEditorialTextBlockElement('terminal-blog-entry-timestamp terminal-editorial-blog-header-text');
     header.append(timestamp);
     appendDeletePostActions(header, line);
     wrapper.append(header);
 
     const overlay = ensureTerminalEditorialOverlay();
     const mediaStatesByBlock = new Map(state.media.map(mediaState => [mediaState.block, mediaState]));
+    const textBlocks = [];
 
     (Array.isArray(line.blocks) ? line.blocks : []).forEach(block => {
         if (block.type === 'blog-entry-text-block') {
-            block.lines.forEach(textLine => {
-                const row = document.createElement('div');
-                row.className = textLine ? 'terminal-blog-entry-text-line' : 'terminal-blog-entry-text-line terminal-blog-entry-text-line-empty';
-                if (textLine) {
-                    if (typeof window.renderTerminalLineContent === 'function') {
-                        window.renderTerminalLineContent(row, textLine);
-                    } else {
-                        row.textContent = textLine;
-                    }
-                } else {
-                    row.textContent = '\u00A0';
-                }
-                wrapper.append(row);
+            const textBlock = createEditorialTextBlockElement('terminal-editorial-text-block terminal-blog-entry-text-block');
+            wrapper.append(textBlock);
+            textBlocks.push({
+                element: textBlock,
+                text: Array.isArray(block.lines) ? block.lines.join('\n') : ''
             });
             return;
         }
@@ -1090,6 +1501,7 @@ function mountBlogEditorialEntry(container, line, state) {
 
                 event.preventDefault();
                 mediaState.docked = false;
+                mediaState.isDragging = true;
                 state.drag = {
                     mediaId: mediaState.id,
                     originX: mediaState.x,
@@ -1129,10 +1541,12 @@ function mountBlogEditorialEntry(container, line, state) {
                 }
 
                 mediaWrapper.classList.remove('is-dragging');
+                mediaState.isDragging = false;
                 state.drag = null;
                 if (mediaElement.hasPointerCapture(event.pointerId)) {
                     mediaElement.releasePointerCapture(event.pointerId);
                 }
+                syncAllBlogEditorialLayouts();
             };
 
             mediaElement.addEventListener('pointerdown', startDrag);
@@ -1152,7 +1566,9 @@ function mountBlogEditorialEntry(container, line, state) {
 
     container.append(wrapper);
     state.dom = {
+        headerText: timestamp,
         overlay,
+        textBlocks,
         wrapper
     };
 }
@@ -1160,6 +1576,7 @@ function mountBlogEditorialEntry(container, line, state) {
 function renderBlogEntryEditorial(container, line) {
     const state = getBlogEditorialState(container, line);
     mountBlogEditorialEntry(container, line, state);
+    rerenderTerminalEditorialChromeLines();
     syncAllBlogEditorialLayouts();
 }
 
@@ -1178,7 +1595,7 @@ window.addEventListener('resize', () => {
             }
 
             const line = container.__terminalRenderedObject;
-            if (!line || line.type !== 'blog-entry' || !isRootSessionActive()) {
+            if (!line || line.type !== 'blog-entry' || !isTerminalEditorialModeActive()) {
                 return;
             }
 
@@ -1241,6 +1658,11 @@ function renderOutputObject(container, line) {
     }
 
     if (line.type === 'banner') {
+        if (isTerminalEditorialModeActive()) {
+            renderBannerEditorial(container, line);
+            return;
+        }
+
         appendBannerWaveText(container, line.title || '', 'banner-art');
 
         if (line.subtitle) {
@@ -1250,6 +1672,11 @@ function renderOutputObject(container, line) {
     }
 
     if (line.type === 'visitor-widget' && typeof window.buildVisitorWidgetElement === 'function') {
+        if (isTerminalEditorialModeActive()) {
+            renderVisitorWidgetEditorial(container, line);
+            return;
+        }
+
         container.append(window.buildVisitorWidgetElement(line.stats));
         return;
     }

@@ -882,11 +882,16 @@ async function renderImageToAscii(imageSource, width, height, options = {}) {
     return processImage(context, dimensions.width, dimensions.height);
 }
 
-async function selectUserImageFile(options = {}) {
+async function selectUserImageFiles(options = {}) {
     const input = document.getElementById('user-image-input');
     if (!input) {
         throw new Error('user image input not found');
     }
+
+    const exactCount = Number.isInteger(options.exactCount) && options.exactCount > 0
+        ? options.exactCount
+        : null;
+    const allowMultiple = Boolean(options.multiple || (exactCount && exactCount > 1));
 
     if (document.activeElement && typeof document.activeElement.blur === 'function') {
         document.activeElement.blur();
@@ -897,11 +902,12 @@ async function selectUserImageFile(options = {}) {
     input.setAttribute('accept', typeof options.accept === 'string' && options.accept.trim()
         ? options.accept.trim()
         : BLOG_IMAGE_FILE_ACCEPT);
+    input.multiple = allowMultiple;
 
     return new Promise(resolve => {
         let settled = false;
 
-        const finish = file => {
+        const finish = files => {
             if (settled) {
                 return;
             }
@@ -909,17 +915,28 @@ async function selectUserImageFile(options = {}) {
             input.removeEventListener('change', handleChange);
             window.removeEventListener('focus', handleFocus);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
-            resolve(file || null);
+            input.multiple = false;
+            resolve(Array.isArray(files) ? files : []);
+        };
+
+        const resolveSelectedFiles = () => {
+            const files = input.files ? Array.from(input.files).filter(Boolean) : [];
+            if (exactCount && files.length !== exactCount) {
+                finish(files);
+                return;
+            }
+
+            finish(files);
         };
 
         const handleChange = () => {
-            finish(input.files && input.files[0] ? input.files[0] : null);
+            resolveSelectedFiles();
         };
 
         const handleFocus = () => {
             setTimeout(() => {
                 if (!settled) {
-                    finish(input.files && input.files[0] ? input.files[0] : null);
+                    resolveSelectedFiles();
                 }
             }, 400);
         };
@@ -928,7 +945,7 @@ async function selectUserImageFile(options = {}) {
             if (document.visibilityState === 'visible') {
                 setTimeout(() => {
                     if (!settled) {
-                        finish(input.files && input.files[0] ? input.files[0] : null);
+                        resolveSelectedFiles();
                     }
                 }, 400);
             }
@@ -939,6 +956,15 @@ async function selectUserImageFile(options = {}) {
         document.addEventListener('visibilitychange', handleVisibilityChange);
         input.click();
     });
+}
+
+async function selectUserImageFile(options = {}) {
+    const files = await selectUserImageFiles({
+        ...options,
+        exactCount: 1,
+        multiple: false
+    });
+    return files[0] || null;
 }
 
 async function decodeSelectedImage(file) {
@@ -1052,22 +1078,38 @@ function normalizePostTextBlock(text) {
 
 async function resolvePostContentBlocks(templateBlocks) {
     const contentBlocks = [];
-    let imageCount = 0;
     let totalTextLength = 0;
+    const requestedMediaCount = templateBlocks.reduce(
+        (count, block) => count + (block.type === 'image' ? 1 : 0),
+        0
+    );
+
+    if (requestedMediaCount > BLOG_MAX_IMAGE_ATTACHMENTS) {
+        return {
+            error: `post: no more than ${BLOG_MAX_IMAGE_ATTACHMENTS} media attachments are allowed per entry`
+        };
+    }
+
+    let mediaAttachments = [];
+    if (requestedMediaCount > 0) {
+        const selectedMedia = await selectPostMediaAttachments(requestedMediaCount);
+        if (selectedMedia.error) {
+            return { error: selectedMedia.error };
+        }
+        mediaAttachments = selectedMedia.attachments;
+    }
+
+    let mediaAttachmentIndex = 0;
 
     for (const block of templateBlocks) {
         if (block.type === 'image') {
-            imageCount += 1;
-            if (imageCount > BLOG_MAX_IMAGE_ATTACHMENTS) {
+            const imageAttachment = mediaAttachments[mediaAttachmentIndex];
+            if (!imageAttachment) {
                 return {
-                    error: `post: no more than ${BLOG_MAX_IMAGE_ATTACHMENTS} media attachments are allowed per entry`
+                    error: `post: upload cancelled; expected ${requestedMediaCount} media item${requestedMediaCount === 1 ? '' : 's'}`
                 };
             }
-
-            const imageAttachment = await selectPostImageDataUrl();
-            if (imageAttachment.error) {
-                return { error: imageAttachment.error };
-            }
+            mediaAttachmentIndex += 1;
 
             contentBlocks.push({
                 type: 'image',
@@ -1502,8 +1544,7 @@ async function buildCompactGifImageAttachment(file) {
     };
 }
 
-async function selectPostImageDataUrl() {
-    const file = await selectUserImageFile({ accept: BLOG_POST_FILE_ACCEPT });
+async function buildPostMediaAttachmentFromFile(file) {
     if (!file) {
         return { error: 'post: no media selected' };
     }
@@ -1556,6 +1597,38 @@ async function selectPostImageDataUrl() {
         mimeType,
         fileName: file.name || 'media'
     };
+}
+
+async function selectPostMediaAttachments(requiredCount = 1) {
+    const normalizedCount = Number.isInteger(requiredCount) && requiredCount > 0
+        ? requiredCount
+        : 1;
+    const files = await selectUserImageFiles({
+        accept: BLOG_POST_FILE_ACCEPT,
+        exactCount: normalizedCount,
+        multiple: normalizedCount > 1
+    });
+
+    if (files.length === 0) {
+        return { error: 'post: no media selected' };
+    }
+
+    if (files.length !== normalizedCount) {
+        return {
+            error: `post: upload cancelled; expected ${normalizedCount} media item${normalizedCount === 1 ? '' : 's'} but received ${files.length}`
+        };
+    }
+
+    const attachments = [];
+    for (const file of files) {
+        const attachment = await buildPostMediaAttachmentFromFile(file);
+        if (attachment.error) {
+            return attachment;
+        }
+        attachments.push(attachment);
+    }
+
+    return { attachments };
 }
 
 async function stageBlogUploadPayload(payload, payloadLabel = 'image upload') {

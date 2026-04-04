@@ -337,6 +337,15 @@ body.terminal-theme-godlike .terminal-binary-column {
     font-size: 0.92em;
 }
 
+body.terminal-theme-godlike .terminal-inline-image-delete {
+    border-color: rgba(255, 215, 112, 0.78);
+    color: var(--terminal-godlike-gold);
+}
+
+body.terminal-theme-godlike .terminal-inline-image-status {
+    color: var(--terminal-gold-faint);
+}
+
 .terminal-blog-entry {
     display: block;
     margin: 0 0 1.25rem;
@@ -356,6 +365,12 @@ body.terminal-theme-godlike .terminal-binary-column {
 
 .terminal-editorial-media-placeholder {
     position: relative;
+    margin: 0;
+}
+
+.terminal-editorial-media-placeholder.is-floating {
+    margin: 0;
+    overflow: hidden;
 }
 
 .terminal-editorial-entry {
@@ -400,9 +415,33 @@ body.terminal-theme-godlike .terminal-binary-column {
     display: block;
     pointer-events: auto;
     z-index: 2;
+    will-change: transform;
+}
+
+.terminal-editorial-media::before {
+    content: "";
+    position: absolute;
+    inset: -0.75rem;
+    border-radius: 1.4rem;
+    background:
+        radial-gradient(circle at 30% 30%, rgba(255, 214, 220, 0.22), transparent 48%),
+        radial-gradient(circle at 70% 68%, rgba(255, 96, 117, 0.22), transparent 56%);
+    filter: blur(18px);
+    opacity: 0.28;
+    transform: scale(0.96);
+    animation: editorial-media-aura 4.8s ease-in-out infinite;
+    pointer-events: none;
+}
+
+body.terminal-theme-godlike .terminal-editorial-media::before {
+    background:
+        radial-gradient(circle at 30% 30%, rgba(255, 244, 205, 0.22), transparent 48%),
+        radial-gradient(circle at 70% 68%, rgba(255, 207, 84, 0.24), transparent 56%);
 }
 
 .terminal-editorial-media-asset {
+    position: relative;
+    z-index: 1;
     display: block;
     width: auto;
     height: auto;
@@ -415,6 +454,47 @@ body.terminal-theme-godlike .terminal-binary-column {
 
 .terminal-editorial-media.is-dragging .terminal-editorial-media-asset {
     cursor: grabbing;
+}
+
+.terminal-editorial-media.is-floating .terminal-editorial-media-asset {
+    box-shadow:
+        0 0 1.8rem rgba(255, 82, 104, 0.18),
+        0 0 0.9rem rgba(255, 176, 176, 0.12);
+}
+
+body.terminal-theme-godlike .terminal-editorial-media.is-floating .terminal-editorial-media-asset {
+    box-shadow:
+        0 0 1.8rem rgba(255, 207, 84, 0.2),
+        0 0 0.9rem rgba(255, 232, 182, 0.14);
+}
+
+.terminal-editorial-banner-text,
+.terminal-editorial-blog-header-text,
+.terminal-blog-entry-text-block,
+.visitor-widget-editorial-text {
+    display: block;
+    width: 100%;
+}
+
+.visitor-widget-row-editorial {
+    display: block;
+}
+
+.visitor-widget-editorial-text {
+    white-space: normal;
+}
+
+@keyframes editorial-media-aura {
+    0%,
+    100% {
+        opacity: 0.22;
+        transform: scale(0.94);
+    }
+
+    50% {
+        opacity: 0.38;
+        transform: scale(1.02);
+    }
 }
 
 .banner-art {
