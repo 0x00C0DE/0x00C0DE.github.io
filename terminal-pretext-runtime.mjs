@@ -1,5 +1,5 @@
 import * as pretext from './pretext-browser.mjs';
-import { buildTerminalPretextLayout, tokenizeTerminalText } from './terminal-pretext-core.mjs';
+import { buildTerminalEditorialLayout, buildTerminalPretextLayout, tokenizeTerminalText } from './terminal-pretext-core.mjs';
 
 const terminalPretextStates = new WeakMap();
 const terminalPretextContainers = new Set();
@@ -12,6 +12,14 @@ function buildPlainTextToken(text) {
         start: 0,
         end: text.length
     };
+}
+
+function buildTokensForText(text, options = {}) {
+    return options.tokenizeLinks === false
+        ? [buildPlainTextToken(text)]
+        : tokenizeTerminalText(text, {
+            normalizeTextFilename: options.normalizeTextFilename
+        });
 }
 
 function buildComputedFont(styles) {
@@ -101,13 +109,41 @@ function renderTerminalPretextState(container, state) {
     const styles = window.getComputedStyle(container);
     const font = buildComputedFont(styles);
     const lineHeight = resolveLineHeight(styles);
-    const layout = buildTerminalPretextLayout(pretext, {
-        tokens: state.tokens,
-        font,
-        lineHeight,
-        maxWidth: width,
-        whiteSpace: state.whiteSpace
-    });
+    const layout = state.mode === 'editorial'
+        ? buildTerminalEditorialLayout(pretext, {
+            tokens: state.tokens,
+            font,
+            lineHeight,
+            maxWidth: width,
+            minSegmentWidth: state.minSegmentWidth,
+            obstacles: state.obstacles,
+            whiteSpace: state.whiteSpace
+        })
+        : buildTerminalPretextLayout(pretext, {
+            tokens: state.tokens,
+            font,
+            lineHeight,
+            maxWidth: width,
+            whiteSpace: state.whiteSpace
+        });
+
+    if (state.mode === 'editorial') {
+        const rows = layout.lines.length > 0
+            ? layout.lines.map(line => {
+                const row = document.createElement('span');
+                row.className = 'terminal-pretext-row terminal-pretext-editorial-row';
+                row.style.lineHeight = `${lineHeight}px`;
+                row.style.transform = `translate(${Math.round(line.x)}px, ${Math.round(line.y)}px)`;
+                row.append(...buildLineFragmentNodes(document, line.fragments, state.buildLinkElement));
+                return row;
+            })
+            : [];
+
+        container.classList.add('terminal-pretext-enabled', 'terminal-pretext-editorial-enabled');
+        container.style.minHeight = `${Math.max(lineHeight, Math.ceil(layout.height || 0))}px`;
+        container.replaceChildren(...rows);
+        return layout;
+    }
 
     const rows = layout.lines.length > 0
         ? layout.lines.map(line => {
@@ -120,9 +156,11 @@ function renderTerminalPretextState(container, state) {
         })
         : [document.createTextNode('\u00A0')];
 
+    container.classList.remove('terminal-pretext-editorial-enabled');
+    container.style.minHeight = '';
     container.classList.add('terminal-pretext-enabled');
     container.replaceChildren(...rows);
-    return true;
+    return layout;
 }
 
 export function rerenderTerminalPretextContainer(container) {
@@ -137,20 +175,35 @@ export function rerenderTerminalPretextContainer(container) {
 export function renderTerminalTextWithPretext(container, text, options = {}) {
     const safeText = typeof text === 'string' ? text : String(text ?? '');
     if (!safeText) {
-        container.classList.remove('terminal-pretext-enabled');
+        container.classList.remove('terminal-pretext-enabled', 'terminal-pretext-editorial-enabled');
+        container.style.minHeight = '';
         container.replaceChildren(document.createTextNode('\u00A0'));
         return true;
     }
 
-    const tokens = options.tokenizeLinks === false
-        ? [buildPlainTextToken(safeText)]
-        : tokenizeTerminalText(safeText, {
-            normalizeTextFilename: options.normalizeTextFilename
-        });
-
     terminalPretextStates.set(container, {
-        tokens,
+        tokens: buildTokensForText(safeText, options),
         buildLinkElement: options.buildLinkElement,
+        mode: 'standard',
+        whiteSpace: options.whiteSpace || 'pre-wrap'
+    });
+    terminalPretextContainers.add(container);
+    container.dataset.pretextTerminal = 'true';
+    if (!container.isConnected) {
+        scheduleContainerRender(container);
+        return true;
+    }
+    return renderTerminalPretextState(container, terminalPretextStates.get(container));
+}
+
+export function renderTerminalEditorialTextWithPretext(container, text, options = {}) {
+    const safeText = typeof text === 'string' ? text : String(text ?? '');
+    terminalPretextStates.set(container, {
+        tokens: buildTokensForText(safeText, options),
+        buildLinkElement: options.buildLinkElement,
+        minSegmentWidth: options.minSegmentWidth,
+        mode: 'editorial',
+        obstacles: Array.isArray(options.obstacles) ? options.obstacles : [],
         whiteSpace: options.whiteSpace || 'pre-wrap'
     });
     terminalPretextContainers.add(container);

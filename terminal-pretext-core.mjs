@@ -101,6 +101,17 @@ export function getTerminalTextFromTokens(tokens) {
         : '';
 }
 
+function compareLayoutCursor(left, right) {
+    const leftSegmentIndex = Number(left?.segmentIndex) || 0;
+    const rightSegmentIndex = Number(right?.segmentIndex) || 0;
+
+    if (leftSegmentIndex !== rightSegmentIndex) {
+        return leftSegmentIndex - rightSegmentIndex;
+    }
+
+    return (Number(left?.graphemeIndex) || 0) - (Number(right?.graphemeIndex) || 0);
+}
+
 function getSegmentCodeUnitOffset(segmentText, graphemeIndex) {
     if (!graphemeIndex) {
         return 0;
@@ -171,6 +182,68 @@ function sliceTerminalTokensByOffsets(tokens, startOffset, endOffset) {
     return fragments;
 }
 
+function clampNumber(value, minimum, maximum) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+        return minimum;
+    }
+
+    return Math.min(maximum, Math.max(minimum, numericValue));
+}
+
+function mergeOccupiedRanges(ranges) {
+    const merged = [];
+    const sortedRanges = ranges
+        .filter(range => Number.isFinite(range?.left) && Number.isFinite(range?.right) && range.right > range.left)
+        .sort((left, right) => left.left - right.left);
+
+    sortedRanges.forEach(range => {
+        const previous = merged[merged.length - 1];
+        if (!previous || range.left > previous.right) {
+            merged.push({ ...range });
+            return;
+        }
+
+        previous.right = Math.max(previous.right, range.right);
+    });
+
+    return merged;
+}
+
+function buildAvailableRowSegments(maxWidth, rowTop, lineHeight, obstacleRects, minSegmentWidth) {
+    const rowBottom = rowTop + lineHeight;
+    const occupiedRanges = mergeOccupiedRanges(
+        obstacleRects
+            .filter(rect => rect.y < rowBottom && rect.y + rect.height > rowTop)
+            .map(rect => ({
+                left: clampNumber(rect.x, 0, maxWidth),
+                right: clampNumber(rect.x + rect.width, 0, maxWidth)
+            }))
+    );
+
+    const availableSegments = [];
+    let cursor = 0;
+
+    occupiedRanges.forEach(range => {
+        if (range.left - cursor >= minSegmentWidth) {
+            availableSegments.push({
+                x: cursor,
+                width: range.left - cursor
+            });
+        }
+        cursor = Math.max(cursor, range.right);
+    });
+
+    if (maxWidth - cursor >= minSegmentWidth) {
+        availableSegments.push({
+            x: cursor,
+            width: maxWidth - cursor
+        });
+    }
+
+    return availableSegments;
+}
+
 export function buildTerminalPretextLayout(pretextApi, options = {}) {
     if (!pretextApi || typeof pretextApi.prepareWithSegments !== 'function' || typeof pretextApi.layoutWithLines !== 'function') {
         throw new Error('pretext api is required');
@@ -206,4 +279,122 @@ export function buildTerminalPretextLayout(pretextApi, options = {}) {
             })
             : []
     };
+}
+
+export function buildTerminalEditorialLayout(pretextApi, options = {}) {
+    if (!pretextApi || typeof pretextApi.prepareWithSegments !== 'function' || typeof pretextApi.layoutNextLine !== 'function') {
+        throw new Error('pretext editorial api is required');
+    }
+
+    const tokens = Array.isArray(options.tokens)
+        ? options.tokens
+        : tokenizeTerminalText(options.text || '', options.linkOptions);
+    const text = getTerminalTextFromTokens(tokens);
+    const font = options.font || '18px "Courier New", monospace';
+    const whiteSpace = options.whiteSpace || 'pre-wrap';
+    const lineHeight = Math.max(1, Number(options.lineHeight) || 20);
+    const maxWidth = Math.max(0, Number(options.maxWidth) || 0);
+    const minSegmentWidth = Math.max(24, Number(options.minSegmentWidth) || Math.min(72, Math.max(32, Math.round(maxWidth * 0.18))));
+    const obstacleRects = Array.isArray(options.obstacles)
+        ? options.obstacles
+            .map(rect => ({
+                x: clampNumber(rect?.x, 0, maxWidth),
+                y: Math.max(0, Number(rect?.y) || 0),
+                width: Math.max(0, Math.min(maxWidth, Number(rect?.width) || 0)),
+                height: Math.max(0, Number(rect?.height) || 0)
+            }))
+            .filter(rect => rect.width > 0 && rect.height > 0)
+        : [];
+
+    const prepared = pretextApi.prepareWithSegments(text, font, { whiteSpace });
+    if (!prepared || !Array.isArray(prepared.widths) || prepared.widths.length === 0) {
+        const obstacleBottom = obstacleRects.reduce((currentMax, rect) => Math.max(currentMax, rect.y + rect.height), 0);
+        return {
+            font,
+            height: obstacleBottom,
+            lineCount: 0,
+            lines: [],
+            maxWidth,
+            obstacleRects,
+            prepared,
+            text,
+            whiteSpace
+        };
+    }
+
+    const lines = [];
+    let cursor = {
+        segmentIndex: 0,
+        graphemeIndex: 0
+    };
+    let rowTop = 0;
+    let guard = 0;
+
+    while (guard < 10000) {
+        const availableSegments = buildAvailableRowSegments(maxWidth, rowTop, lineHeight, obstacleRects, minSegmentWidth);
+        if (availableSegments.length === 0) {
+            rowTop += lineHeight;
+            guard += 1;
+            continue;
+        }
+
+        let placedLineOnRow = false;
+        for (const segment of availableSegments) {
+            const line = pretextApi.layoutNextLine(prepared, cursor, segment.width);
+            if (line === null) {
+                const textBottom = lines.length > 0
+                    ? lines[lines.length - 1].y + lineHeight
+                    : 0;
+                const obstacleBottom = obstacleRects.reduce((currentMax, rect) => Math.max(currentMax, rect.y + rect.height), 0);
+                return {
+                    font,
+                    height: Math.max(textBottom, obstacleBottom),
+                    lineCount: lines.length,
+                    lines,
+                    maxWidth,
+                    obstacleRects,
+                    prepared,
+                    text,
+                    whiteSpace
+                };
+            }
+
+            if (compareLayoutCursor(line.end, cursor) <= 0) {
+                continue;
+            }
+
+            const startOffset = getAbsoluteOffsetFromPreparedRange(prepared, line.start);
+            const endOffset = getAbsoluteOffsetFromPreparedRange(prepared, line.end);
+            lines.push({
+                ...line,
+                x: segment.x,
+                y: rowTop,
+                startOffset,
+                endOffset,
+                fragments: sliceTerminalTokensByOffsets(tokens, startOffset, endOffset)
+            });
+            cursor = line.end;
+            placedLineOnRow = true;
+        }
+
+        rowTop += lineHeight;
+        guard += 1;
+
+        if (!placedLineOnRow) {
+            const obstacleBottom = obstacleRects.reduce((currentMax, rect) => Math.max(currentMax, rect.y + rect.height), 0);
+            return {
+                font,
+                height: Math.max(rowTop, obstacleBottom),
+                lineCount: lines.length,
+                lines,
+                maxWidth,
+                obstacleRects,
+                prepared,
+                text,
+                whiteSpace
+            };
+        }
+    }
+
+    throw new Error('unable to resolve terminal editorial layout');
 }

@@ -404,7 +404,7 @@ function getSafeTerminalHref(href) {
 }
 
 let terminalPretextReadyPromise = null;
-const TERMINAL_PRETEXT_RUNTIME_MODULE_URL = './terminal-pretext-runtime.mjs?v=20260403n';
+const TERMINAL_PRETEXT_RUNTIME_MODULE_URL = './terminal-pretext-runtime.mjs?v=20260404a';
 
 function ensureTerminalPretextReady() {
     if (terminalPretextReadyPromise) {
@@ -413,6 +413,7 @@ function ensureTerminalPretextReady() {
 
     terminalPretextReadyPromise = import(TERMINAL_PRETEXT_RUNTIME_MODULE_URL)
         .then(module => {
+            window.renderTerminalEditorialTextWithPretext = module.renderTerminalEditorialTextWithPretext;
             window.renderTerminalTextWithPretext = module.renderTerminalTextWithPretext;
             window.rerenderTerminalPretextContainer = module.rerenderTerminalPretextContainer;
             return module;
@@ -491,6 +492,36 @@ function renderTerminalLineContent(container, line) {
     renderTerminalLineContentFallback(container, text);
 }
 
+function renderTerminalEditorialLineContent(container, line, options = {}) {
+    const text = typeof line === 'string' ? line : String(line ?? '');
+    if (!text) {
+        container.replaceChildren();
+        return {
+            height: 0,
+            lineCount: 0,
+            lines: []
+        };
+    }
+
+    if (typeof window.renderTerminalEditorialTextWithPretext === 'function') {
+        const handled = window.renderTerminalEditorialTextWithPretext(container, text, {
+            ...options,
+            buildLinkElement: buildTerminalLinkElement,
+            normalizeTextFilename
+        });
+        if (handled) {
+            return handled;
+        }
+    }
+
+    renderTerminalLineContent(container, line);
+    return {
+        height: container.getBoundingClientRect().height || 0,
+        lineCount: 0,
+        lines: []
+    };
+}
+
 async function readTextFile(filename) {
     const response = await fetch(filename, { cache: 'no-store' });
     if (!response.ok) {
@@ -513,35 +544,55 @@ async function readTextFile(filename) {
 function parseBlogTextFile(lines) {
     const output = [];
     let imageBlockIndex = 0;
-    let currentEntryTimestamp = '';
+    let currentEntry = null;
     let currentEntryImageIndex = 0;
     let previousTextLine = '';
+    const flushCurrentEntry = () => {
+        if (currentEntry) {
+            output.push(currentEntry);
+            currentEntry = null;
+        }
+    };
+    const ensureCurrentEntryTextBlock = () => {
+        if (!currentEntry) {
+            return null;
+        }
+
+        const lastBlock = currentEntry.blocks[currentEntry.blocks.length - 1];
+        if (lastBlock && lastBlock.type === 'blog-entry-text-block') {
+            return lastBlock;
+        }
+
+        const textBlock = {
+            type: 'blog-entry-text-block',
+            lines: []
+        };
+        currentEntry.blocks.push(textBlock);
+        return textBlock;
+    };
     const pushBlogEntryTextLine = line => {
-        if (!currentEntryTimestamp) {
+        if (!currentEntry) {
             output.push(line);
             return;
         }
 
-        output.push({
-            type: 'blog-entry-text',
-            text: line,
-            entryTimestamp: currentEntryTimestamp
-        });
+        ensureCurrentEntryTextBlock().lines.push(line);
     };
 
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
         if (line !== '[image-base64]' && line !== '[image-z85]' && line !== '[image-url]') {
             if (isBlogEntryTimestampLine(line)) {
-                currentEntryTimestamp = line.trim();
+                flushCurrentEntry();
+                currentEntry = {
+                    type: 'blog-entry',
+                    blocks: [],
+                    deletable: true,
+                    entryTimestamp: line.trim(),
+                    text: line
+                };
                 currentEntryImageIndex = 0;
                 previousTextLine = '';
-                output.push({
-                    type: 'blog-entry-header',
-                    text: line,
-                    entryTimestamp: currentEntryTimestamp,
-                    deletable: true
-                });
             } else if (line.trim()) {
                 previousTextLine = line;
                 pushBlogEntryTextLine(line);
@@ -569,15 +620,15 @@ function parseBlogTextFile(lines) {
         const nextTextLine = findNextBlogTextLine(lines, index + 1);
         if (isCompactImageBlock) {
             const compactImage = parseCompactBlogImageBlockLines(imageLines);
-            if (compactImage) {
-                output.push({
+            if (compactImage && currentEntry) {
+                currentEntry?.blocks.push({
                     type: 'inline-image',
                     src: compactImage.src,
                     alt: 'Embedded blog image',
                     deletable: true,
                     imageBlockIndex,
                     imageKey: createBlogImageKey(`z85:${compactImage.mimeType}:${compactImage.encodedPayload}`),
-                    entryTimestamp: currentEntryTimestamp,
+                    entryTimestamp: currentEntry ? currentEntry.entryTimestamp : '',
                     entryImageIndex: currentEntryImageIndex,
                     previousTextLine,
                     nextTextLine
@@ -591,8 +642,8 @@ function parseBlogTextFile(lines) {
             }
         } else if (isHostedImageBlock) {
             const hostedMedia = parseHostedBlogImageBlockLines(imageLines);
-            if (hostedMedia) {
-                output.push({
+            if (hostedMedia && currentEntry) {
+                currentEntry?.blocks.push({
                     type: hostedMedia.mediaType === 'video' ? 'inline-video' : 'inline-image',
                     src: hostedMedia.src,
                     alt: hostedMedia.mediaType === 'video' ? 'Embedded blog video' : 'Embedded blog image',
@@ -600,7 +651,7 @@ function parseBlogTextFile(lines) {
                     deletable: true,
                     imageBlockIndex,
                     imageKey: createBlogImageKey(hostedMedia.src),
-                    entryTimestamp: currentEntryTimestamp,
+                    entryTimestamp: currentEntry ? currentEntry.entryTimestamp : '',
                     entryImageIndex: currentEntryImageIndex,
                     previousTextLine,
                     nextTextLine
@@ -614,15 +665,15 @@ function parseBlogTextFile(lines) {
             }
         } else {
             const dataUrl = imageLines.join('');
-            if (isSafeBlogImageDataUrl(dataUrl)) {
-                output.push({
+            if (isSafeBlogImageDataUrl(dataUrl) && currentEntry) {
+                currentEntry?.blocks.push({
                     type: 'inline-image',
                     src: dataUrl,
                     alt: 'Embedded blog image',
                     deletable: true,
                     imageBlockIndex,
                     imageKey: createBlogImageKey(dataUrl),
-                    entryTimestamp: currentEntryTimestamp,
+                    entryTimestamp: currentEntry ? currentEntry.entryTimestamp : '',
                     entryImageIndex: currentEntryImageIndex,
                     previousTextLine,
                     nextTextLine
@@ -640,6 +691,7 @@ function parseBlogTextFile(lines) {
         currentEntryImageIndex += 1;
     }
 
+    flushCurrentEntry();
     return output;
 }
 
@@ -2480,6 +2532,7 @@ function projects_command() {
 }
 
 window.renderTerminalLineContent = renderTerminalLineContent;
+window.renderTerminalEditorialLineContent = renderTerminalEditorialLineContent;
 window.buildVisitorWidgetElement = buildVisitorWidgetElement;
 window.canCurrentUserManageBlogEntries = canCurrentUserManageBlogEntries;
 window.isSafeBlogImageDataUrl = isSafeBlogImageDataUrl;

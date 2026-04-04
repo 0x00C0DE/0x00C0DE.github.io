@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    buildTerminalEditorialLayout,
     buildTerminalPretextLayout,
     getTerminalTextFromTokens,
     tokenizeTerminalText
@@ -166,6 +167,91 @@ test('buildTerminalPretextLayout can split a single terminal link across multipl
         maxWidth: 100
     });
 
+    assert.deepEqual(layout.lines.map(line => line.fragments), [
+        [
+            {
+                type: 'link',
+                text: 'https://',
+                href: 'https://example.com',
+                newTab: true
+            }
+        ],
+        [
+            {
+                type: 'link',
+                text: 'example.com',
+                href: 'https://example.com',
+                newTab: true
+            }
+        ]
+    ]);
+});
+
+test('buildTerminalEditorialLayout routes terminal lines around media obstacles', () => {
+    const tokens = tokenizeTerminalText('https://example.com', createLinkOptions());
+    const widthCalls = [];
+    const fakePretext = {
+        prepareWithSegments() {
+            return {
+                segments: ['https://example.com'],
+                widths: [190]
+            };
+        },
+        layoutNextLine(_prepared, start, maxWidth) {
+            widthCalls.push({ graphemeIndex: start.graphemeIndex, maxWidth });
+
+            if (start.graphemeIndex === 0) {
+                return {
+                    text: 'https://',
+                    width: 64,
+                    start: { segmentIndex: 0, graphemeIndex: 0 },
+                    end: { segmentIndex: 0, graphemeIndex: 8 }
+                };
+            }
+
+            if (start.graphemeIndex === 8) {
+                return {
+                    text: 'example.com',
+                    width: 95,
+                    start: { segmentIndex: 0, graphemeIndex: 8 },
+                    end: { segmentIndex: 0, graphemeIndex: 19 }
+                };
+            }
+
+            return null;
+        }
+    };
+
+    const layout = buildTerminalEditorialLayout(fakePretext, {
+        tokens,
+        font: '18px "Courier New", monospace',
+        lineHeight: 20,
+        maxWidth: 200,
+        minSegmentWidth: 40,
+        obstacles: [
+            {
+                x: 72,
+                y: 0,
+                width: 48,
+                height: 20
+            }
+        ]
+    });
+
+    assert.deepEqual(widthCalls, [
+        { graphemeIndex: 0, maxWidth: 72 },
+        { graphemeIndex: 8, maxWidth: 80 },
+        { graphemeIndex: 19, maxWidth: 200 }
+    ]);
+    assert.equal(layout.lineCount, 2);
+    assert.equal(layout.height, 20);
+    assert.deepEqual(
+        layout.lines.map(line => ({ text: line.text, x: line.x, y: line.y })),
+        [
+            { text: 'https://', x: 0, y: 0 },
+            { text: 'example.com', x: 120, y: 0 }
+        ]
+    );
     assert.deepEqual(layout.lines.map(line => line.fragments), [
         [
             {

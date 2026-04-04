@@ -569,6 +569,485 @@ function syncTerminalSessionAwareLines() {
     });
 }
 
+const editorialBlogEntryStates = new WeakMap();
+const editorialBlogEntryContainers = new Set();
+let editorialBlogResizeFrameId = 0;
+const BLOG_EDITORIAL_MEDIA_GUTTER = 18;
+
+function isRootSessionActive() {
+    const snapshot = getPromptSnapshot();
+    if (!snapshot || typeof snapshot !== 'object') {
+        return false;
+    }
+
+    return Boolean(snapshot.isRoot) || String(snapshot.user || '').trim().toLowerCase() === 'root';
+}
+
+function clampEditorialNumber(value, minimum, maximum) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+        return minimum;
+    }
+
+    return Math.min(maximum, Math.max(minimum, numericValue));
+}
+
+function resolveEditorialContainerWidth(container) {
+    if (!container) {
+        return 0;
+    }
+
+    const ownWidth = container.clientWidth || container.getBoundingClientRect().width;
+    if (ownWidth > 0) {
+        return Math.floor(ownWidth);
+    }
+
+    if (container.parentElement) {
+        const parentWidth = container.parentElement.clientWidth || container.parentElement.getBoundingClientRect().width;
+        if (parentWidth > 0) {
+            return Math.floor(parentWidth);
+        }
+    }
+
+    return 0;
+}
+
+function resolveEditorialLineHeight(element) {
+    const styles = window.getComputedStyle(element);
+    const explicitLineHeight = parseFloat(styles.lineHeight);
+    if (Number.isFinite(explicitLineHeight)) {
+        return Math.max(18, Math.round(explicitLineHeight));
+    }
+
+    const fontSize = parseFloat(styles.fontSize);
+    if (Number.isFinite(fontSize)) {
+        return Math.max(18, Math.round(fontSize * 1.35));
+    }
+
+    return 24;
+}
+
+function buildBlogEntryEditorialText(blocks = []) {
+    const textSections = [];
+
+    blocks.forEach(block => {
+        if (!block || block.type !== 'blog-entry-text-block' || !Array.isArray(block.lines)) {
+            return;
+        }
+
+        const blockText = block.lines.join('\n');
+        if (blockText) {
+            textSections.push(blockText);
+        }
+    });
+
+    return textSections.join('\n\n').trim();
+}
+
+function getBlogEntryMediaBlocks(line) {
+    return Array.isArray(line?.blocks)
+        ? line.blocks.filter(block => block && (block.type === 'inline-image' || block.type === 'inline-video'))
+        : [];
+}
+
+function buildBlogEntrySignature(line) {
+    const mediaSignature = getBlogEntryMediaBlocks(line)
+        .map(block => `${block.imageKey || block.src}:${block.type}`)
+        .join('|');
+    const textSignature = Array.isArray(line?.blocks)
+        ? line.blocks
+            .filter(block => block?.type === 'blog-entry-text-block')
+            .map(block => Array.isArray(block.lines) ? block.lines.join('\n') : '')
+            .join('\n\n')
+        : '';
+
+    return `${line?.entryTimestamp || 'no-entry'}::${mediaSignature}::${textSignature.length}`;
+}
+
+function createBlogEditorialMediaState(block, index) {
+    return {
+        aspectRatio: block.type === 'inline-video' ? 16 / 9 : 4 / 3,
+        block,
+        id: `${block.imageKey || block.src || `media-${index}`}-${index}`,
+        index,
+        x: null,
+        y: null
+    };
+}
+
+function getBlogEditorialState(container, line) {
+    const signature = buildBlogEntrySignature(line);
+    let state = editorialBlogEntryStates.get(container);
+
+    if (!state || state.signature !== signature) {
+        state = {
+            dom: null,
+            drag: null,
+            media: getBlogEntryMediaBlocks(line).map(createBlogEditorialMediaState),
+            signature,
+            text: buildBlogEntryEditorialText(line.blocks)
+        };
+        editorialBlogEntryStates.set(container, state);
+    } else {
+        state.text = buildBlogEntryEditorialText(line.blocks);
+    }
+
+    editorialBlogEntryContainers.add(container);
+    return state;
+}
+
+function resolveEditorialMediaDimensions(mediaState, stageWidth, mediaCount) {
+    const safeStageWidth = Math.max(180, stageWidth);
+    const preferredRatio = mediaCount > 1 ? 0.28 : 0.36;
+    const maxWidth = Math.max(140, safeStageWidth - 32);
+    const width = clampEditorialNumber(Math.round(safeStageWidth * preferredRatio), 140, Math.min(360, maxWidth));
+    const aspectRatio = mediaState.aspectRatio && mediaState.aspectRatio > 0
+        ? mediaState.aspectRatio
+        : (mediaState.block.type === 'inline-video' ? 16 / 9 : 4 / 3);
+
+    return {
+        height: Math.max(110, Math.round(width / aspectRatio)),
+        width
+    };
+}
+
+function createBlogMediaElement(block, options = {}) {
+    const wrapper = document.createElement('div');
+    wrapper.className = options.wrapperClass || 'terminal-inline-image-wrapper';
+
+    let mediaElement = null;
+    if (block.type === 'inline-video') {
+        const video = document.createElement('video');
+        video.className = options.videoClassName || 'terminal-inline-video';
+        video.src = block.src;
+        video.controls = options.showControls !== false;
+        video.playsInline = true;
+        video.preload = 'metadata';
+        mediaElement = video;
+        wrapper.append(video);
+    } else {
+        const image = document.createElement('img');
+        image.className = options.imageClassName || 'terminal-inline-image';
+        image.src = block.src;
+        image.alt = block.alt || 'Embedded blog image';
+        image.decoding = 'async';
+        image.loading = 'lazy';
+        mediaElement = image;
+        wrapper.append(image);
+    }
+
+    if (options.enableDeleteActions) {
+        appendDeleteMediaActions(wrapper, block, mediaElement);
+    }
+
+    return {
+        mediaElement,
+        wrapper
+    };
+}
+
+function renderBlogEntryFlat(container, line) {
+    const wrapper = document.createElement('article');
+    wrapper.className = 'terminal-blog-entry';
+
+    const header = document.createElement('div');
+    header.className = 'terminal-blog-entry-header';
+
+    const timestamp = document.createElement('span');
+    timestamp.className = 'terminal-blog-entry-timestamp';
+    timestamp.textContent = line.text || '';
+    header.append(timestamp);
+    appendDeletePostActions(header, line);
+    wrapper.append(header);
+
+    (Array.isArray(line.blocks) ? line.blocks : []).forEach(block => {
+        if (block.type === 'blog-entry-text-block') {
+            block.lines.forEach(textLine => {
+                const row = document.createElement('div');
+                row.className = textLine ? 'terminal-blog-entry-text-line' : 'terminal-blog-entry-text-line terminal-blog-entry-text-line-empty';
+                if (textLine) {
+                    if (typeof window.renderTerminalLineContent === 'function') {
+                        window.renderTerminalLineContent(row, textLine);
+                    } else {
+                        row.textContent = textLine;
+                    }
+                } else {
+                    row.textContent = '\u00A0';
+                }
+                wrapper.append(row);
+            });
+            return;
+        }
+
+        if (block.type === 'inline-image' || block.type === 'inline-video') {
+            const mediaRow = document.createElement('div');
+            mediaRow.className = 'terminal-blog-entry-media-row';
+
+            const isSafeSource = typeof window.isSafeBlogImageSource === 'function'
+                ? window.isSafeBlogImageSource(block.src)
+                : false;
+            if (!isSafeSource) {
+                mediaRow.textContent = block.type === 'inline-video'
+                    ? '[invalid embedded video]'
+                    : '[invalid embedded image]';
+                wrapper.append(mediaRow);
+                return;
+            }
+
+            const { wrapper: mediaWrapper } = createBlogMediaElement(block, {
+                enableDeleteActions: true
+            });
+            mediaRow.append(mediaWrapper);
+            wrapper.append(mediaRow);
+        }
+    });
+
+    container.append(wrapper);
+}
+
+function ensureBlogEditorialMediaAspectRatio(container, line, state, mediaState, mediaElement) {
+    const applyMeasuredRatio = () => {
+        const width = mediaElement.videoWidth || mediaElement.naturalWidth || mediaElement.clientWidth;
+        const height = mediaElement.videoHeight || mediaElement.naturalHeight || mediaElement.clientHeight;
+        if (!width || !height) {
+            return;
+        }
+
+        mediaState.aspectRatio = width / height;
+        syncBlogEditorialEntryLayout(container, line, state);
+    };
+
+    if (mediaState.block.type === 'inline-video') {
+        mediaElement.addEventListener('loadedmetadata', applyMeasuredRatio, { once: true });
+    } else if (mediaElement.complete && mediaElement.naturalWidth && mediaElement.naturalHeight) {
+        applyMeasuredRatio();
+    } else {
+        mediaElement.addEventListener('load', applyMeasuredRatio, { once: true });
+    }
+}
+
+function applyBlogEditorialMediaPosition(mediaState, dimensions) {
+    if (!mediaState.dom?.wrapper) {
+        return;
+    }
+
+    mediaState.dom.wrapper.style.width = `${Math.round(dimensions.width)}px`;
+    mediaState.dom.wrapper.style.height = `${Math.round(dimensions.height)}px`;
+    mediaState.dom.wrapper.style.transform = `translate(${Math.round(mediaState.x)}px, ${Math.round(mediaState.y)}px)`;
+}
+
+function buildBlogEditorialObstacleRects(state, stageWidth, lineHeight) {
+    return state.media.map((mediaState, index) => {
+        const dimensions = resolveEditorialMediaDimensions(mediaState, stageWidth, state.media.length);
+        const maximumX = Math.max(8, stageWidth - dimensions.width - 8);
+
+        if (!Number.isFinite(mediaState.x) || !Number.isFinite(mediaState.y)) {
+            mediaState.x = index % 2 === 0
+                ? maximumX
+                : 8;
+            mediaState.y = 12 + index * Math.round(lineHeight * 5.4);
+        }
+
+        mediaState.x = clampEditorialNumber(mediaState.x, 8, maximumX);
+        mediaState.y = Math.max(0, Number(mediaState.y) || 0);
+        applyBlogEditorialMediaPosition(mediaState, dimensions);
+
+        return {
+            height: dimensions.height,
+            width: dimensions.width,
+            x: mediaState.x,
+            y: mediaState.y
+        };
+    });
+}
+
+function syncBlogEditorialEntryLayout(container, line, state) {
+    if (!state?.dom?.stage || !state.dom.textLayer) {
+        return;
+    }
+
+    const stageWidth = resolveEditorialContainerWidth(state.dom.stage);
+    if (stageWidth <= 0) {
+        if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => syncBlogEditorialEntryLayout(container, line, state));
+        }
+        return;
+    }
+
+    const lineHeight = resolveEditorialLineHeight(state.dom.textLayer);
+    const mediaRects = buildBlogEditorialObstacleRects(state, stageWidth, lineHeight);
+    const obstacleRects = mediaRects.map(rect => ({
+        height: rect.height + BLOG_EDITORIAL_MEDIA_GUTTER * 1.3,
+        width: Math.min(stageWidth, rect.width + BLOG_EDITORIAL_MEDIA_GUTTER * 2),
+        x: Math.max(0, rect.x - BLOG_EDITORIAL_MEDIA_GUTTER),
+        y: Math.max(0, rect.y - BLOG_EDITORIAL_MEDIA_GUTTER * 0.6)
+    }));
+
+    let textLayout = {
+        height: 0,
+        lineCount: 0,
+        lines: []
+    };
+
+    if (state.text && typeof window.renderTerminalEditorialLineContent === 'function') {
+        textLayout = window.renderTerminalEditorialLineContent(state.dom.textLayer, state.text, {
+            minSegmentWidth: 56,
+            obstacles: obstacleRects
+        }) || textLayout;
+    } else {
+        state.dom.textLayer.classList.remove('terminal-pretext-enabled', 'terminal-pretext-editorial-enabled');
+        state.dom.textLayer.style.minHeight = '';
+        state.dom.textLayer.replaceChildren();
+    }
+
+    const mediaBottom = mediaRects.reduce((currentMax, rect) => Math.max(currentMax, rect.y + rect.height), 0);
+    const contentHeight = Math.max(Math.ceil(textLayout.height || 0), mediaBottom);
+    state.dom.stage.style.minHeight = `${Math.max(lineHeight * 2, contentHeight)}px`;
+}
+
+function mountBlogEditorialEntry(container, line, state) {
+    const wrapper = document.createElement('article');
+    wrapper.className = 'terminal-editorial-entry';
+
+    const header = document.createElement('div');
+    header.className = 'terminal-blog-entry-header';
+
+    const timestamp = document.createElement('span');
+    timestamp.className = 'terminal-blog-entry-timestamp';
+    timestamp.textContent = line.text || '';
+    header.append(timestamp);
+    appendDeletePostActions(header, line);
+
+    const hint = document.createElement('div');
+    hint.className = 'terminal-editorial-hint';
+    hint.textContent = state.media.length > 0
+        ? 'root editorial mode: drag the media to live-reflow this entry'
+        : 'root editorial mode: text is using the editorial line router';
+
+    const stage = document.createElement('div');
+    stage.className = 'terminal-editorial-stage';
+
+    const textLayer = document.createElement('div');
+    textLayer.className = 'terminal-editorial-text';
+    stage.append(textLayer);
+
+    state.media.forEach(mediaState => {
+        const { wrapper: mediaWrapper, mediaElement } = createBlogMediaElement(mediaState.block, {
+            imageClassName: 'terminal-editorial-media-asset terminal-inline-image',
+            showControls: true,
+            videoClassName: 'terminal-editorial-media-asset terminal-inline-video',
+            wrapperClass: 'terminal-editorial-media'
+        });
+
+        const handle = document.createElement('button');
+        handle.type = 'button';
+        handle.className = 'terminal-editorial-media-handle';
+        handle.textContent = 'drag';
+
+        const startDrag = event => {
+            if (event.button !== 0 && event.pointerType !== 'touch') {
+                return;
+            }
+
+            event.preventDefault();
+            state.drag = {
+                mediaId: mediaState.id,
+                originX: mediaState.x,
+                originY: mediaState.y,
+                pointerId: event.pointerId,
+                startX: event.clientX,
+                startY: event.clientY
+            };
+            handle.setPointerCapture(event.pointerId);
+            mediaWrapper.classList.add('is-dragging');
+        };
+
+        const moveDrag = event => {
+            if (!state.drag || state.drag.mediaId !== mediaState.id || state.drag.pointerId !== event.pointerId) {
+                return;
+            }
+
+            const stageWidth = resolveEditorialContainerWidth(stage);
+            const dimensions = resolveEditorialMediaDimensions(mediaState, stageWidth, state.media.length);
+            mediaState.x = clampEditorialNumber(
+                state.drag.originX + (event.clientX - state.drag.startX),
+                8,
+                Math.max(8, stageWidth - dimensions.width - 8)
+            );
+            mediaState.y = Math.max(0, state.drag.originY + (event.clientY - state.drag.startY));
+            syncBlogEditorialEntryLayout(container, line, state);
+        };
+
+        const endDrag = event => {
+            if (!state.drag || state.drag.mediaId !== mediaState.id || state.drag.pointerId !== event.pointerId) {
+                return;
+            }
+
+            mediaWrapper.classList.remove('is-dragging');
+            state.drag = null;
+            if (handle.hasPointerCapture(event.pointerId)) {
+                handle.releasePointerCapture(event.pointerId);
+            }
+        };
+
+        handle.addEventListener('pointerdown', startDrag);
+        handle.addEventListener('pointermove', moveDrag);
+        handle.addEventListener('pointerup', endDrag);
+        handle.addEventListener('pointercancel', endDrag);
+
+        mediaWrapper.prepend(handle);
+        stage.append(mediaWrapper);
+        mediaState.dom = {
+            handle,
+            mediaElement,
+            wrapper: mediaWrapper
+        };
+        ensureBlogEditorialMediaAspectRatio(container, line, state, mediaState, mediaElement);
+    });
+
+    wrapper.append(header, hint, stage);
+    container.append(wrapper);
+    state.dom = {
+        hint,
+        stage,
+        textLayer,
+        wrapper
+    };
+}
+
+function renderBlogEntryEditorial(container, line) {
+    const state = getBlogEditorialState(container, line);
+    mountBlogEditorialEntry(container, line, state);
+    syncBlogEditorialEntryLayout(container, line, state);
+}
+
+window.addEventListener('resize', () => {
+    if (editorialBlogResizeFrameId) {
+        window.cancelAnimationFrame(editorialBlogResizeFrameId);
+    }
+
+    editorialBlogResizeFrameId = window.requestAnimationFrame(() => {
+        editorialBlogResizeFrameId = 0;
+        editorialBlogEntryContainers.forEach(container => {
+            if (!container.isConnected) {
+                editorialBlogEntryContainers.delete(container);
+                editorialBlogEntryStates.delete(container);
+                return;
+            }
+
+            const line = container.__terminalRenderedObject;
+            if (!line || line.type !== 'blog-entry' || !isRootSessionActive()) {
+                return;
+            }
+
+            const state = editorialBlogEntryStates.get(container);
+            if (state) {
+                syncBlogEditorialEntryLayout(container, line, state);
+            }
+        });
+    });
+});
+
 function getSafeHref(href) {
     try {
         const parsed = new URL(href, window.location.href);
@@ -675,6 +1154,15 @@ function renderOutputObject(container, line) {
 
         entry.append(command, separator, description);
         container.append(entry);
+        return;
+    }
+
+    if (line.type === 'blog-entry') {
+        if (isRootSessionActive()) {
+            renderBlogEntryEditorial(container, line);
+        } else {
+            renderBlogEntryFlat(container, line);
+        }
         return;
     }
 

@@ -44,15 +44,15 @@ No frameworks. No frontend build step. Pure JavaScript + HTML + CSS, with npm on
 
 ## Overview
 
-`0x00C0DE.github.io` is a **browser-based Unix-like terminal** that serves as a developer portfolio. The entire UI is a scrollable command-line interface rendered inside a `<div>` with no terminal emulator libraries and no framework dependencies. Navigation, blog posting, project browsing, ASCII art rendering, QR/TOTP enrollment, webcam-to-glyph conversion, and password-gated blog deletion are driven by a small JavaScript shell engine.
+`0x00C0DE.github.io` is a **browser-based Unix-like terminal** that serves as a developer portfolio. The entire UI is a scrollable command-line interface rendered inside a `<div>` with no terminal emulator libraries and no framework dependencies. Navigation, blog posting, project browsing, ASCII art rendering, QR/TOTP enrollment, webcam-to-glyph conversion, root-only editorial blog layout, and password-gated godlike delete actions are driven by a small JavaScript shell engine.
 
 The design philosophy is **file-system-first**: documentation lives as real `.txt` files fetched over HTTP at runtime, mirroring how a real terminal would `cat` files off disk. This keeps content versionable, diffable, and human-readable without introducing a database or build step.
 
 The live blog still centers on `blog.txt`, but the Worker now supports three media storage modes inside that document: inline `[image-base64]` blocks for `png/jpg/jpeg/webp`, compact reversible `[image-z85]` blocks for smaller GIF payloads, and hosted `[image-url]` blocks for larger GIF or MP4 assets served through the Worker from `R2` with private `B2` fallback.
 
-The latest terminal updates integrate **Pretext** directly into the live render path and add a constrained `su` session toggle. Plain text output, echoed commands, wrapped links, and the `help` descriptions now reflow through a link-aware layout engine that behaves correctly on mobile and on browser resize, while `su` now only supports `su` for `root` and `su guest` for the default guest shell.
+The latest terminal updates integrate **Pretext** directly into the live render path and expand the constrained `su` session model. Plain text output, echoed commands, wrapped links, and the `help` descriptions now reflow through a link-aware layout engine that behaves correctly on mobile and on browser resize, while `su` now supports implicit `root`, `su guest`, and password-gated `su godlike`.
 
-When the prompt is running as `root`, the terminal also enables a red animated glyph-rain background and root-colored prompt text. Switching back with `su guest` restores the original CRT background and standard prompt styling.
+Elevated sessions now split responsibilities: `root` enables the red animated glyph-rain background and unlocks a root-only editorial `cat blog.txt` view where images, GIFs, and MP4 blocks can be dragged to live-reflow text, while `godlike` uses the same password as blog/image deletion and is the only session that can see or trigger delete controls. Switching back with `su guest` restores the original CRT background and standard prompt styling.
 
 Credit to Cheng Lou for the original [Pretext](https://github.com/chenglou/pretext) project, the pure JavaScript/TypeScript multiline text measurement and layout library this terminal integration builds on.
 
@@ -120,6 +120,8 @@ Pretext wraps visible rows while preserving terminal links
 Terminal scrolls to bottom
 ```
 
+When the active session is `root`, `cat blog.txt` routes each entry through a root-only editorial stage where draggable images, GIFs, and MP4 blocks act as live obstacles for Pretext line layout. Delete controls stay fully hidden unless the active session is `godlike`.
+
 **Request flow for `post <message>`:**
 
 ```
@@ -157,14 +159,14 @@ Next `cat blog.txt` reflects the new entry live
 ├── project-shellcode-template.html   # Project deep-dive: Shellcode Template
 ├── project-smallsh.html              # Project deep-dive: smallsh Unix shell
 │
-├── term.js                           # Terminal REPL engine, prompt rendering, and root visual effects
-├── commands.js                       # Shell commands, fetch/post logic, Pretext bridge
+├── term.js                           # Terminal REPL engine, prompt rendering, editorial blog layout, and elevated visual effects
+├── commands.js                       # Shell commands, blog/media parsing, session auth, and Pretext bridge
 ├── pictures.js                       # ASCII/glyph image rendering + webcam support
-├── style.css                         # CRT palette, root visual mode, terminal layout, mobile help grid
-├── terminal-session-core.mjs         # Pure session state for prompt/su behavior
-├── terminal-visuals-core.mjs         # Pure helpers for root-only animated glyph rain
-├── terminal-pretext-core.mjs         # Link-aware tokenization and wrapped-line slicing
-├── terminal-pretext-runtime.mjs      # Browser Pretext renderer + resize reflow
+├── style.css                         # CRT palette, elevated visual modes, editorial layout, mobile help grid
+├── terminal-session-core.mjs         # Pure session state for guest/root/godlike prompt behavior
+├── terminal-visuals-core.mjs         # Pure helpers for elevated animated glyph rain
+├── terminal-pretext-core.mjs         # Link-aware tokenization, wrapped-line slicing, and obstacle routing
+├── terminal-pretext-runtime.mjs      # Browser Pretext renderer, resize reflow, and editorial layout runtime
 ├── pretext-lab.html                  # Standalone layout lab for Pretext experiments
 ├── pretext-lab.mjs                   # Browser controller for the lab
 ├── pretext-lab-core.mjs              # Shared lab state and query serialization helpers
@@ -213,11 +215,12 @@ Responsibilities:
 - Streams multi-line output into the DOM while preserving scroll position
 - Handles `Ctrl+C`, `clear`, and boot-command execution
 - Boots each entry page through `bootTerminalSite(...)`
-- Switches between the default guest shell and the root shell prompt state
-- Enables the animated glyph-rain background only while the terminal user is `root`
+- Switches between the default guest shell, the root shell, and the password-gated godlike shell
+- Enables the animated glyph-rain background while the terminal user is in an elevated session (`root` or `godlike`)
 - Waits for the Pretext runtime before the first command renders
 - Calls `initVisitorTracking()` for lightweight analytics
-- Renders password-gated delete buttons for blog images and whole blog entries returned by `cat blog.txt`
+- Renders `cat blog.txt` in a root-only editorial layout with draggable media and live Pretext reflow
+- Renders delete controls for blog images and whole blog entries only while the terminal user is `godlike`
 
 ```
 setupTerminal()
@@ -249,13 +252,13 @@ The terminal command map in `term.js` routes each shell verb to its handler, wit
 | `picture [w h]` | Renders a built-in ASCII portrait |
 | `post <text>` | Appends a text-only blog entry through the Worker |
 | `post --image [text]` | Appends one selected `png/jpg/jpeg/webp/gif/mp4` media file |
-| `post ... [image] ...` | Inserts one selected image inline between text blocks |
+| `post ... [image] ...` | Inserts one selected `png/jpg/jpeg/webp/gif/mp4` media file inline between text blocks |
 | `pretext [text]` | Reports terminal Pretext status or opens the lab with `pretext lab [text]` |
 | `projects` | Opens the dedicated projects terminal page |
 | `pwd` | Prints the simulated working directory |
 | `qr-totp ...` | Browser-side QR enrollment, QR export, and TOTP generation/verification |
 | `resume` | Opens `resume.pdf` in a new tab |
-| `su` / `su guest` | Switches only between the `root` shell and the default `guest` shell |
+| `su` / `su guest` / `su godlike` | Switches to `root`, back to `guest`, or into password-gated `godlike` |
 | `userpic [w h]` | Converts an uploaded or captured photo to ASCII art |
 | `visitors` | Renders the live visitor stats widget |
 | `whoami` | Prints the current simulated terminal username |
@@ -263,22 +266,22 @@ The terminal command map in `term.js` routes each shell verb to its handler, wit
 
 Commands that require async I/O (`cat`, `post`, `fortune`, `movie`, `userpic`, `qr-totp`, `visitors`) return Promises and can be aborted mid-execution.
 
-For blog rendering, `cat blog.txt` now understands inline base64 image blocks, compact reversible GIF blocks, and hosted media URL blocks for GIF and MP4 assets. It also attaches password-gated delete controls to rendered blog media and whole entries.
+For blog rendering, `cat blog.txt` now groups entries into structured text/media blocks, understands inline base64 image blocks, compact reversible GIF blocks, and hosted media URL blocks for GIF and MP4 assets. When the active user is `root`, it reflows each entry through a draggable editorial layout; delete controls remain hidden unless the active user is `godlike`.
 
-`commands.js` also exposes the terminal text rendering bridge. It lazy-loads `terminal-pretext-runtime.mjs`, routes plain string output through Pretext when available, falls back to the older regex-based renderer if the module cannot be loaded, parses `[image-base64]`, `[image-z85]`, and `[image-url]` blog blocks, and coordinates the root/guest session toggle plus image/post delete flows with the prompt renderer.
+`commands.js` also exposes the terminal text rendering bridge. It lazy-loads `terminal-pretext-runtime.mjs`, routes plain string output through Pretext when available, falls back to the older regex-based renderer if the module cannot be loaded, parses `[image-base64]`, `[image-z85]`, and `[image-url]` blog blocks, and coordinates the guest/root/godlike session model, `su godlike` authentication, and image/post delete flows with the prompt renderer.
 
 ### `terminal-session-core.mjs` — Session State
 
 Responsibilities:
 - Normalizes the simulated shell session into a small pure state object
-- Restricts `su` transitions to two supported targets: implicit `root` and explicit `guest`
-- Produces the prompt snapshot consumed by the browser renderer and `whoami` / `pwd`
+- Restricts `su` transitions to implicit `root` plus explicit `guest` / `godlike`
+- Produces the prompt snapshot consumed by the browser renderer and `whoami` / `pwd`, including elevated session flags
 
 ### `terminal-visuals-core.mjs` — Root Visual Helpers
 
 Responsibilities:
-- Decides whether the root-only animated background should be active
-- Builds randomized falling glyph columns for the root shell visual mode
+- Decides whether the elevated animated background should be active
+- Builds randomized falling glyph columns for the elevated shell visual mode
 - Mutates glyph streams over time so columns change while they fall instead of remaining static
 
 ### `terminal-pretext-core.mjs` — Link-aware Wrapping Adapter
@@ -287,6 +290,7 @@ Responsibilities:
 - Tokenizes terminal strings into plain-text and link fragments
 - Preserves terminal link metadata while Pretext splits content into visual lines
 - Allows a single link to remain clickable even when it spans multiple wrapped rows
+- Adds obstacle-aware line routing for the root-only editorial `blog.txt` view
 - Provides a pure, testable adapter shared by the browser runtime and unit tests
 
 ### `terminal-pretext-runtime.mjs` — Browser Layout Runtime
@@ -296,6 +300,7 @@ Responsibilities:
 - Measures container width, computed font, and line height in the browser
 - Renders wrapped output as DOM rows while preserving anchors and text fragments
 - Reflows terminal output on resize so mobile layouts stay aligned
+- Supports editorial line routing around draggable media obstacles
 
 ### `pictures.js` — ASCII / Glyph Renderer
 
@@ -327,11 +332,12 @@ Muted:         #550000   (dark red for inactive elements)
 Font:          monospace stack with Courier New styling
 ```
 
-The stylesheet also contains the Pretext-specific layout classes and the root-only visual mode:
-- `.terminal-pretext-enabled` and `.terminal-pretext-row` for wrapped terminal rows
+The stylesheet also contains the Pretext-specific layout classes, the root-only editorial blog stage, and the elevated visual modes:
+- `.terminal-pretext-enabled`, `.terminal-pretext-row`, and `.terminal-pretext-editorial-row` for wrapped terminal rows
 - `.terminal-help-entry` for the help command's three-column grid layout
+- `.terminal-editorial-*` for the root-only draggable `blog.txt` layout
 - Mobile-safe wrapping rules that keep long help descriptions in the right-hand column instead of drifting under the command name
-- Root prompt and background styles that only activate when the terminal session is `root`
+- Elevated prompt and background styles for `root` / `godlike`, including a distinct godlike prompt treatment
 
 ---
 
@@ -356,7 +362,7 @@ The site has **no database**. Persistent content lives in versioned `.txt` files
 └──────────────┴─────────────────────────────────────────────────────────────┘
 ```
 
-Because `cat` fetches files at runtime over HTTP, content updates are live as soon as a commit lands on `main`. Authorized delete actions remove the matching media block or full entry from `blog.txt`, and hosted GIF or MP4 deletes also cascade into `R2` or `B2`.
+Because `cat` fetches files at runtime over HTTP, content updates are live as soon as a commit lands on `main`. Authorized delete actions are only exposed during a `godlike` session, remove the matching media block or full entry from `blog.txt`, and hosted GIF or MP4 deletes also cascade into `R2` or `B2`.
 
 ---
 
@@ -409,9 +415,9 @@ The `post` command enables live, authenticated blog posting from the terminal di
              github.com/.../blog.txt
 ```
 
-The Worker acts as a thin authenticated proxy between the public terminal UI, the GitHub API, and hosted blog media storage. The same package now serves `/api/blog/append`, `/api/blog/delete-image`, `/api/blog/delete-entry`, `/api/blog/media/...`, and visitor endpoints while `R2QuotaGuard` and `B2QuotaGuard` Durable Objects enforce conservative storage and operation thresholds before either provider reaches its free-tier limit.
+The Worker acts as a thin authenticated proxy between the public terminal UI, the GitHub API, and hosted blog media storage. The same package now serves `/api/blog/append`, `/api/blog/delete-image`, `/api/blog/delete-entry`, `/api/blog/media/...`, `/api/terminal/su`, and visitor endpoints while `R2QuotaGuard` and `B2QuotaGuard` Durable Objects enforce conservative storage and operation thresholds before either provider reaches its free-tier limit.
 
-Secrets live in Cloudflare environment variables and are not committed to the repo. Current runtime secrets include `GITHUB_PAT`, `BLOG_IMAGE_DELETE_PASSWORD`, `B2_APPLICATION_KEY`, and `CLOUDFLARE_BILLING_API_TOKEN`.
+Secrets live in Cloudflare environment variables and are not committed to the repo. Current runtime secrets include `GITHUB_PAT`, `BLOG_IMAGE_DELETE_PASSWORD`, `B2_APPLICATION_KEY`, and `CLOUDFLARE_BILLING_API_TOKEN`. `BLOG_IMAGE_DELETE_PASSWORD` is also the password used by `su godlike`.
 
 Inline `png/jpg/jpeg/webp` images stay inside `blog.txt`, compact GIF payloads can still be serialized directly into the file, and larger GIF or MP4 uploads are stored as hosted Worker media URLs with `R2` as the primary store and private `B2` as the backup. The Worker also blocks posts and deletes while GitHub Pages is still catching up to the previous `blog.txt` commit so the live site and the repo do not drift.
 
@@ -441,10 +447,10 @@ GitHub Pages publishes the updated frontend
 Cache busting is handled manually through version query strings in the terminal entry pages:
 
 ```html
-<script src="commands.js?v=20260403c"></script>
-<script src="term.js?v=20260403j"></script>
+<script src="commands.js?v=20260404a"></script>
+<script src="term.js?v=20260404a"></script>
 <script src="pictures.js?v=20260331b"></script>
-<link rel="stylesheet" href="style.css?v=20260403i">
+<link rel="stylesheet" href="style.css?v=20260404a">
 ```
 
 Frontend-only changes go live with a push to `main`. A separate Worker redeploy is only needed when `backend/`, `worker/`, or `worker/wrangler.jsonc` changes.
@@ -453,21 +459,24 @@ Frontend-only changes go live with a push to `main`. A separate Worker redeploy 
 
 ## Testing
 
-The recent terminal updates were added with red/green TDD around both the pure adapter/session/visual layers and the Worker-backed blog/media flows before wiring them into the browser runtime.
+The recent terminal updates were added with red/green TDD around the session/elevated-shell rules, Pretext wrapping and editorial layout adapters, package-sync guardrails, and the Worker-backed blog/media flows before wiring them into the browser runtime.
 
 Current checks:
 
 ```bash
-node --test tests/terminal-session-core.test.mjs tests/terminal-visuals-core.test.mjs tests/terminal-pretext-core.test.mjs tests/pretext-lab-core.test.mjs
+node --test tests/terminal-session-core.test.mjs tests/terminal-visuals-core.test.mjs tests/terminal-pretext-core.test.mjs tests/pretext-lab-core.test.mjs tests/pretext-package-sync.test.mjs
 node --check commands.js
 node --check term.js
 node --check terminal-session-core.mjs
 node --check terminal-visuals-core.mjs
 node --check terminal-pretext-core.mjs
 node --check terminal-pretext-runtime.mjs
+node --check pretext-browser.mjs
+node --check pretext-lab.mjs
+node --check scripts/sync-pretext-package.mjs
 node --check worker/src/index.js
 node --check worker/src/index.test.js
-node worker/src/index.test.js
+node --test worker/src/index.test.js
 ```
 
 The Pretext lab remains available at [pretext-lab.html](https://0x00c0de.github.io/pretext-lab.html) for manual layout experiments and visual smoke testing.
@@ -478,7 +487,7 @@ The Pretext lab remains available at [pretext-lab.html](https://0x00c0de.github.
 
 Start at **[https://0x00c0de.github.io](https://0x00c0de.github.io)**. The terminal loads automatically with the `banner` command.
 
-Plain terminal output, echoed commands, and `help` descriptions now use Pretext-backed wrapping, so they reflow cleanly on mobile and when the window width changes. The prompt starts in the original guest shell, `su` switches into `root`, and `su guest` switches back to the guest shell and restores the default background. `cat blog.txt` also renders password-gated delete controls for individual images and entire blog entries.
+Plain terminal output, echoed commands, and `help` descriptions now use Pretext-backed wrapping, so they reflow cleanly on mobile and when the window width changes. The prompt starts in the original guest shell, `su` switches into `root`, `su guest` switches back to the guest shell and restores the default background, and `su godlike` authenticates against the same password used for blog/image deletion. When the active user is `root`, `cat blog.txt` enters the editorial layout with draggable media reflow; delete controls stay hidden unless the active user is `godlike`.
 
 ```text
 ╔══════════════════════════════════════════════════╗
@@ -506,12 +515,13 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
   resume                     Download resume PDF
   su                         Switch to the root shell
   su guest                   Return to the guest shell
+  su godlike                 Authenticate into the godlike shell
   qr-totp --generate-qr ...  Enroll a QR/TOTP secret in-browser
   qr-totp --get-otp          Generate the current 6-digit code
   fortune                    Random quote
   post <your message>        Append to blog.txt
   post --image [caption]     Append one selected png/jpg/jpeg/webp/gif/mp4 file
-  post hello [image] goodbye Insert one selected image inline
+  post hello [image] goodbye Insert one selected png/jpg/jpeg/webp/gif/mp4 file inline
   picture                    ASCII portrait
   movie                      Live webcam to ASCII art
   userpic                    Uploaded/captured image to ASCII art
