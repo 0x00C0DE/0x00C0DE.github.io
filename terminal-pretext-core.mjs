@@ -318,6 +318,7 @@ export function buildTerminalEditorialLayout(pretextApi, options = {}) {
             obstacleRects,
             prepared,
             text,
+            textHeight: 0,
             whiteSpace
         };
     }
@@ -355,6 +356,7 @@ export function buildTerminalEditorialLayout(pretextApi, options = {}) {
                     obstacleRects,
                     prepared,
                     text,
+                    textHeight: textBottom,
                     whiteSpace
                 };
             }
@@ -391,6 +393,9 @@ export function buildTerminalEditorialLayout(pretextApi, options = {}) {
                 obstacleRects,
                 prepared,
                 text,
+                textHeight: lines.length > 0
+                    ? lines[lines.length - 1].y + lineHeight
+                    : 0,
                 whiteSpace
             };
         }

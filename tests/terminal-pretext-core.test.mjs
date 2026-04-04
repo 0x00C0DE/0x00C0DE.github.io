@@ -245,6 +245,7 @@ test('buildTerminalEditorialLayout routes terminal lines around media obstacles'
     ]);
     assert.equal(layout.lineCount, 2);
     assert.equal(layout.height, 20);
+    assert.equal(layout.textHeight, 20);
     assert.deepEqual(
         layout.lines.map(line => ({ text: line.text, x: line.x, y: line.y })),
         [
@@ -270,4 +271,48 @@ test('buildTerminalEditorialLayout routes terminal lines around media obstacles'
             }
         ]
     ]);
+});
+
+test('buildTerminalEditorialLayout keeps text height stable when obstacles sit below the rendered text', () => {
+    const tokens = tokenizeTerminalText('hello', createLinkOptions());
+    const fakePretext = {
+        prepareWithSegments() {
+            return {
+                segments: ['hello'],
+                widths: [50]
+            };
+        },
+        layoutNextLine(_prepared, start) {
+            if (start.graphemeIndex === 0) {
+                return {
+                    text: 'hello',
+                    width: 50,
+                    start: { segmentIndex: 0, graphemeIndex: 0 },
+                    end: { segmentIndex: 0, graphemeIndex: 5 }
+                };
+            }
+
+            return null;
+        }
+    };
+
+    const layout = buildTerminalEditorialLayout(fakePretext, {
+        tokens,
+        font: '18px "Courier New", monospace',
+        lineHeight: 20,
+        maxWidth: 200,
+        minSegmentWidth: 40,
+        obstacles: [
+            {
+                x: 0,
+                y: 220,
+                width: 80,
+                height: 80
+            }
+        ]
+    });
+
+    assert.equal(layout.height, 300);
+    assert.equal(layout.textHeight, 20);
+    assert.equal(layout.lineCount, 1);
 });

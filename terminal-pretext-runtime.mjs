@@ -140,7 +140,10 @@ function renderTerminalPretextState(container, state) {
             : [];
 
         container.classList.add('terminal-pretext-enabled', 'terminal-pretext-editorial-enabled');
-        container.style.minHeight = `${Math.max(lineHeight, Math.ceil(layout.height || 0))}px`;
+        const editorialHeight = Number.isFinite(layout.textHeight)
+            ? layout.textHeight
+            : layout.height;
+        container.style.minHeight = `${Math.max(lineHeight, Math.ceil(editorialHeight || 0))}px`;
         container.replaceChildren(...rows);
         return layout;
     }

@@ -1135,16 +1135,14 @@ function updateBlogEditorialMediaAnchors(state, now = window.performance?.now?.(
         }
 
         const dimensions = resolveEditorialMediaDimensions(mediaState, terminalWidth);
+        placeholder.style.height = `${Math.round(dimensions.outerHeight)}px`;
+        placeholder.style.minHeight = `${Math.round(dimensions.outerHeight)}px`;
         if (mediaState.docked) {
-            placeholder.style.height = `${Math.round(dimensions.outerHeight)}px`;
-            placeholder.style.minHeight = `${Math.round(dimensions.outerHeight)}px`;
             placeholder.classList.remove('is-floating');
             mediaState.dom?.wrapper?.classList.remove('is-floating');
             mediaState.x = resolveElementLeftInTerminal(placeholder);
             mediaState.y = resolveElementTopInTerminal(placeholder);
         } else {
-            placeholder.style.height = '0px';
-            placeholder.style.minHeight = '0px';
             placeholder.classList.add('is-floating');
             mediaState.dom?.wrapper?.classList.add('is-floating');
             mediaState.x = clampEditorialNumber(Number(mediaState.x) || 0, 0, Math.max(0, terminalWidth - dimensions.width));
