@@ -1035,15 +1035,10 @@ async function selectUserImageFilesSequentially(requiredCount = 1, options = {})
     return new Promise(resolve => {
         let settled = false;
         let cancelCheckTimerId = 0;
-        let launchCycle = 0;
         let activeCycle = 0;
-        let usingTransientInput = false;
+        let activeInput = null;
+        let activeListeners = null;
         const selectedFiles = [];
-        const input = resolveUserImageInput({
-            accept: acceptValue,
-            multiple: false
-        });
-        usingTransientInput = input.id !== 'user-image-input';
 
         const clearCancelCheck = () => {
             if (!cancelCheckTimerId) {
@@ -1054,31 +1049,42 @@ async function selectUserImageFilesSequentially(requiredCount = 1, options = {})
             cancelCheckTimerId = 0;
         };
 
+        const detachActiveInput = () => {
+            clearCancelCheck();
+            if (activeInput && activeListeners) {
+                activeInput.removeEventListener('change', activeListeners.handleChange);
+                activeInput.removeEventListener('cancel', activeListeners.handleCancel);
+                window.removeEventListener('focus', activeListeners.handleFocus);
+                document.removeEventListener('visibilitychange', activeListeners.handleVisibilityChange);
+            }
+
+            if (activeInput) {
+                activeInput.value = '';
+                removeTransientUserImageInput(activeInput);
+            }
+
+            activeInput = null;
+            activeListeners = null;
+        };
+
         const finish = files => {
             if (settled) {
                 return;
             }
 
             settled = true;
-            clearCancelCheck();
-            input.removeEventListener('change', handleChange);
-            window.removeEventListener('focus', handleFocus);
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            input.value = '';
-            if (usingTransientInput) {
-                removeTransientUserImageInput(input);
-            }
+            detachActiveInput();
             resolve(Array.isArray(files) ? files : []);
         };
 
         const scheduleCancelCheck = cycleId => {
             clearCancelCheck();
             cancelCheckTimerId = window.setTimeout(() => {
-                if (settled || cycleId !== activeCycle) {
+                if (settled || cycleId !== activeCycle || !activeInput) {
                     return;
                 }
 
-                const files = input.files ? Array.from(input.files).filter(Boolean) : [];
+                const files = activeInput.files ? Array.from(activeInput.files).filter(Boolean) : [];
                 if (files.length > 0) {
                     return;
                 }
@@ -1092,54 +1098,73 @@ async function selectUserImageFilesSequentially(requiredCount = 1, options = {})
                 return;
             }
 
-            launchCycle += 1;
-            activeCycle = launchCycle;
-            clearCancelCheck();
-            input.value = '';
+            detachActiveInput();
+            activeCycle += 1;
+            const cycleId = activeCycle;
+            const input = createTransientUserImageInput({
+                accept: acceptValue,
+                multiple: false
+            });
+            activeInput = input;
+
+            const handleChange = () => {
+                if (settled || cycleId !== activeCycle) {
+                    return;
+                }
+
+                const files = input.files ? Array.from(input.files).filter(Boolean) : [];
+                if (files.length === 0) {
+                    finish(selectedFiles);
+                    return;
+                }
+
+                selectedFiles.push(files[0]);
+                if (selectedFiles.length >= normalizedCount) {
+                    finish(selectedFiles);
+                    return;
+                }
+
+                launchNextPicker();
+            };
+
+            const handleCancel = () => {
+                if (settled || cycleId !== activeCycle) {
+                    return;
+                }
+
+                finish(selectedFiles);
+            };
+
+            const handleFocus = () => {
+                if (settled || cycleId !== activeCycle) {
+                    return;
+                }
+
+                scheduleCancelCheck(cycleId);
+            };
+
+            const handleVisibilityChange = () => {
+                if (settled || cycleId !== activeCycle || document.visibilityState !== 'visible') {
+                    return;
+                }
+
+                scheduleCancelCheck(cycleId);
+            };
+
+            activeListeners = {
+                handleCancel,
+                handleChange,
+                handleFocus,
+                handleVisibilityChange
+            };
+
+            input.addEventListener('change', handleChange, { once: true });
+            input.addEventListener('cancel', handleCancel, { once: true });
+            window.addEventListener('focus', handleFocus, { once: true });
+            document.addEventListener('visibilitychange', handleVisibilityChange);
             triggerUserImageInputPicker(input);
         };
 
-        const handleChange = () => {
-            if (settled) {
-                return;
-            }
-
-            const files = input.files ? Array.from(input.files).filter(Boolean) : [];
-            input.value = '';
-            if (files.length === 0) {
-                finish(selectedFiles);
-                return;
-            }
-
-            clearCancelCheck();
-            selectedFiles.push(files[0]);
-            if (selectedFiles.length >= normalizedCount) {
-                finish(selectedFiles);
-                return;
-            }
-
-            launchNextPicker();
-        };
-
-        const handleFocus = () => {
-            if (settled) {
-                return;
-            }
-
-            scheduleCancelCheck(activeCycle);
-        };
-
-        const handleVisibilityChange = () => {
-            if (settled || document.visibilityState !== 'visible') {
-                return;
-            }
-
-            scheduleCancelCheck(activeCycle);
-        };
-
-        input.addEventListener('change', handleChange);
-        window.addEventListener('focus', handleFocus);
-        document.addEventListener('visibilitychange', handleVisibilityChange);
         launchNextPicker();
     });
 }

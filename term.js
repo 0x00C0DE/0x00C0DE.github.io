@@ -257,7 +257,8 @@ function refreshTerminalInputPrompt() {
         return null;
     }
 
-    return refreshPrompt(inputLine);
+    const inputShell = inputLine.querySelector(':scope > .input-line-shell');
+    return refreshPrompt(inputShell || inputLine);
 }
 
 let bannerWaveReadyPromise = null;
