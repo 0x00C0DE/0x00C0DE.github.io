@@ -14,3 +14,14 @@ data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxMSEhUTExMWFhUWGBYVG
 
 [2026-04-03T12:13:44.800Z]
 test-v2 - 0x00C0DE
+
+[2026-04-04T04:57:38.345Z]
+test-v3
+[image-url]
+src:https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media/r2/YmxvZy1naWZzL21uanYycWdzLTRmOGJhYWsxLmdpZg
+mime:image/gif
+provider:r2
+storage-key:blog-gifs/mnjv2qgs-4f8baak1.gif
+storage-bytes:897715
+[/image-url]
+gif files working!! wooo :] - 0x00C0DE
