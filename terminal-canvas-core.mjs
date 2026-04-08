@@ -9,6 +9,7 @@ import {
 import {
     advanceBinaryRainColumn,
     createBinaryRainColumns,
+    getBinaryRainColumnFrame,
     shouldUseRootTerminalVisuals
 } from './terminal-visuals-core.mjs';
 
@@ -525,6 +526,12 @@ function resolveFragmentColor(fragment, palette, fallback) {
         return palette.helpCommand;
     case 'help-separator':
         return palette.helpSeparator;
+    case 'widget-label':
+        return palette.widgetLabel || palette.text;
+    case 'widget-value':
+        return palette.widgetValue || palette.accent;
+    case 'widget-dim':
+        return palette.widgetDim || palette.text;
     default:
         return fallback || palette.text;
     }
@@ -627,14 +634,17 @@ function buildEditorialTextLayout(block, slotName, text, width, font, lineHeight
         return {
             height: lineHeight,
             hitRegions: [],
+            plans: [],
             render() {},
             textHeight: lineHeight
         };
     }
 
-    const tokens = options.tokenizeLinks === false
-        ? [buildTextToken(safeText, options.tokenExtra)]
-        : tokenizeTerminalText(safeText, { normalizeTextFilename });
+    const tokens = options.tokens || (
+        options.tokenizeLinks === false
+            ? [buildTextToken(safeText, options.tokenExtra)]
+            : tokenizeTerminalText(safeText, { normalizeTextFilename })
+    );
     const cacheKey = JSON.stringify({
         font,
         text: tokens.map(token => ({
@@ -643,12 +653,13 @@ function buildEditorialTextLayout(block, slotName, text, width, font, lineHeight
             role: token.role || '',
             text: token.text || '',
             type: token.type || 'text'
-        }))
+        })),
+        whiteSpace: options.whiteSpace || 'pre-wrap'
     });
     const prepared = ensurePrepared(block, slotName, cacheKey, {
         font,
         tokens,
-        whiteSpace: 'pre-wrap'
+        whiteSpace: options.whiteSpace || 'pre-wrap'
     });
     const layout = layoutPreparedTerminalEditorialText(pretext, prepared, {
         lineHeight,
@@ -682,6 +693,7 @@ function buildEditorialTextLayout(block, slotName, text, width, font, lineHeight
         height: Math.max(lineHeight, Number(layout.textHeight) || Number(layout.height) || lineHeight),
         hitRegions,
         lineHeight,
+        plans: linePlans,
         render(ctx, originX, originY, palette, fallback = null) {
             linePlans.forEach(linePlan => {
                 drawFragmentPlans(ctx, linePlan.plans, originX + linePlan.x, originY + linePlan.y, lineHeight, font, palette, fallback);
@@ -689,6 +701,94 @@ function buildEditorialTextLayout(block, slotName, text, width, font, lineHeight
         },
         textHeight: Math.max(lineHeight, Number(layout.textHeight) || Number(layout.height) || lineHeight)
     };
+}
+
+function getLinePlanWidth(linePlan) {
+    if (!linePlan || !Array.isArray(linePlan.plans) || linePlan.plans.length === 0) {
+        return 0;
+    }
+
+    const lastPlan = linePlan.plans[linePlan.plans.length - 1];
+    return (lastPlan?.x || 0) + (lastPlan?.width || 0);
+}
+
+function getLayoutPlanBounds(linePlans, lineHeight) {
+    if (!Array.isArray(linePlans) || linePlans.length === 0) {
+        return {
+            height: lineHeight,
+            maxX: 0,
+            maxY: lineHeight,
+            minX: 0,
+            minY: 0,
+            width: 0
+        };
+    }
+
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = 0;
+    let maxY = 0;
+    linePlans.forEach(linePlan => {
+        const lineX = Number.isFinite(linePlan?.x) ? linePlan.x : 0;
+        const lineY = Number.isFinite(linePlan?.y) ? linePlan.y : 0;
+        const lineWidth = getLinePlanWidth(linePlan);
+        minX = Math.min(minX, lineX);
+        minY = Math.min(minY, lineY);
+        maxX = Math.max(maxX, lineX + lineWidth);
+        maxY = Math.max(maxY, lineY + lineHeight);
+    });
+
+    return {
+        height: Math.max(lineHeight, maxY - minY),
+        maxX,
+        maxY,
+        minX: Number.isFinite(minX) ? minX : 0,
+        minY: Number.isFinite(minY) ? minY : 0,
+        width: Math.max(0, maxX - (Number.isFinite(minX) ? minX : 0))
+    };
+}
+
+function hasGlobalEditorialObstacles(context = {}) {
+    return Boolean(context.editorial && Array.isArray(context.globalObstacles) && context.globalObstacles.length > 0);
+}
+
+function getRelativeEditorialObstacles(context = {}, options = {}) {
+    const blockTop = Number.isFinite(context.blockTop) ? context.blockTop : 0;
+    const offsetY = Number.isFinite(options.offsetY) ? options.offsetY : 0;
+    const excludeBlockId = typeof options.excludeBlockId === 'string' ? options.excludeBlockId : null;
+    const source = Array.isArray(context.globalObstacles) ? context.globalObstacles : [];
+    const obstacles = source
+        .filter(obstacle => !(excludeBlockId && obstacle?.blockId === excludeBlockId))
+        .map(obstacle => ({
+            height: obstacle.height,
+            width: obstacle.width,
+            x: obstacle.x,
+            y: obstacle.y
+        }));
+    return shiftObstacles(obstacles, blockTop + offsetY);
+}
+
+function layoutTextWithEditorialObstacles(block, slotName, text, width, font, lineHeight, context = {}, options = {}) {
+    if (!hasGlobalEditorialObstacles(context)) {
+        return buildTextLayout(block, text, width, font, lineHeight, {
+            ...options,
+            slotName
+        });
+    }
+
+    return buildEditorialTextLayout(
+        block,
+        `${slotName}Editorial`,
+        text,
+        width,
+        font,
+        lineHeight,
+        getRelativeEditorialObstacles(context, {
+            excludeBlockId: options.excludeBlockId,
+            offsetY: options.offsetY
+        }),
+        options
+    );
 }
 
 function getCurrentVisitorStats() {
@@ -1002,8 +1102,54 @@ function activateLink(fragment) {
     window.open(safeHref, fragment.newTab ? '_blank' : '_self', fragment.newTab ? 'noopener,noreferrer' : undefined);
 }
 
-function layoutCommandEcho(block, width, metrics, showCursor = false) {
+function layoutCommandEcho(block, width, metrics, showCursor = false, context = {}) {
     const promptSnapshot = clonePromptSnapshot(block.promptSnapshot);
+    if (hasGlobalEditorialObstacles(context)) {
+        const promptTokens = buildPromptTokens(promptSnapshot);
+        const commandText = typeof block.commandLine === 'string' ? block.commandLine : '';
+        const tokens = commandText
+            ? [...promptTokens, buildTextToken(commandText)]
+            : promptTokens;
+        const textLayout = buildEditorialTextLayout(
+            block,
+            showCursor ? '__inputEchoEditorial' : '__commandEchoEditorial',
+            tokens.map(token => token.text || '').join(''),
+            width,
+            metrics.commandFont,
+            metrics.lineHeight,
+            getRelativeEditorialObstacles(context),
+            {
+                tokens,
+                whiteSpace: 'pre-wrap'
+            }
+        );
+
+        return {
+            height: Math.max(metrics.lineHeight, textLayout.textHeight),
+            hitRegions: textLayout.hitRegions,
+            plans: textLayout.plans,
+            render(ctx, originX, originY, palette) {
+                textLayout.render(ctx, originX, originY, palette, palette.command);
+
+                if (!showCursor) {
+                    return;
+                }
+
+                const now = performance.now();
+                if (Math.floor(now / CURSOR_BLINK_INTERVAL_MS) % 2 === 1) {
+                    return;
+                }
+
+                const lastLine = textLayout.plans[textLayout.plans.length - 1] || { plans: [], x: 0, y: 0 };
+                const lastFragment = lastLine.plans[lastLine.plans.length - 1] || null;
+                const cursorX = originX + (lastLine.x || 0) + (lastFragment ? lastFragment.x + lastFragment.width : 0);
+                const cursorY = originY + (lastLine.y || 0);
+                ctx.fillStyle = palette.cursor;
+                ctx.fillRect(cursorX, cursorY + 2, 2, metrics.lineHeight - 4);
+            }
+        };
+    }
+
     const promptWidth = getPromptWidth(promptSnapshot, metrics.commandFont);
     const textLayout = buildTextLayout(block, block.commandLine || '', Math.max(72, width - promptWidth), metrics.commandFont, metrics.lineHeight, {
         slotName: showCursor ? '__inputEcho' : '__commandEcho',
@@ -1038,20 +1184,113 @@ function layoutCommandEcho(block, width, metrics, showCursor = false) {
     };
 }
 
-function layoutBanner(block, width, metrics) {
+function buildBannerGlyphLines(linePlans) {
+    let nextWaveIndex = 0;
+    return (Array.isArray(linePlans) ? linePlans : []).map(linePlan => {
+        const lineText = (Array.isArray(linePlan?.plans) ? linePlan.plans : []).map(plan => plan.text || '').join('');
+        const glyphs = splitBannerWaveGlyphs(lineText).map(glyph => {
+            if (!glyph.isAnimated) {
+                return glyph;
+            }
+            const nextGlyph = {
+                ...glyph,
+                waveIndex: nextWaveIndex
+            };
+            nextWaveIndex += 1;
+            return nextGlyph;
+        });
+        return {
+            glyphs,
+            x: Number.isFinite(linePlan?.x) ? linePlan.x : 0,
+            y: Number.isFinite(linePlan?.y) ? linePlan.y : 0
+        };
+    });
+}
+
+function layoutBanner(block, width, metrics, context = {}) {
     const titleText = block.data.title || '';
     const titleFont = fitFontToWidth(titleText, metrics.bannerTitleFont, width, 34, '700');
     const titleFontPx = extractFontSizePx(titleFont, extractFontSizePx(metrics.bannerTitleFont, metrics.fontSize * 3.8));
-    const titleGlyphs = splitBannerWaveGlyphs(titleText);
     const titleLetterSpacing = Math.max(0, round(titleFontPx * 0.06));
-    const titleHeight = Math.max(metrics.lineHeight * 2, round(titleFontPx * 0.88) + round(app.viewportWidth * 0.008));
     const subtitleText = block.data.subtitle || '';
     const subtitleFont = fitFontToWidth(subtitleText, metrics.bannerSubtitleFont, width, 16, '700');
     const subtitleFontPx = extractFontSizePx(subtitleFont, extractFontSizePx(metrics.bannerSubtitleFont, metrics.lineHeight));
-    const subtitleGlyphs = splitBannerWaveGlyphs(subtitleText);
     const subtitleLetterSpacing = Math.max(0, round(subtitleFontPx * 0.04));
-    const subtitleHeight = subtitleText ? Math.max(metrics.lineHeight, round(subtitleFontPx * 1) + round(app.viewportWidth * 0.003)) : 0;
     const subtitleGap = subtitleText ? Math.max(2, round(app.viewportWidth * 0.0025)) : 0;
+
+    if (hasGlobalEditorialObstacles(context)) {
+        const titleLayout = buildEditorialTextLayout(
+            block,
+            '__bannerTitleEditorial',
+            titleText,
+            width,
+            titleFont,
+            metrics.lineHeight,
+            getRelativeEditorialObstacles(context),
+            {
+                minSegmentWidth: 132,
+                tokenizeLinks: false
+            }
+        );
+        const titleGlyphLines = buildBannerGlyphLines(titleLayout.plans);
+        const titleHeight = Math.max(titleLayout.textHeight, metrics.lineHeight * 2);
+        const subtitleLayout = subtitleText
+            ? buildEditorialTextLayout(
+                block,
+                '__bannerSubtitleEditorial',
+                subtitleText,
+                width,
+                subtitleFont,
+                metrics.lineHeight,
+                getRelativeEditorialObstacles(context, {
+                    offsetY: titleHeight + subtitleGap
+                }),
+                {
+                    minSegmentWidth: 96,
+                    tokenizeLinks: false
+                }
+            )
+            : null;
+        const subtitleGlyphLines = subtitleLayout ? buildBannerGlyphLines(subtitleLayout.plans) : [];
+        const subtitleHeight = subtitleLayout ? subtitleLayout.textHeight : 0;
+
+        return {
+            height: titleHeight + (subtitleLayout ? subtitleHeight + subtitleGap : 0),
+            hitRegions: [],
+            render(ctx, originX, originY, palette) {
+                titleGlyphLines.forEach(line => {
+                    drawBannerGlyphRun(ctx, line.glyphs, originX + line.x, originY + line.y, titleFont, palette, {
+                        glowBlur: app.viewportWidth * 0.007,
+                        highlightBlur: app.viewportWidth * 0.0025,
+                        letterSpacing: titleLetterSpacing,
+                        nearShadowOffset: app.viewportWidth * 0.0012,
+                        farShadowOffset: app.viewportWidth * 0.0024,
+                        skewAmplitude: 0.05,
+                        waveAmplitude: titleFontPx * 0.11
+                    });
+                });
+                if (!subtitleLayout) {
+                    return;
+                }
+                subtitleGlyphLines.forEach(line => {
+                    drawBannerGlyphRun(ctx, line.glyphs, originX + round(app.viewportWidth * 0.002) + line.x, originY + titleHeight + subtitleGap + line.y, subtitleFont, palette, {
+                        glowBlur: app.viewportWidth * 0.0045,
+                        highlightBlur: app.viewportWidth * 0.0016,
+                        letterSpacing: subtitleLetterSpacing,
+                        nearShadowOffset: app.viewportWidth * 0.0008,
+                        farShadowOffset: app.viewportWidth * 0.0016,
+                        skewAmplitude: 0.036,
+                        waveAmplitude: subtitleFontPx * 0.11
+                    });
+                });
+            }
+        };
+    }
+
+    const titleGlyphs = splitBannerWaveGlyphs(titleText);
+    const titleHeight = Math.max(metrics.lineHeight * 2, round(titleFontPx * 0.88) + round(app.viewportWidth * 0.008));
+    const subtitleGlyphs = splitBannerWaveGlyphs(subtitleText);
+    const subtitleHeight = subtitleText ? Math.max(metrics.lineHeight, round(subtitleFontPx * 1) + round(app.viewportWidth * 0.003)) : 0;
 
     return {
         height: titleHeight + (subtitleText ? subtitleHeight + subtitleGap : 0),
@@ -1081,9 +1320,29 @@ function layoutBanner(block, width, metrics) {
     };
 }
 
-function layoutHelpEntry(block, width, metrics) {
+function layoutHelpEntry(block, width, metrics, context = {}) {
     const commandText = String(block.data.command || '');
     const separatorText = ' - ';
+    if (hasGlobalEditorialObstacles(context)) {
+        const tokens = [
+            buildTextToken(commandText, { role: 'help-command' }),
+            buildTextToken(separatorText, { role: 'help-separator' }),
+            buildTextToken(block.data.description || '')
+        ];
+        return buildEditorialTextLayout(
+            block,
+            '__helpEditorial',
+            `${commandText}${separatorText}${block.data.description || ''}`,
+            width,
+            metrics.textFont,
+            metrics.lineHeight,
+            getRelativeEditorialObstacles(context),
+            {
+                tokens
+            }
+        );
+    }
+
     const commandWidth = Math.max(
         measureTextWidth('M'.repeat(Math.max(commandText.length, Number(block.data.commandWidth) || commandText.length)), metrics.textFont),
         measureTextWidth(commandText, metrics.textFont)
@@ -1119,7 +1378,16 @@ function layoutHelpEntry(block, width, metrics) {
     };
 }
 
-function layoutVisitorWidget(block, width, metrics) {
+function buildVisitorRowTokens(label, value) {
+    return [
+        buildTextToken(`${label} `, { role: 'widget-label' }),
+        ...getVisitorDigitParts(value).map(part => buildTextToken(part.text, {
+            role: part.dim ? 'widget-dim' : 'widget-value'
+        }))
+    ];
+}
+
+function layoutVisitorWidget(block, width, metrics, context = {}) {
     const stats = block.data.stats || getCurrentVisitorStats();
     const rows = [
         { label: 'Visits:', value: stats.visits },
@@ -1132,6 +1400,84 @@ function layoutVisitorWidget(block, width, metrics) {
     const labelWidth = Math.max(...rows.map(row => measureTextWidth(row.label, labelFont)));
     const valueWidth = measureTextWidth('0000000', valueFont);
     const boxWidth = Math.max(250, Math.min(width, round(labelWidth + valueWidth + 44)));
+
+    if (hasGlobalEditorialObstacles(context)) {
+        const paddingX = 10;
+        const paddingTop = 8;
+        const paddingBottom = 8;
+        let cursorY = paddingTop;
+        const rowLayouts = rows.map((row, index) => {
+            const layout = buildEditorialTextLayout(
+                block,
+                `__visitorWidgetEditorial${index}`,
+                `${row.label} ${formatVisitorDigits(row.value)}`,
+                width,
+                labelFont,
+                rowHeight,
+                getRelativeEditorialObstacles(context, {
+                    offsetY: cursorY
+                }),
+                {
+                    minSegmentWidth: 84,
+                    tokens: buildVisitorRowTokens(row.label, row.value)
+                }
+            );
+            const result = {
+                bounds: getLayoutPlanBounds(layout.plans, rowHeight),
+                layout,
+                y: cursorY
+            };
+            cursorY += layout.textHeight;
+            return result;
+        });
+        const aggregateBounds = rowLayouts.reduce((union, row) => {
+            const top = row.y + row.bounds.minY;
+            const bottom = row.y + row.bounds.maxY;
+            return {
+                maxX: Math.max(union.maxX, row.bounds.maxX),
+                maxY: Math.max(union.maxY, bottom),
+                minX: Math.min(union.minX, row.bounds.minX),
+                minY: Math.min(union.minY, top)
+            };
+        }, {
+            maxX: 0,
+            maxY: paddingTop,
+            minX: Number.POSITIVE_INFINITY,
+            minY: paddingTop
+        });
+        const safeMinX = Number.isFinite(aggregateBounds.minX) ? aggregateBounds.minX : 0;
+        const boxLeft = Math.max(0, safeMinX - paddingX);
+        const boxTop = Math.max(0, aggregateBounds.minY - paddingTop);
+        const boxRight = aggregateBounds.maxX + paddingX;
+        const boxBottom = aggregateBounds.maxY + paddingBottom;
+        const widgetWidth = Math.max(140, boxRight - boxLeft);
+        const widgetHeight = Math.max(rowHeight + paddingTop + paddingBottom, boxBottom - boxTop);
+
+        return {
+            height: Math.max(widgetHeight, cursorY + paddingBottom),
+            hitRegions: [],
+            render(ctx, originX, originY, palette) {
+                const background = ctx.createLinearGradient(originX + boxLeft, originY + boxTop, originX + boxLeft, originY + boxTop + widgetHeight);
+                background.addColorStop(0, palette.widgetBackgroundTop || palette.block);
+                background.addColorStop(1, palette.widgetBackgroundBottom || palette.block);
+                ctx.shadowColor = palette.widgetOuterGlow || 'transparent';
+                ctx.shadowBlur = 8;
+                ctx.fillStyle = background;
+                ctx.fillRect(originX + boxLeft, originY + boxTop, widgetWidth, widgetHeight);
+                ctx.shadowColor = 'transparent';
+                ctx.shadowBlur = 0;
+                ctx.strokeStyle = palette.border;
+                ctx.lineWidth = 1;
+                ctx.strokeRect(originX + boxLeft + 0.5, originY + boxTop + 0.5, widgetWidth - 1, widgetHeight - 1);
+                ctx.strokeStyle = palette.widgetInset || palette.border;
+                ctx.strokeRect(originX + boxLeft + 1.5, originY + boxTop + 1.5, widgetWidth - 3, widgetHeight - 3);
+
+                rowLayouts.forEach(row => {
+                    row.layout.render(ctx, originX, originY + row.y, palette);
+                });
+            }
+        };
+    }
 
     return {
         height: 12 + rows.length * rowHeight + 10,
@@ -1319,12 +1665,20 @@ function layoutBlogEntry(block, width, metrics, editorial, context = {}) {
         tokenizeLinks: false
     });
     const mediaRects = editorial ? getEditorialMediaRects(block, width, metrics, flatHeader.height, blockTop) : [];
-    const obstacleRects = mediaRects.map(rect => ({
+    const localObstacleRects = mediaRects.map(rect => ({
         height: rect.height + 10,
         width: rect.width + 10,
         x: rect.x - 5,
         y: rect.y - blockTop - 5
     }));
+    const obstacleRects = editorial
+        ? [
+            ...getRelativeEditorialObstacles(context, {
+                excludeBlockId: block.id
+            }),
+            ...localObstacleRects
+        ]
+        : localObstacleRects;
     const header = editorial
         ? buildEditorialTextLayout(block, '__blogHeaderEditorial', block.data.text || '', width, metrics.textFont, metrics.lineHeight, shiftObstacles(obstacleRects, cursorY), {
             tokenizeLinks: false
@@ -1413,7 +1767,7 @@ function layoutBlogEntry(block, width, metrics, editorial, context = {}) {
     };
 }
 
-function layoutTextLink(block, width, metrics) {
+function layoutTextLink(block, width, metrics, context = {}) {
     const prefix = typeof block.data.prefix === 'string' ? block.data.prefix : '';
     const text = block.data.text || block.data.href || '';
     const tokens = [];
@@ -1435,10 +1789,14 @@ function layoutTextLink(block, width, metrics) {
         text,
         type: 'link'
     });
-    return buildTextLayout(block, `${prefix}${text}`, width, metrics.textFont, metrics.lineHeight, {
-        slotName: '__textLink',
-        tokens
-    });
+    return hasGlobalEditorialObstacles(context)
+        ? buildEditorialTextLayout(block, '__textLinkEditorial', `${prefix}${text}`, width, metrics.textFont, metrics.lineHeight, getRelativeEditorialObstacles(context), {
+            tokens
+        })
+        : buildTextLayout(block, `${prefix}${text}`, width, metrics.textFont, metrics.lineHeight, {
+            slotName: '__textLink',
+            tokens
+        });
 }
 
 function isEditorialModeActive() {
@@ -1448,38 +1806,46 @@ function isEditorialModeActive() {
 
 function layoutOutputBlock(block, width, metrics, context = {}) {
     if (block.kind === 'command') {
-        return layoutCommandEcho(block, width, metrics, false);
+        return layoutCommandEcho(block, width, metrics, false, context);
     }
 
     if (typeof block.data === 'string') {
-        return buildTextLayout(block, block.data, width, metrics.textFont, metrics.lineHeight);
+        return layoutTextWithEditorialObstacles(block, '__plainOutput', block.data, width, metrics.textFont, metrics.lineHeight, context);
     }
 
     if (!block.data || typeof block.data !== 'object') {
-        return buildTextLayout(block, String(block.data ?? ''), width, metrics.textFont, metrics.lineHeight, {
+        return layoutTextWithEditorialObstacles(block, '__unknownOutput', String(block.data ?? ''), width, metrics.textFont, metrics.lineHeight, context, {
             tokenizeLinks: false
         });
     }
 
     switch (block.data.type) {
     case 'banner':
-        return layoutBanner(block, width, metrics);
+        return layoutBanner(block, width, metrics, context);
     case 'blog-entry':
         return layoutBlogEntry(block, width, metrics, isEditorialModeActive(), context);
     case 'blog-entry-header':
     case 'blog-entry-text':
-        return buildTextLayout(block, block.data.text || '', width, metrics.textFont, metrics.lineHeight);
+        return layoutTextWithEditorialObstacles(block, '__blogEntryText', block.data.text || '', width, metrics.textFont, metrics.lineHeight, context);
     case 'help-entry':
-        return layoutHelpEntry(block, width, metrics);
+        return layoutHelpEntry(block, width, metrics, context);
     case 'inline-image':
     case 'inline-video':
         return layoutStandaloneMedia(block, metrics);
     case 'text-link':
-        return layoutTextLink(block, width, metrics);
+        return layoutTextLink(block, width, metrics, context);
     case 'visitor-widget':
-        return layoutVisitorWidget(block, width, metrics);
+        return layoutVisitorWidget(block, width, metrics, context);
     default:
-        return buildTextLayout(block, typeof block.data.text === 'string' ? block.data.text : String(block.data ?? ''), width, metrics.textFont, metrics.lineHeight);
+        return layoutTextWithEditorialObstacles(
+            block,
+            '__defaultObjectOutput',
+            typeof block.data.text === 'string' ? block.data.text : String(block.data ?? ''),
+            width,
+            metrics.textFont,
+            metrics.lineHeight,
+            context
+        );
     }
 }
 
@@ -1550,16 +1916,17 @@ function scrollToBottom() {
     app.scrollTop = Math.max(0, app.contentHeight - app.viewportHeight);
 }
 
-function relayoutScene() {
-    const metrics = resolveMetrics();
-    const nearBottom = app.scrollTop >= Math.max(0, app.contentHeight - app.viewportHeight - metrics.lineHeight * 2);
+function layoutScenePass(metrics, editorialSeedRects = []) {
     let cursorY = metrics.paddingY;
     const regions = [];
     const editorialRects = [];
+    const editorial = isEditorialModeActive();
 
     app.blocks.forEach(block => {
         block.layout = layoutOutputBlock(block, metrics.contentWidth, metrics, {
-            blockTop: cursorY
+            blockTop: cursorY,
+            editorial,
+            globalObstacles: editorialSeedRects
         });
         block.top = cursorY;
         block.bottom = cursorY + block.layout.height;
@@ -1581,40 +1948,70 @@ function relayoutScene() {
         cursorY += block.layout.height + metrics.blockGap;
     });
 
-    app.inputLayout = layoutCommandEcho({
-        commandLine: app.inputValue,
-        promptSnapshot: getPromptSnapshot()
-    }, metrics.contentWidth, metrics, true);
-    app.inputTop = cursorY;
-    cursorY += app.inputLayout.height + metrics.paddingY;
-    const editorialBottom = editorialRects.reduce((maximum, rect) => (
+    const inputLayoutBlock = app.inputLayoutBlock || (app.inputLayoutBlock = { id: '__inputLayoutBlock' });
+    inputLayoutBlock.commandLine = app.inputValue;
+    inputLayoutBlock.promptSnapshot = getPromptSnapshot();
+    const inputLayout = layoutCommandEcho(inputLayoutBlock, metrics.contentWidth, metrics, true, {
+        blockTop: cursorY,
+        editorial,
+        globalObstacles: editorialSeedRects
+    });
+    const inputTop = cursorY;
+    cursorY += inputLayout.height + metrics.paddingY;
+
+    return {
+        contentBottom: cursorY,
+        editorialRects,
+        inputLayout,
+        inputTop,
+        regions
+    };
+}
+
+function relayoutScene() {
+    const metrics = resolveMetrics();
+    const nearBottom = app.scrollTop >= Math.max(0, app.contentHeight - app.viewportHeight - metrics.lineHeight * 2);
+    let pass = layoutScenePass(metrics, []);
+    if (isEditorialModeActive() && pass.editorialRects.length > 0) {
+        pass = layoutScenePass(metrics, pass.editorialRects);
+        pass = layoutScenePass(metrics, pass.editorialRects);
+    }
+
+    app.inputLayout = pass.inputLayout;
+    app.inputTop = pass.inputTop;
+    const editorialBottom = pass.editorialRects.reduce((maximum, rect) => (
         Math.max(maximum, rect.y + rect.height + (rect.deleteButton ? metrics.lineHeight + rect.deleteGap : 0))
     ), 0);
-    app.contentHeight = Math.max(app.viewportHeight, cursorY, editorialBottom + metrics.paddingY);
-    app.editorialMediaRects = editorialRects;
+    const blockDeleteRegions = pass.regions.filter(region => region.action === 'delete-entry');
+    const baseRegions = pass.regions.filter(region => region.action !== 'delete-entry');
+    const editorialDragRegions = pass.editorialRects.map(rect => ({
+        action: 'drag-media',
+        data: {
+            blockId: rect.blockId,
+            mediaId: rect.id
+        },
+        height: rect.height,
+        width: rect.width,
+        x: metrics.paddingX + rect.x,
+        y: rect.y
+    }));
+    const editorialDeleteRegions = pass.editorialRects
+        .filter(rect => rect.deleteButton)
+        .map(rect => ({
+            action: 'delete-media',
+            data: rect.block,
+            height: metrics.lineHeight,
+            width: rect.deleteButton.width,
+            x: metrics.paddingX + rect.x,
+            y: rect.y + rect.height + rect.deleteGap
+        }));
+    app.contentHeight = Math.max(app.viewportHeight, pass.contentBottom, editorialBottom + metrics.paddingY);
+    app.editorialMediaRects = pass.editorialRects;
     app.interactiveRegions = [
-        ...regions,
-        ...editorialRects.flatMap(rect => ([
-            {
-                action: 'drag-media',
-                data: {
-                    blockId: rect.blockId,
-                    mediaId: rect.id
-                },
-                height: rect.height,
-                width: rect.width,
-                x: metrics.paddingX + rect.x,
-                y: rect.y
-            },
-            ...(rect.deleteButton ? [{
-                action: 'delete-media',
-                data: rect.block,
-                height: metrics.lineHeight,
-                width: rect.deleteButton.width,
-                x: metrics.paddingX + rect.x,
-                y: rect.y + rect.height + rect.deleteGap
-            }] : [])
-        ]))
+        ...baseRegions,
+        ...editorialDragRegions,
+        ...blockDeleteRegions,
+        ...editorialDeleteRegions
     ];
 
     if (nearBottom) {
@@ -1645,20 +2042,39 @@ function drawBackground(ctx, palette, timestamp) {
     advanceBinaryColumns(timestamp);
     if (app.binaryColumns.length > 0) {
         ctx.save();
+        ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        ctx.globalAlpha = 0.25;
         app.binaryColumns.forEach(column => {
             const glyphs = Array.isArray(column.cells) ? column.cells : [];
-            const fontSize = column.fontSizePx || 16;
-            const glyphHeight = Math.max(12, round(fontSize * 0.84));
-            ctx.font = buildFont(fontSize, '700');
-            ctx.fillStyle = palette.accent;
-            glyphs.forEach((glyph, index) => {
-                ctx.fillText(glyph, app.viewportWidth * ((column.leftPercent || 0) / 100), index * glyphHeight - 48);
+            if (glyphs.length === 0) {
+                return;
+            }
+
+            const frame = getBinaryRainColumnFrame(column, {
+                height: app.viewportHeight,
+                timestamp
             });
+            const x = app.viewportWidth * frame.x;
+
+            ctx.save();
+            ctx.font = buildFont(frame.fontSizePx, '700');
+            ctx.globalAlpha = frame.opacity;
+            ctx.fillStyle = palette.accent;
+            ctx.shadowColor = palette.accent;
+            ctx.shadowBlur = Math.max(6, frame.fontSizePx * 0.35);
+            if ('filter' in ctx) {
+                ctx.filter = frame.blurPx > 0 ? `blur(${frame.blurPx}px)` : 'none';
+            }
+            glyphs.forEach((glyph, index) => {
+                const y = frame.y + index * frame.glyphHeight;
+                if (y < -frame.glyphHeight * 2 || y > app.viewportHeight + frame.glyphHeight * 2) {
+                    return;
+                }
+                ctx.fillText(glyph, x, y);
+            });
+            ctx.restore();
         });
         ctx.restore();
-        ctx.globalAlpha = 1;
     }
 }
 

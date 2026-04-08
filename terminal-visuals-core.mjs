@@ -155,3 +155,35 @@ export function advanceBinaryRainColumn(column, options = {}) {
         stream: createBinaryRainStream(cells)
     };
 }
+
+export function getBinaryRainColumnFrame(column, options = {}) {
+    const height = Number.isFinite(options.height) ? options.height : 720;
+    const timestamp = Number.isFinite(options.timestamp) ? options.timestamp : 0;
+    const fontSizePx = Number.isFinite(column?.fontSizePx) ? column.fontSizePx : 16;
+    const glyphHeight = Math.max(12, roundTo(fontSizePx * 0.84, 1));
+    const cells = Array.isArray(column?.cells)
+        ? column.cells
+        : String(column?.stream || '')
+            .split('\n')
+            .filter(Boolean);
+    const streamHeight = Math.max(glyphHeight, cells.length * glyphHeight);
+    const durationMs = Math.max(1000, Number.isFinite(column?.durationMs) ? column.durationMs : 9000);
+    const delayMs = Number.isFinite(column?.delayMs) ? column.delayMs : 0;
+    const elapsed = timestamp - delayMs;
+    const progress = elapsed < 0 ? 0 : (elapsed % durationMs) / durationMs;
+    const startY = -streamHeight * 1.25;
+    const endY = height * 1.35;
+
+    return {
+        blurPx: Number.isFinite(column?.blurPx) ? column.blurPx : 0,
+        durationMs,
+        fontSizePx,
+        glyphHeight,
+        leftPercent: clamp(Number.isFinite(column?.leftPercent) ? column.leftPercent : 0, 0, 100),
+        opacity: clamp(Number.isFinite(column?.opacity) ? column.opacity : 0.22, 0.05, 1),
+        progress,
+        streamHeight,
+        x: clamp(Number.isFinite(column?.leftPercent) ? column.leftPercent : 0, 0, 100) / 100,
+        y: startY + (endY - startY) * progress
+    };
+}
