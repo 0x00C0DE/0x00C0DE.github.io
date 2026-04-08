@@ -275,8 +275,8 @@ function resolveMetrics() {
     const contentWidth = Math.max(120, width - paddingX * 2 - scrollbarWidth);
 
     return {
-        bannerSubtitleFont: buildFont(clamp(round(width * 0.033), 28, 54), '700'),
-        bannerTitleFont: buildFont(clamp(round(width * 0.145), 120, 210), '700'),
+        bannerSubtitleFont: buildFont(clamp(round(width * 0.0165), 18, 34), '700'),
+        bannerTitleFont: buildFont(clamp(round(width * 0.072), 72, 144), '700'),
         blockGap,
         buttonFont: buildFont(clamp(fontSize - 1, 12, 17), '700'),
         commandFont: buildFont(fontSize, '400'),
@@ -867,14 +867,14 @@ function layoutBanner(block, width, metrics) {
     const titleFontPx = extractFontSizePx(titleFont, extractFontSizePx(metrics.bannerTitleFont, metrics.fontSize * 3.8));
     const titleGlyphs = splitBannerWaveGlyphs(titleText);
     const titleLetterSpacing = Math.max(0, round(titleFontPx * 0.06));
-    const titleHeight = Math.max(metrics.lineHeight * 2, round(titleFontPx * 0.88) + round(app.viewportWidth * 0.022));
+    const titleHeight = Math.max(metrics.lineHeight * 2, round(titleFontPx * 0.88) + round(app.viewportWidth * 0.008));
     const subtitleText = block.data.subtitle || '';
     const subtitleFont = fitFontToWidth(subtitleText, metrics.bannerSubtitleFont, width, 16, '700');
     const subtitleFontPx = extractFontSizePx(subtitleFont, extractFontSizePx(metrics.bannerSubtitleFont, metrics.lineHeight));
     const subtitleGlyphs = splitBannerWaveGlyphs(subtitleText);
     const subtitleLetterSpacing = Math.max(0, round(subtitleFontPx * 0.04));
-    const subtitleHeight = subtitleText ? Math.max(metrics.lineHeight, round(subtitleFontPx * 1) + round(app.viewportWidth * 0.012)) : 0;
-    const subtitleGap = subtitleText ? Math.max(4, round(app.viewportWidth * 0.006)) : 0;
+    const subtitleHeight = subtitleText ? Math.max(metrics.lineHeight, round(subtitleFontPx * 1) + round(app.viewportWidth * 0.003)) : 0;
+    const subtitleGap = subtitleText ? Math.max(2, round(app.viewportWidth * 0.0025)) : 0;
 
     return {
         height: titleHeight + (subtitleText ? subtitleHeight + subtitleGap : 0),
@@ -949,41 +949,41 @@ function layoutVisitorWidget(block, width, metrics) {
         { label: 'Uniq. Visitors:', value: stats.uniqueVisitors },
         { label: 'On-site:', value: stats.onSite }
     ];
-    const labelFont = buildFont(clamp(metrics.fontSize + 5, 18, 24), '700');
+    const labelFont = buildFont(clamp(metrics.fontSize + 1, 16, 20), '700');
     const valueFont = labelFont;
-    const rowHeight = Math.max(metrics.lineHeight, round(extractFontSizePx(labelFont, metrics.fontSize) * 1.18));
+    const rowHeight = Math.max(metrics.lineHeight, round(extractFontSizePx(labelFont, metrics.fontSize) * 1.08));
     const labelWidth = Math.max(...rows.map(row => measureTextWidth(row.label, labelFont)));
     const valueWidth = measureTextWidth('0000000', valueFont);
-    const boxWidth = Math.max(Math.min(width, 420), Math.min(width, round(labelWidth + valueWidth + 88)));
+    const boxWidth = Math.max(250, Math.min(width, round(labelWidth + valueWidth + 44)));
 
     return {
-        height: 16 + rows.length * rowHeight + 14,
+        height: 12 + rows.length * rowHeight + 10,
         hitRegions: [],
         render(ctx, originX, originY, palette) {
-            const background = ctx.createLinearGradient(originX, originY, originX, originY + 16 + rows.length * rowHeight + 14);
+            const background = ctx.createLinearGradient(originX, originY, originX, originY + 12 + rows.length * rowHeight + 10);
             background.addColorStop(0, palette.widgetBackgroundTop || palette.block);
             background.addColorStop(1, palette.widgetBackgroundBottom || palette.block);
             ctx.shadowColor = palette.widgetOuterGlow || 'transparent';
-            ctx.shadowBlur = 12;
+            ctx.shadowBlur = 8;
             ctx.fillStyle = background;
-            ctx.fillRect(originX, originY, boxWidth, 16 + rows.length * rowHeight + 14);
+            ctx.fillRect(originX, originY, boxWidth, 12 + rows.length * rowHeight + 10);
             ctx.shadowColor = 'transparent';
             ctx.shadowBlur = 0;
             ctx.strokeStyle = palette.border;
             ctx.lineWidth = 1;
-            ctx.strokeRect(originX + 0.5, originY + 0.5, boxWidth - 1, 16 + rows.length * rowHeight + 13);
+            ctx.strokeRect(originX + 0.5, originY + 0.5, boxWidth - 1, 12 + rows.length * rowHeight + 9);
             ctx.strokeStyle = palette.widgetInset || palette.border;
-            ctx.strokeRect(originX + 1.5, originY + 1.5, boxWidth - 3, 16 + rows.length * rowHeight + 11);
+            ctx.strokeRect(originX + 1.5, originY + 1.5, boxWidth - 3, 12 + rows.length * rowHeight + 7);
 
             rows.forEach((row, index) => {
-                const baselineY = originY + 10 + index * rowHeight;
-                const valueX = originX + boxWidth - 18 - valueWidth;
+                const baselineY = originY + 8 + index * rowHeight;
+                const valueX = originX + boxWidth - 12 - valueWidth;
                 ctx.font = labelFont;
                 ctx.textBaseline = 'top';
                 ctx.shadowColor = palette.widgetLabelGlow || palette.textGlow || 'transparent';
-                ctx.shadowBlur = 4;
+                ctx.shadowBlur = 3;
                 ctx.fillStyle = palette.widgetLabel || palette.text;
-                ctx.fillText(row.label, originX + 16, baselineY);
+                ctx.fillText(row.label, originX + 10, baselineY);
 
                 let digitX = valueX;
                 ctx.font = valueFont;
