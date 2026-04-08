@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
     advanceBinaryRainColumn,
     createBinaryRainColumns,
+    getBinaryRainColumnFrame,
     getPromptUserClassName,
     shouldUseRootTerminalVisuals
 } from '../terminal-visuals-core.mjs';
@@ -129,4 +130,36 @@ test('default rain glyph pool can include letters, digits, and special character
     assert.match(column.stream, /[A-Z]/);
     assert.match(column.stream, /[0-9]/);
     assert.match(column.stream, /[!?@#$%&*+\-=<>\[\]{}]/);
+});
+
+test('binary rain frames fall over time and loop by duration', () => {
+    const column = {
+        blurPx: 1.1,
+        cells: Array.from({ length: 12 }, () => 'A'),
+        delayMs: -250,
+        durationMs: 1000,
+        fontSizePx: 20,
+        leftPercent: 37,
+        opacity: 0.34
+    };
+
+    const first = getBinaryRainColumnFrame(column, {
+        height: 400,
+        timestamp: 100
+    });
+    const later = getBinaryRainColumnFrame(column, {
+        height: 400,
+        timestamp: 500
+    });
+    const looped = getBinaryRainColumnFrame(column, {
+        height: 400,
+        timestamp: 1500
+    });
+
+    assert.equal(first.leftPercent, 37);
+    assert.equal(first.opacity, 0.34);
+    assert.ok(first.y < later.y);
+    assert.ok(Math.abs(later.y - looped.y) < 0.001);
+    assert.ok(first.y >= -first.streamHeight * 1.25 - 0.001);
+    assert.ok(later.y <= 400 * 1.35 + 0.001);
 });
