@@ -1,0 +1,1967 @@
+import * as pretext from './pretext-browser.mjs';
+import {
+    layoutPreparedTerminalEditorialText,
+    layoutPreparedTerminalText,
+    prepareTerminalText,
+    tokenizeTerminalText
+} from './terminal-pretext-core.mjs';
+import {
+    advanceBinaryRainColumn,
+    createBinaryRainColumns,
+    shouldUseRootTerminalVisuals
+} from './terminal-visuals-core.mjs';
+
+const MONO_FONT_FAMILY = '"Courier New", Courier, monospace';
+const TEXT_FILES = Object.freeze([
+    'blog.txt',
+    'readme.txt',
+    'projects.txt',
+    'links.txt',
+    'qr-totp.txt',
+    'proprts.txt',
+    'amr.txt',
+    'shellcode.txt',
+    'smallsh.txt',
+    'bloom.txt'
+]);
+const TEXT_FILE_LOOKUP = new Map(TEXT_FILES.map(filename => [filename.toUpperCase(), filename]));
+const DEFAULT_PROMPT_SNAPSHOT = Object.freeze({
+    host: 'localhost',
+    isGodlike: false,
+    isRoot: false,
+    mode: 'default',
+    path: '/home/0x00C0DE/Unkn0wn',
+    promptSymbol: '$',
+    theme: 'default',
+    user: 'guest'
+});
+const DEFAULT_VISITOR_STATS = Object.freeze({
+    visits: 0,
+    uniqueVisitors: 0,
+    onSite: 0
+});
+const CURSOR_BLINK_INTERVAL_MS = 540;
+const BACKGROUND_STEP_MS = 120;
+const MEDIA_PLACEHOLDER_ASPECT_RATIO = 16 / 9;
+
+const PALETTES = Object.freeze({
+    default: {
+        accent: '#ff7d86',
+        background: '#030001',
+        block: 'rgba(18, 0, 3, 0.72)',
+        border: 'rgba(255, 115, 126, 0.28)',
+        command: '#ffbcc1',
+        cursor: '#ff8d95',
+        helpCommand: '#ffd9dd',
+        helpSeparator: '#ff7279',
+        link: '#fff0f2',
+        linkUnderline: 'rgba(255, 218, 222, 0.92)',
+        media: 'rgba(16, 0, 2, 0.8)',
+        promptHost: '#ff9aa1',
+        promptPath: '#ffd0d3',
+        promptPunctuation: '#ff6d76',
+        promptUser: '#ff545f',
+        scrollbarThumb: 'rgba(255, 122, 128, 0.48)',
+        scrollbarTrack: 'rgba(255, 122, 128, 0.12)',
+        text: '#ff6672',
+        title: '#ffe2e4',
+        glow: 'rgba(120, 10, 18, 0.3)'
+    },
+    root: {
+        accent: '#ff5252',
+        background: '#000000',
+        block: 'rgba(18, 0, 0, 0.76)',
+        border: 'rgba(255, 84, 84, 0.32)',
+        command: '#ffc0c0',
+        cursor: '#ff5555',
+        helpCommand: '#ffe4e4',
+        helpSeparator: '#ff7575',
+        link: '#ffe9e9',
+        linkUnderline: 'rgba(255, 196, 196, 0.92)',
+        media: 'rgba(24, 0, 0, 0.84)',
+        promptHost: '#ff9b9b',
+        promptPath: '#ffd2d2',
+        promptPunctuation: '#ff6f6f',
+        promptUser: '#ff3636',
+        scrollbarThumb: 'rgba(255, 90, 90, 0.54)',
+        scrollbarTrack: 'rgba(255, 90, 90, 0.14)',
+        text: '#ff5962',
+        title: '#ffe3e3',
+        glow: 'rgba(255, 22, 22, 0.18)'
+    },
+    godlike: {
+        accent: '#ffd46f',
+        background: '#060400',
+        block: 'rgba(28, 18, 2, 0.8)',
+        border: 'rgba(255, 214, 118, 0.26)',
+        command: '#ffe7bc',
+        cursor: '#ffe08a',
+        helpCommand: '#fff1cd',
+        helpSeparator: '#ffd060',
+        link: '#fff5dd',
+        linkUnderline: 'rgba(255, 232, 174, 0.92)',
+        media: 'rgba(40, 26, 4, 0.86)',
+        promptHost: '#ffdd97',
+        promptPath: '#fff0c2',
+        promptPunctuation: '#ffcd5f',
+        promptUser: '#ffd870',
+        scrollbarThumb: 'rgba(255, 214, 118, 0.5)',
+        scrollbarTrack: 'rgba(255, 214, 118, 0.12)',
+        text: '#f7d78c',
+        title: '#fff7de',
+        glow: 'rgba(184, 128, 30, 0.22)'
+    },
+    kali: {
+        accent: '#a8c2ff',
+        background: '#090d16',
+        block: 'rgba(8, 12, 22, 0.78)',
+        border: 'rgba(168, 194, 255, 0.24)',
+        command: '#dce7ff',
+        cursor: '#b9ceff',
+        helpCommand: '#e8efff',
+        helpSeparator: '#90adff',
+        link: '#f4f7ff',
+        linkUnderline: 'rgba(214, 225, 255, 0.92)',
+        media: 'rgba(8, 12, 22, 0.84)',
+        promptHost: '#bfd2ff',
+        promptPath: '#ebf2ff',
+        promptPunctuation: '#94b0ff',
+        promptUser: '#d7e3ff',
+        scrollbarThumb: 'rgba(168, 194, 255, 0.44)',
+        scrollbarTrack: 'rgba(168, 194, 255, 0.12)',
+        text: '#d8e2ff',
+        title: '#f7f9ff',
+        glow: 'rgba(60, 86, 150, 0.26)'
+    }
+});
+
+const app = {
+    binaryColumns: [],
+    blockId: 0,
+    blocks: [],
+    canvas: null,
+    commandHistory: [],
+    contentHeight: 0,
+    ctx: null,
+    dpr: 1,
+    frameId: 0,
+    historyIndex: 0,
+    inputValue: '',
+    interactiveRegions: [],
+    isBooted: false,
+    lastBackgroundStep: 0,
+    measureCanvas: null,
+    measureCtx: null,
+    mediaCache: new Map(),
+    pointerDrag: null,
+    scratchCanvas: null,
+    scrollTop: 0,
+    viewer: null,
+    viewportHeight: 0,
+    viewportWidth: 0
+};
+
+function clamp(value, minimum, maximum) {
+    return Math.max(minimum, Math.min(maximum, value));
+}
+
+function round(value) {
+    return Math.round(value);
+}
+
+function buildFont(fontSize, weight = '400') {
+    return `${weight} ${fontSize}px ${MONO_FONT_FAMILY}`;
+}
+
+function getPromptSnapshot() {
+    if (typeof window.getTerminalPromptSnapshot === 'function') {
+        const snapshot = window.getTerminalPromptSnapshot();
+        if (snapshot && typeof snapshot === 'object') {
+            return {
+                ...DEFAULT_PROMPT_SNAPSHOT,
+                ...snapshot
+            };
+        }
+    }
+
+    return { ...DEFAULT_PROMPT_SNAPSHOT };
+}
+
+function clonePromptSnapshot(snapshot = null) {
+    const source = snapshot && typeof snapshot === 'object' ? snapshot : getPromptSnapshot();
+    return {
+        host: typeof source.host === 'string' && source.host ? source.host : DEFAULT_PROMPT_SNAPSHOT.host,
+        isGodlike: Boolean(source.isGodlike),
+        isRoot: Boolean(source.isRoot),
+        mode: typeof source.mode === 'string' && source.mode ? source.mode : DEFAULT_PROMPT_SNAPSHOT.mode,
+        path: typeof source.path === 'string' && source.path ? source.path : DEFAULT_PROMPT_SNAPSHOT.path,
+        promptSymbol: typeof source.promptSymbol === 'string' && source.promptSymbol ? source.promptSymbol : DEFAULT_PROMPT_SNAPSHOT.promptSymbol,
+        theme: typeof source.theme === 'string' && source.theme ? source.theme : DEFAULT_PROMPT_SNAPSHOT.theme,
+        user: typeof source.user === 'string' && source.user ? source.user : DEFAULT_PROMPT_SNAPSHOT.user
+    };
+}
+
+function getPalette(snapshot = getPromptSnapshot()) {
+    if (snapshot.mode === 'kali') {
+        return PALETTES.kali;
+    }
+    if (snapshot.isGodlike || String(snapshot.user || '').toLowerCase() === 'godlike') {
+        return PALETTES.godlike;
+    }
+    if (snapshot.isRoot || String(snapshot.user || '').toLowerCase() === 'root') {
+        return PALETTES.root;
+    }
+    return PALETTES.default;
+}
+
+function ensureMeasureContext() {
+    if (!app.measureCanvas) {
+        app.measureCanvas = document.createElement('canvas');
+        app.measureCtx = app.measureCanvas.getContext('2d');
+    }
+    return app.measureCtx;
+}
+
+function measureTextWidth(text, font) {
+    const ctx = ensureMeasureContext();
+    ctx.font = font;
+    return ctx.measureText(text).width;
+}
+
+function resolveMetrics() {
+    const width = Math.max(320, app.viewportWidth || window.innerWidth || 1280);
+    const narrow = width < 560;
+    const fontSize = width < 440 ? 14 : width < 680 ? 15 : 18;
+    const lineHeight = round(fontSize * (narrow ? 1.45 : 1.34));
+    const paddingX = width < 480 ? 14 : width < 900 ? 18 : 24;
+    const paddingY = width < 480 ? 14 : 18;
+    const blockGap = width < 480 ? 8 : 10;
+    const scrollbarWidth = 12;
+    const contentWidth = Math.max(120, width - paddingX * 2 - scrollbarWidth);
+
+    return {
+        blockGap,
+        buttonFont: buildFont(clamp(fontSize - 1, 12, 17), '700'),
+        commandFont: buildFont(fontSize, '400'),
+        contentWidth,
+        fontSize,
+        helpGap: round(fontSize * 0.9),
+        lineHeight,
+        mediaMaxWidth: Math.max(220, Math.min(contentWidth, round(width * (narrow ? 0.88 : 0.68)))),
+        paddingX,
+        paddingY,
+        scrollbarWidth,
+        subtitleFont: buildFont(clamp(round(fontSize * 1.1), 16, 24), '700'),
+        textFont: buildFont(fontSize, '400'),
+        titleFont: buildFont(clamp(round(fontSize * 1.9), 24, 40), '700'),
+        viewerTop: round(fontSize * 2.8)
+    };
+}
+
+function getButtonLayout(text, font) {
+    return {
+        font,
+        text,
+        width: measureTextWidth(text, font)
+    };
+}
+
+function canManageBlogEntries() {
+    return typeof window.canCurrentUserManageBlogEntries === 'function' && window.canCurrentUserManageBlogEntries();
+}
+
+function setDocumentFrame() {
+    const background = getPalette().background;
+    document.documentElement.style.margin = '0';
+    document.documentElement.style.padding = '0';
+    document.documentElement.style.background = background;
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.margin = '0';
+    document.body.style.padding = '0';
+    document.body.style.background = background;
+    document.body.style.overflow = 'hidden';
+}
+
+function normalizeTextFilename(input) {
+    if (typeof window.normalizeTerminalTextFilename === 'function') {
+        return window.normalizeTerminalTextFilename(input);
+    }
+
+    const trimmed = typeof input === 'string' ? input.trim() : '';
+    if (!trimmed) {
+        return null;
+    }
+
+    const candidate = trimmed.toUpperCase().endsWith('.TXT') ? trimmed : `${trimmed}.txt`;
+    return TEXT_FILE_LOOKUP.get(candidate.toUpperCase()) || null;
+}
+
+function buildPromptTokens(snapshot) {
+    const safeSnapshot = clonePromptSnapshot(snapshot);
+    const userRole = safeSnapshot.isGodlike ? 'prompt-godlike' : safeSnapshot.isRoot ? 'prompt-root' : 'prompt-user';
+    const parts = [
+        { role: userRole, text: safeSnapshot.user },
+        { role: 'prompt-punctuation', text: '@' },
+        { role: 'prompt-host', text: safeSnapshot.host },
+        { role: 'prompt-punctuation', text: ':' },
+        { role: 'prompt-path', text: safeSnapshot.path },
+        { role: 'prompt-punctuation', text: `${safeSnapshot.promptSymbol} ` }
+    ];
+    let cursor = 0;
+    return parts.map(part => {
+        const token = {
+            end: cursor + part.text.length,
+            role: part.role,
+            start: cursor,
+            text: part.text,
+            type: 'text'
+        };
+        cursor += part.text.length;
+        return token;
+    });
+}
+
+function getPromptWidth(snapshot, font) {
+    const ctx = ensureMeasureContext();
+    ctx.font = font;
+    return buildPromptTokens(snapshot).reduce((width, token) => width + ctx.measureText(token.text).width, 0);
+}
+
+function buildTextToken(text, extra = {}) {
+    const safeText = typeof text === 'string' ? text : String(text ?? '');
+    return {
+        ...extra,
+        end: safeText.length,
+        start: 0,
+        text: safeText,
+        type: 'text'
+    };
+}
+
+function ensureSlot(block, slotName) {
+    if (!block[slotName]) {
+        block[slotName] = {
+            key: null,
+            value: null
+        };
+    }
+    return block[slotName];
+}
+
+function ensurePrepared(block, slotName, key, options) {
+    const slot = ensureSlot(block, slotName);
+    if (slot.key === key && slot.value) {
+        return slot.value;
+    }
+    slot.key = key;
+    slot.value = prepareTerminalText(pretext, options);
+    return slot.value;
+}
+
+function buildFragmentPlans(fragments, font) {
+    const ctx = ensureMeasureContext();
+    ctx.font = font;
+    let cursorX = 0;
+    const plans = [];
+
+    (Array.isArray(fragments) ? fragments : []).forEach(fragment => {
+        const text = typeof fragment?.text === 'string' ? fragment.text : '';
+        if (!text) {
+            return;
+        }
+        const width = ctx.measureText(text).width;
+        plans.push({
+            fragment,
+            text,
+            width,
+            x: cursorX
+        });
+        cursorX += width;
+    });
+
+    return plans;
+}
+
+function resolveFragmentColor(fragment, palette, fallback) {
+    if (fragment?.type === 'link') {
+        return palette.link;
+    }
+    switch (fragment?.role) {
+    case 'prompt-user':
+    case 'prompt-root':
+    case 'prompt-godlike':
+        return palette.promptUser;
+    case 'prompt-host':
+        return palette.promptHost;
+    case 'prompt-path':
+        return palette.promptPath;
+    case 'prompt-punctuation':
+        return palette.promptPunctuation;
+    case 'help-command':
+        return palette.helpCommand;
+    case 'help-separator':
+        return palette.helpSeparator;
+    default:
+        return fallback || palette.text;
+    }
+}
+
+function drawFragmentPlans(ctx, plans, originX, originY, lineHeight, font, palette, fallback) {
+    ctx.font = font;
+    ctx.textBaseline = 'top';
+    plans.forEach(plan => {
+        ctx.fillStyle = resolveFragmentColor(plan.fragment, palette, fallback);
+        ctx.fillText(plan.text, originX + plan.x, originY);
+        if (plan.fragment?.type === 'link') {
+            ctx.strokeStyle = palette.linkUnderline;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(originX + plan.x, originY + lineHeight - 4);
+            ctx.lineTo(originX + plan.x + plan.width, originY + lineHeight - 4);
+            ctx.stroke();
+        }
+    });
+}
+
+function buildTextLayout(block, text, width, font, lineHeight, options = {}) {
+    const safeText = typeof text === 'string' ? text : String(text ?? '');
+    const tokens = options.tokens || (
+        options.tokenizeLinks === false
+            ? (safeText ? [buildTextToken(safeText, options.tokenExtra)] : [])
+            : tokenizeTerminalText(safeText, { normalizeTextFilename })
+    );
+    const cacheKey = JSON.stringify({
+        font,
+        text: tokens.map(token => ({
+            href: token.href || '',
+            newTab: Boolean(token.newTab),
+            role: token.role || '',
+            text: token.text || '',
+            type: token.type || 'text'
+        })),
+        whiteSpace: options.whiteSpace || 'pre-wrap'
+    });
+    const prepared = ensurePrepared(
+        block,
+        options.slotName || '__text',
+        cacheKey,
+        {
+            font,
+            tokens,
+            whiteSpace: options.whiteSpace || 'pre-wrap'
+        }
+    );
+    const layout = layoutPreparedTerminalText(pretext, prepared, {
+        lineHeight,
+        maxWidth: width
+    });
+    const linePlans = (layout.lines.length > 0 ? layout.lines : [{ fragments: [] }]).map((line, index) => ({
+        plans: buildFragmentPlans(line.fragments || [], font),
+        y: index * lineHeight
+    }));
+    const hitRegions = [];
+    linePlans.forEach(linePlan => {
+        linePlan.plans.forEach(plan => {
+            if (plan.fragment?.type !== 'link') {
+                return;
+            }
+            hitRegions.push({
+                action: 'link',
+                data: plan.fragment,
+                height: lineHeight,
+                width: plan.width,
+                x: plan.x,
+                y: linePlan.y
+            });
+        });
+    });
+
+    return {
+        height: Math.max(lineHeight, layout.height || linePlans.length * lineHeight || lineHeight),
+        hitRegions,
+        lineHeight,
+        plans: linePlans,
+        render(ctx, originX, originY, palette, fallback = null) {
+            linePlans.forEach(linePlan => {
+                drawFragmentPlans(ctx, linePlan.plans, originX, originY + linePlan.y, lineHeight, font, palette, fallback);
+            });
+        }
+    };
+}
+
+function buildEditorialTextLayout(block, slotName, text, width, font, lineHeight, obstacles, options = {}) {
+    const safeText = typeof text === 'string' ? text : String(text ?? '');
+    if (!safeText) {
+        return {
+            height: lineHeight,
+            hitRegions: [],
+            render() {},
+            textHeight: lineHeight
+        };
+    }
+
+    const tokens = options.tokenizeLinks === false
+        ? [buildTextToken(safeText, options.tokenExtra)]
+        : tokenizeTerminalText(safeText, { normalizeTextFilename });
+    const cacheKey = JSON.stringify({
+        font,
+        text: tokens.map(token => ({
+            href: token.href || '',
+            newTab: Boolean(token.newTab),
+            role: token.role || '',
+            text: token.text || '',
+            type: token.type || 'text'
+        }))
+    });
+    const prepared = ensurePrepared(block, slotName, cacheKey, {
+        font,
+        tokens,
+        whiteSpace: 'pre-wrap'
+    });
+    const layout = layoutPreparedTerminalEditorialText(pretext, prepared, {
+        lineHeight,
+        maxWidth: width,
+        minSegmentWidth: options.minSegmentWidth || 18,
+        obstacles
+    });
+    const linePlans = layout.lines.map(line => ({
+        plans: buildFragmentPlans(line.fragments || [], font),
+        x: line.x || 0,
+        y: line.y || 0
+    }));
+    const hitRegions = [];
+    linePlans.forEach(linePlan => {
+        linePlan.plans.forEach(plan => {
+            if (plan.fragment?.type !== 'link') {
+                return;
+            }
+            hitRegions.push({
+                action: 'link',
+                data: plan.fragment,
+                height: lineHeight,
+                width: plan.width,
+                x: linePlan.x + plan.x,
+                y: linePlan.y
+            });
+        });
+    });
+
+    return {
+        height: Math.max(lineHeight, Number(layout.textHeight) || Number(layout.height) || lineHeight),
+        hitRegions,
+        lineHeight,
+        render(ctx, originX, originY, palette, fallback = null) {
+            linePlans.forEach(linePlan => {
+                drawFragmentPlans(ctx, linePlan.plans, originX + linePlan.x, originY + linePlan.y, lineHeight, font, palette, fallback);
+            });
+        },
+        textHeight: Math.max(lineHeight, Number(layout.textHeight) || Number(layout.height) || lineHeight)
+    };
+}
+
+function getCurrentVisitorStats() {
+    if (typeof window.getCurrentVisitorStats === 'function') {
+        const stats = window.getCurrentVisitorStats();
+        if (stats && typeof stats === 'object') {
+            return {
+                visits: Number.isFinite(stats.visits) ? stats.visits : 0,
+                uniqueVisitors: Number.isFinite(stats.uniqueVisitors) ? stats.uniqueVisitors : 0,
+                onSite: Number.isFinite(stats.onSite) ? stats.onSite : 0
+            };
+        }
+    }
+
+    return { ...DEFAULT_VISITOR_STATS };
+}
+
+function formatVisitorLine(label, value) {
+    const safeValue = Math.max(0, Number.isFinite(Number(value)) ? Math.floor(Number(value)) : 0);
+    return `${label} ${String(safeValue).padStart(7, '0')}`;
+}
+
+function getMediaEntry(src, type = 'image') {
+    const cacheKey = `${type}:${src}`;
+    if (app.mediaCache.has(cacheKey)) {
+        return app.mediaCache.get(cacheKey);
+    }
+
+    const entry = {
+        aspectRatio: MEDIA_PLACEHOLDER_ASPECT_RATIO,
+        element: null,
+        ready: false,
+        src,
+        type
+    };
+
+    if (type === 'video') {
+        const video = document.createElement('video');
+        video.loop = true;
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = 'metadata';
+        video.src = src;
+        video.addEventListener('loadedmetadata', () => {
+            if (video.videoWidth > 0 && video.videoHeight > 0) {
+                entry.aspectRatio = video.videoWidth / video.videoHeight;
+                entry.ready = true;
+            }
+        });
+        video.addEventListener('canplay', () => {
+            entry.ready = true;
+            video.play().catch(() => {});
+        });
+        entry.element = video;
+    } else {
+        const image = new Image();
+        image.decoding = 'async';
+        image.crossOrigin = 'anonymous';
+        image.src = src;
+        image.addEventListener('load', () => {
+            if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+                entry.aspectRatio = image.naturalWidth / image.naturalHeight;
+                entry.ready = true;
+            }
+        });
+        entry.element = image;
+    }
+
+    app.mediaCache.set(cacheKey, entry);
+    return entry;
+}
+
+function getMediaDimensions(entry, maxWidth, preferredWidth = null) {
+    const aspectRatio = entry?.aspectRatio && entry.aspectRatio > 0 ? entry.aspectRatio : MEDIA_PLACEHOLDER_ASPECT_RATIO;
+    const width = Math.max(140, Math.min(maxWidth, preferredWidth || maxWidth));
+    return {
+        height: Math.max(84, round(width / aspectRatio)),
+        width
+    };
+}
+
+function normalizeLinkTarget(target) {
+    if (typeof target !== 'string' || !target) {
+        return '#';
+    }
+
+    try {
+        const parsed = new URL(target, window.location.href);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            return parsed.toString();
+        }
+    } catch {
+        return '#';
+    }
+
+    return '#';
+}
+
+function activateLink(fragment) {
+    if (!fragment || typeof fragment !== 'object') {
+        return;
+    }
+
+    const href = typeof fragment.href === 'string' ? fragment.href : '';
+    if (href.startsWith('?command=')) {
+        const params = new URLSearchParams(href.slice(1));
+        const command = params.get('command');
+        if (command) {
+            executeCommand(command);
+        }
+        return;
+    }
+
+    const safeHref = normalizeLinkTarget(href);
+    if (safeHref === '#') {
+        return;
+    }
+
+    window.open(safeHref, fragment.newTab ? '_blank' : '_self', fragment.newTab ? 'noopener,noreferrer' : undefined);
+}
+
+function layoutCommandEcho(block, width, metrics, showCursor = false) {
+    const promptSnapshot = clonePromptSnapshot(block.promptSnapshot);
+    const promptWidth = getPromptWidth(promptSnapshot, metrics.commandFont);
+    const textLayout = buildTextLayout(block, block.commandLine || '', Math.max(72, width - promptWidth), metrics.commandFont, metrics.lineHeight, {
+        slotName: showCursor ? '__inputEcho' : '__commandEcho',
+        tokenizeLinks: false
+    });
+    const promptPlans = buildFragmentPlans(buildPromptTokens(promptSnapshot), metrics.commandFont);
+
+    return {
+        height: Math.max(metrics.lineHeight, textLayout.height),
+        hitRegions: [],
+        render(ctx, originX, originY, palette) {
+            drawFragmentPlans(ctx, promptPlans, originX, originY, metrics.lineHeight, metrics.commandFont, palette, palette.command);
+            textLayout.render(ctx, originX + promptWidth, originY, palette, palette.command);
+
+            if (!showCursor) {
+                return;
+            }
+
+            const now = performance.now();
+            if (Math.floor(now / CURSOR_BLINK_INTERVAL_MS) % 2 === 1) {
+                return;
+            }
+
+            const lineCount = Math.max(1, Math.ceil(textLayout.height / metrics.lineHeight));
+            const lastLine = textLayout.plans[lineCount - 1] || { plans: [] };
+            const lastFragment = lastLine.plans[lastLine.plans.length - 1] || null;
+            const cursorX = originX + promptWidth + (lastFragment ? lastFragment.x + lastFragment.width : 0);
+            const cursorY = originY + (lineCount - 1) * metrics.lineHeight;
+            ctx.fillStyle = palette.cursor;
+            ctx.fillRect(cursorX, cursorY + 2, 2, metrics.lineHeight - 4);
+        }
+    };
+}
+
+function layoutBanner(block, width, metrics) {
+    const title = buildTextLayout(block, block.data.title || '', width, metrics.titleFont, round(parseInt(metrics.titleFont, 10) * 1.12) || metrics.lineHeight, {
+        slotName: '__bannerTitle',
+        tokenizeLinks: false
+    });
+    const subtitle = block.data.subtitle
+        ? buildTextLayout(block, block.data.subtitle || '', width, metrics.subtitleFont, round(parseInt(metrics.subtitleFont, 10) * 1.25) || metrics.lineHeight, {
+            slotName: '__bannerSubtitle',
+            tokenizeLinks: false
+        })
+        : null;
+
+    return {
+        height: title.height + (subtitle ? subtitle.height + 8 : 0),
+        hitRegions: [],
+        render(ctx, originX, originY, palette) {
+            title.render(ctx, originX, originY, palette, palette.title);
+            if (subtitle) {
+                subtitle.render(ctx, originX, originY + title.height + 8, palette, palette.accent);
+            }
+        }
+    };
+}
+
+function layoutHelpEntry(block, width, metrics) {
+    const commandText = String(block.data.command || '');
+    const separatorText = ' - ';
+    const commandWidth = Math.max(
+        measureTextWidth('M'.repeat(Math.max(commandText.length, Number(block.data.commandWidth) || commandText.length)), metrics.textFont),
+        measureTextWidth(commandText, metrics.textFont)
+    );
+    const separatorWidth = measureTextWidth(separatorText, metrics.textFont);
+    const descriptionWidth = width - commandWidth - separatorWidth - metrics.helpGap;
+    if (descriptionWidth < width * 0.35) {
+        return buildTextLayout(block, `${commandText}${separatorText}${block.data.description || ''}`, width, metrics.textFont, metrics.lineHeight, {
+            slotName: '__helpCollapsed'
+        });
+    }
+
+    const description = buildTextLayout(block, block.data.description || '', descriptionWidth, metrics.textFont, metrics.lineHeight, {
+        slotName: '__helpDescription',
+        tokenizeLinks: false
+    });
+
+    return {
+        height: Math.max(metrics.lineHeight, description.height),
+        hitRegions: description.hitRegions.map(region => ({
+            ...region,
+            x: commandWidth + separatorWidth + metrics.helpGap + region.x
+        })),
+        render(ctx, originX, originY, palette) {
+            ctx.font = metrics.textFont;
+            ctx.textBaseline = 'top';
+            ctx.fillStyle = palette.helpCommand;
+            ctx.fillText(commandText, originX, originY);
+            ctx.fillStyle = palette.helpSeparator;
+            ctx.fillText(separatorText, originX + commandWidth + metrics.helpGap * 0.35, originY);
+            description.render(ctx, originX + commandWidth + separatorWidth + metrics.helpGap, originY, palette, palette.text);
+        }
+    };
+}
+
+function layoutVisitorWidget(block, width, metrics) {
+    const stats = block.data.stats || getCurrentVisitorStats();
+    const lines = [
+        formatVisitorLine('Visits:        ', stats.visits),
+        formatVisitorLine('Uniq. Visitors:', stats.uniqueVisitors),
+        formatVisitorLine('On-site:       ', stats.onSite)
+    ];
+
+    return {
+        height: 14 + lines.length * metrics.lineHeight + 12,
+        hitRegions: [],
+        render(ctx, originX, originY, palette) {
+            const boxWidth = Math.max(240, Math.min(width, measureTextWidth(lines[0], metrics.textFont) + 32));
+            ctx.fillStyle = palette.block;
+            ctx.strokeStyle = palette.border;
+            ctx.lineWidth = 1;
+            ctx.fillRect(originX, originY, boxWidth, 14 + lines.length * metrics.lineHeight + 12);
+            ctx.strokeRect(originX + 0.5, originY + 0.5, boxWidth - 1, 14 + lines.length * metrics.lineHeight + 11);
+            lines.forEach((line, index) => {
+                ctx.font = metrics.textFont;
+                ctx.textBaseline = 'top';
+                ctx.fillStyle = palette.text;
+                ctx.fillText(line, originX + 12, originY + 10 + index * metrics.lineHeight);
+            });
+        }
+    };
+}
+
+function layoutStandaloneMedia(block, metrics) {
+    const type = block.data.type === 'inline-video' ? 'video' : 'image';
+    const entry = getMediaEntry(block.data.src, type);
+    const dimensions = getMediaDimensions(entry, metrics.mediaMaxWidth);
+    const deleteButton = canManageBlogEntries() && block.data?.deletable
+        ? getButtonLayout('[delete media]', metrics.buttonFont)
+        : null;
+    const buttonGap = deleteButton ? 8 : 0;
+
+    return {
+        height: dimensions.height + (deleteButton ? metrics.lineHeight + buttonGap : 0),
+        hitRegions: [
+            {
+                action: 'open-media',
+                data: block.data,
+                height: dimensions.height,
+                width: dimensions.width,
+                x: 0,
+                y: 0
+            },
+            ...(deleteButton ? [{
+                action: 'delete-media',
+                data: block.data,
+                height: metrics.lineHeight,
+                width: deleteButton.width,
+                x: 0,
+                y: dimensions.height + buttonGap
+            }] : [])
+        ],
+        render(ctx, originX, originY, palette) {
+            ctx.fillStyle = palette.media;
+            ctx.strokeStyle = palette.border;
+            ctx.lineWidth = 1;
+            ctx.fillRect(originX, originY, dimensions.width, dimensions.height);
+            ctx.strokeRect(originX + 0.5, originY + 0.5, dimensions.width - 1, dimensions.height - 1);
+            if (entry?.ready && entry.element) {
+                try {
+                    ctx.drawImage(entry.element, originX, originY, dimensions.width, dimensions.height);
+                } catch {
+                    // Ignore transient media draw issues.
+                }
+            } else {
+                ctx.font = metrics.textFont;
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = palette.text;
+                ctx.fillText(type === 'video' ? '[video loading]' : '[image loading]', originX + 12, originY + dimensions.height / 2);
+            }
+
+            if (deleteButton) {
+                ctx.font = deleteButton.font;
+                ctx.textBaseline = 'top';
+                ctx.fillStyle = palette.accent;
+                ctx.fillText(deleteButton.text, originX, originY + dimensions.height + buttonGap);
+            }
+        }
+    };
+}
+
+function getEditorialMediaRects(block, width, metrics) {
+    const mediaBlocks = (Array.isArray(block.data?.blocks) ? block.data.blocks : [])
+        .filter(item => item && (item.type === 'inline-image' || item.type === 'inline-video'));
+    if (!block.editorialMediaState) {
+        block.editorialMediaState = new Map();
+    }
+
+    let cursorY = metrics.lineHeight * 1.4;
+    return mediaBlocks.map((mediaBlock, index) => {
+        const id = `${mediaBlock.imageKey || mediaBlock.src || `media-${index}`}`;
+        const type = mediaBlock.type === 'inline-video' ? 'video' : 'image';
+        const entry = getMediaEntry(mediaBlock.src, type);
+        const dimensions = getMediaDimensions(entry, Math.min(metrics.mediaMaxWidth, round(width * 0.34)), round(width * 0.34));
+        const existing = block.editorialMediaState.get(id);
+        const rect = {
+            block: mediaBlock,
+            entry,
+            height: dimensions.height,
+            id,
+            type,
+            width: dimensions.width,
+            x: existing && Number.isFinite(existing.x)
+                ? clamp(existing.x, 0, Math.max(0, width - dimensions.width))
+                : Math.max(0, width - dimensions.width),
+            y: existing && Number.isFinite(existing.y)
+                ? Math.max(0, existing.y)
+                : cursorY
+        };
+        cursorY += dimensions.height + metrics.blockGap;
+        block.editorialMediaState.set(id, {
+            x: rect.x,
+            y: rect.y
+        });
+        return rect;
+    });
+}
+
+function shiftObstacles(obstacles, deltaY) {
+    return obstacles.map(obstacle => ({
+        ...obstacle,
+        y: obstacle.y - deltaY
+    })).filter(obstacle => obstacle.y + obstacle.height > -64);
+}
+
+function layoutBlogEntry(block, width, metrics, editorial) {
+    const children = [];
+    let cursorY = 0;
+    const mediaRects = editorial ? getEditorialMediaRects(block, width, metrics) : [];
+    const obstacleRects = mediaRects.map(rect => ({
+        height: rect.height + 10,
+        width: rect.width + 10,
+        x: rect.x - 5,
+        y: rect.y - 5
+    }));
+    const deleteEntryButton = canManageBlogEntries() && block.data?.deletable
+        ? getButtonLayout('[delete post]', metrics.buttonFont)
+        : null;
+
+    const header = editorial
+        ? buildEditorialTextLayout(block, '__blogHeaderEditorial', block.data.text || '', width, metrics.textFont, metrics.lineHeight, shiftObstacles(obstacleRects, cursorY), {
+            tokenizeLinks: false
+        })
+        : buildTextLayout(block, block.data.text || '', width, metrics.textFont, metrics.lineHeight, {
+            slotName: '__blogHeaderFlat',
+            tokenizeLinks: false
+        });
+    children.push({ layout: header, x: 0, y: cursorY });
+    cursorY += (editorial ? header.textHeight : header.height) + metrics.blockGap;
+
+    (Array.isArray(block.data.blocks) ? block.data.blocks : []).forEach((segment, segmentIndex) => {
+        if (segment.type === 'blog-entry-text-block') {
+            const lines = Array.isArray(segment.lines) ? segment.lines : [''];
+            lines.forEach((lineText, lineIndex) => {
+                if (!lineText) {
+                    cursorY += metrics.lineHeight;
+                    return;
+                }
+                const layout = editorial
+                    ? buildEditorialTextLayout(block, `__blogEditorial${segmentIndex}-${lineIndex}`, lineText, width, metrics.textFont, metrics.lineHeight, shiftObstacles(obstacleRects, cursorY))
+                    : buildTextLayout(block, lineText, width, metrics.textFont, metrics.lineHeight, {
+                        slotName: `__blogFlat${segmentIndex}-${lineIndex}`
+                    });
+                children.push({ layout, x: 0, y: cursorY });
+                cursorY += editorial ? layout.textHeight : layout.height;
+            });
+            cursorY += metrics.blockGap;
+            return;
+        }
+
+        if (!editorial && (segment.type === 'inline-image' || segment.type === 'inline-video')) {
+            const mediaLayout = layoutStandaloneMedia({ ...block, data: segment }, metrics);
+            children.push({ layout: mediaLayout, x: 0, y: cursorY });
+            cursorY += mediaLayout.height + metrics.blockGap;
+        }
+    });
+
+    const hitRegions = [];
+    children.forEach(child => {
+        child.layout.hitRegions.forEach(region => {
+            hitRegions.push({
+                ...region,
+                x: child.x + region.x,
+                y: child.y + region.y
+            });
+        });
+    });
+
+    if (deleteEntryButton) {
+        hitRegions.push({
+            action: 'delete-entry',
+            data: {
+                entryTimestamp: block.data.entryTimestamp,
+                line: block.data
+            },
+            height: metrics.lineHeight,
+            width: deleteEntryButton.width,
+            x: Math.max(0, width - deleteEntryButton.width),
+            y: 0
+        });
+    }
+
+    if (editorial) {
+        mediaRects.forEach(rect => {
+            hitRegions.push({
+                action: 'open-media',
+                data: rect.block,
+                height: rect.height,
+                width: rect.width,
+                x: rect.x,
+                y: rect.y
+            });
+            hitRegions.push({
+                action: 'drag-media',
+                data: {
+                    blockId: block.id,
+                    mediaId: rect.id
+                },
+                height: rect.height,
+                width: rect.width,
+                x: rect.x,
+                y: rect.y
+            });
+            if (canManageBlogEntries() && rect.block?.deletable) {
+                const deleteButton = getButtonLayout('[delete media]', metrics.buttonFont);
+                hitRegions.push({
+                    action: 'delete-media',
+                    data: rect.block,
+                    height: metrics.lineHeight,
+                    width: deleteButton.width,
+                    x: rect.x,
+                    y: rect.y + rect.height + 8
+                });
+            }
+        });
+    }
+
+    return {
+        height: Math.max(
+            cursorY,
+            ...[0, ...mediaRects.map(rect => rect.y + rect.height + (canManageBlogEntries() && rect.block?.deletable ? metrics.lineHeight + 8 : 0))]
+        ),
+        hitRegions,
+        render(ctx, originX, originY, palette) {
+            children.forEach(child => {
+                child.layout.render(ctx, originX + child.x, originY + child.y, palette);
+            });
+
+            if (deleteEntryButton) {
+                ctx.font = deleteEntryButton.font;
+                ctx.textBaseline = 'top';
+                ctx.fillStyle = palette.accent;
+                ctx.fillText(deleteEntryButton.text, originX + Math.max(0, width - deleteEntryButton.width), originY);
+            }
+
+            if (!editorial) {
+                return;
+            }
+
+            mediaRects.forEach(rect => {
+                ctx.fillStyle = palette.media;
+                ctx.strokeStyle = palette.border;
+                ctx.lineWidth = 1;
+                ctx.fillRect(originX + rect.x, originY + rect.y, rect.width, rect.height);
+                ctx.strokeRect(originX + rect.x + 0.5, originY + rect.y + 0.5, rect.width - 1, rect.height - 1);
+                if (rect.entry?.ready && rect.entry.element) {
+                    try {
+                        ctx.drawImage(rect.entry.element, originX + rect.x, originY + rect.y, rect.width, rect.height);
+                    } catch {
+                        // Ignore transient media draw failures.
+                    }
+                } else {
+                    ctx.font = metrics.textFont;
+                    ctx.textBaseline = 'middle';
+                    ctx.fillStyle = palette.text;
+                    ctx.fillText(rect.type === 'video' ? '[video]' : '[image]', originX + rect.x + 12, originY + rect.y + rect.height / 2);
+                }
+
+                if (canManageBlogEntries() && rect.block?.deletable) {
+                    const deleteButton = getButtonLayout('[delete media]', metrics.buttonFont);
+                    ctx.font = deleteButton.font;
+                    ctx.textBaseline = 'top';
+                    ctx.fillStyle = palette.accent;
+                    ctx.fillText(deleteButton.text, originX + rect.x, originY + rect.y + rect.height + 8);
+                }
+            });
+        }
+    };
+}
+
+function layoutTextLink(block, width, metrics) {
+    const prefix = typeof block.data.prefix === 'string' ? block.data.prefix : '';
+    const text = block.data.text || block.data.href || '';
+    const tokens = [];
+    let cursor = 0;
+    if (prefix) {
+        tokens.push({
+            end: cursor + prefix.length,
+            start: cursor,
+            text: prefix,
+            type: 'text'
+        });
+        cursor += prefix.length;
+    }
+    tokens.push({
+        end: cursor + text.length,
+        href: block.data.href,
+        newTab: Boolean(block.data.newTab),
+        start: cursor,
+        text,
+        type: 'link'
+    });
+    return buildTextLayout(block, `${prefix}${text}`, width, metrics.textFont, metrics.lineHeight, {
+        slotName: '__textLink',
+        tokens
+    });
+}
+
+function isEditorialModeActive() {
+    const snapshot = getPromptSnapshot();
+    return Boolean(snapshot.isRoot || String(snapshot.user || '').toLowerCase() === 'root');
+}
+
+function layoutOutputBlock(block, width, metrics) {
+    if (block.kind === 'command') {
+        return layoutCommandEcho(block, width, metrics, false);
+    }
+
+    if (typeof block.data === 'string') {
+        return buildTextLayout(block, block.data, width, metrics.textFont, metrics.lineHeight);
+    }
+
+    if (!block.data || typeof block.data !== 'object') {
+        return buildTextLayout(block, String(block.data ?? ''), width, metrics.textFont, metrics.lineHeight, {
+            tokenizeLinks: false
+        });
+    }
+
+    switch (block.data.type) {
+    case 'banner':
+        return layoutBanner(block, width, metrics);
+    case 'blog-entry':
+        return layoutBlogEntry(block, width, metrics, isEditorialModeActive());
+    case 'blog-entry-header':
+    case 'blog-entry-text':
+        return buildTextLayout(block, block.data.text || '', width, metrics.textFont, metrics.lineHeight);
+    case 'help-entry':
+        return layoutHelpEntry(block, width, metrics);
+    case 'inline-image':
+    case 'inline-video':
+        return layoutStandaloneMedia(block, metrics);
+    case 'text-link':
+        return layoutTextLink(block, width, metrics);
+    case 'visitor-widget':
+        return layoutVisitorWidget(block, width, metrics);
+    default:
+        return buildTextLayout(block, typeof block.data.text === 'string' ? block.data.text : String(block.data ?? ''), width, metrics.textFont, metrics.lineHeight);
+    }
+}
+
+function buildBlock(kind, data, extra = {}) {
+    return {
+        data,
+        id: `block-${app.blockId += 1}`,
+        kind,
+        promptSnapshot: extra.promptSnapshot ? clonePromptSnapshot(extra.promptSnapshot) : null
+    };
+}
+
+function refreshBinaryColumns() {
+    const snapshot = getPromptSnapshot();
+    if (!shouldUseRootTerminalVisuals(snapshot)) {
+        app.binaryColumns = [];
+        return;
+    }
+
+    app.binaryColumns = createBinaryRainColumns({
+        height: app.viewportHeight,
+        width: app.viewportWidth
+    });
+}
+
+function advanceBinaryColumns(timestamp) {
+    if (!app.binaryColumns.length) {
+        return;
+    }
+    if (timestamp - app.lastBackgroundStep < BACKGROUND_STEP_MS) {
+        return;
+    }
+    app.lastBackgroundStep = timestamp;
+    app.binaryColumns = app.binaryColumns.map(column => advanceBinaryRainColumn(column));
+}
+
+function ensureCanvas() {
+    if (!app.canvas) {
+        app.canvas = document.getElementById('terminal-canvas');
+    }
+    if (!app.ctx) {
+        app.ctx = app.canvas.getContext('2d');
+    }
+    if (!app.scratchCanvas) {
+        app.scratchCanvas = document.getElementById('canvas') || document.createElement('canvas');
+    }
+}
+
+function resizeCanvas() {
+    ensureCanvas();
+    app.viewportWidth = Math.max(1, window.innerWidth || 1);
+    app.viewportHeight = Math.max(1, window.innerHeight || 1);
+    app.dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    app.canvas.width = round(app.viewportWidth * app.dpr);
+    app.canvas.height = round(app.viewportHeight * app.dpr);
+    app.canvas.style.width = `${app.viewportWidth}px`;
+    app.canvas.style.height = `${app.viewportHeight}px`;
+    app.ctx.setTransform(app.dpr, 0, 0, app.dpr, 0, 0);
+    setDocumentFrame();
+    refreshBinaryColumns();
+}
+
+function clampScroll() {
+    app.scrollTop = clamp(app.scrollTop, 0, Math.max(0, app.contentHeight - app.viewportHeight));
+}
+
+function scrollToBottom() {
+    app.scrollTop = Math.max(0, app.contentHeight - app.viewportHeight);
+}
+
+function relayoutScene() {
+    const metrics = resolveMetrics();
+    const nearBottom = app.scrollTop >= Math.max(0, app.contentHeight - app.viewportHeight - metrics.lineHeight * 2);
+    let cursorY = metrics.paddingY;
+    const regions = [];
+
+    app.blocks.forEach(block => {
+        block.layout = layoutOutputBlock(block, metrics.contentWidth, metrics);
+        block.top = cursorY;
+        block.bottom = cursorY + block.layout.height;
+        block.layout.hitRegions.forEach(region => {
+            regions.push({
+                ...region,
+                x: metrics.paddingX + region.x,
+                y: cursorY + region.y
+            });
+        });
+        cursorY += block.layout.height + metrics.blockGap;
+    });
+
+    app.inputLayout = layoutCommandEcho({
+        commandLine: app.inputValue,
+        promptSnapshot: getPromptSnapshot()
+    }, metrics.contentWidth, metrics, true);
+    app.inputTop = cursorY;
+    cursorY += app.inputLayout.height + metrics.paddingY;
+    app.contentHeight = Math.max(app.viewportHeight, cursorY);
+    app.interactiveRegions = regions;
+
+    if (nearBottom) {
+        scrollToBottom();
+    } else {
+        clampScroll();
+    }
+}
+
+function drawBackground(ctx, palette, timestamp) {
+    ctx.clearRect(0, 0, app.viewportWidth, app.viewportHeight);
+    ctx.fillStyle = palette.background;
+    ctx.fillRect(0, 0, app.viewportWidth, app.viewportHeight);
+
+    const glow = ctx.createRadialGradient(app.viewportWidth * 0.5, 0, 0, app.viewportWidth * 0.5, 0, Math.max(app.viewportWidth, app.viewportHeight));
+    glow.addColorStop(0, palette.glow);
+    glow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, app.viewportWidth, app.viewportHeight);
+
+    advanceBinaryColumns(timestamp);
+    if (app.binaryColumns.length > 0) {
+        ctx.save();
+        ctx.textBaseline = 'top';
+        ctx.globalAlpha = 0.25;
+        app.binaryColumns.forEach(column => {
+            const glyphs = Array.isArray(column.cells) ? column.cells : [];
+            const fontSize = column.fontSizePx || 16;
+            const glyphHeight = Math.max(12, round(fontSize * 0.84));
+            ctx.font = buildFont(fontSize, '700');
+            ctx.fillStyle = palette.accent;
+            glyphs.forEach((glyph, index) => {
+                ctx.fillText(glyph, app.viewportWidth * ((column.leftPercent || 0) / 100), index * glyphHeight - 48);
+            });
+        });
+        ctx.restore();
+        ctx.globalAlpha = 1;
+    }
+}
+
+function drawScrollbar(ctx, palette, metrics) {
+    if (app.contentHeight <= app.viewportHeight + 2) {
+        return;
+    }
+
+    const trackX = app.viewportWidth - metrics.scrollbarWidth + 2;
+    const trackY = metrics.paddingY;
+    const trackHeight = app.viewportHeight - metrics.paddingY * 2;
+    const thumbHeight = Math.max(36, trackHeight * (app.viewportHeight / app.contentHeight));
+    const maxTravel = Math.max(0, trackHeight - thumbHeight);
+    const thumbY = trackY + maxTravel * (app.scrollTop / Math.max(1, app.contentHeight - app.viewportHeight));
+
+    ctx.fillStyle = palette.scrollbarTrack;
+    ctx.fillRect(trackX, trackY, metrics.scrollbarWidth - 4, trackHeight);
+    ctx.fillStyle = palette.scrollbarThumb;
+    ctx.fillRect(trackX, thumbY, metrics.scrollbarWidth - 4, thumbHeight);
+}
+
+function drawTerminalScene(timestamp) {
+    relayoutScene();
+    const ctx = app.ctx;
+    const metrics = resolveMetrics();
+    const palette = getPalette();
+    drawBackground(ctx, palette, timestamp);
+
+    ctx.save();
+    ctx.translate(0, -app.scrollTop);
+    app.blocks.forEach(block => {
+        if (!block.layout) {
+            return;
+        }
+        if (block.bottom < app.scrollTop - 64 || block.top > app.scrollTop + app.viewportHeight + 64) {
+            return;
+        }
+        block.layout.render(ctx, metrics.paddingX, block.top, palette);
+    });
+    app.inputLayout.render(ctx, metrics.paddingX, app.inputTop, palette);
+    ctx.restore();
+    drawScrollbar(ctx, palette, metrics);
+}
+
+function drawViewerScene(timestamp) {
+    const ctx = app.ctx;
+    const metrics = resolveMetrics();
+    const palette = getPalette();
+    drawBackground(ctx, palette, timestamp);
+    if (!app.viewer) {
+        return;
+    }
+
+    const x = metrics.paddingX;
+    const y = metrics.paddingY;
+    const width = metrics.contentWidth;
+    const height = app.viewportHeight - metrics.paddingY * 2;
+    ctx.fillStyle = palette.block;
+    ctx.strokeStyle = palette.border;
+    ctx.lineWidth = 1;
+    ctx.fillRect(x, y, width, height);
+    ctx.strokeRect(x + 0.5, y + 0.5, width - 1, height - 1);
+
+    const closeText = '[close]';
+    const closeWidth = measureTextWidth(closeText, metrics.commandFont);
+    ctx.font = metrics.titleFont;
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = palette.title;
+    ctx.fillText(app.viewer.title || 'viewer', x + 12, y + 12);
+    ctx.font = metrics.commandFont;
+    ctx.fillStyle = palette.accent;
+    ctx.fillText(closeText, x + width - closeWidth - 14, y + 16);
+    app.interactiveRegions = [{
+        action: 'viewer-close',
+        data: null,
+        height: metrics.lineHeight,
+        width: closeWidth,
+        x: x + width - closeWidth - 14,
+        y: y + 16
+    }];
+
+    if (app.viewer.hint) {
+        ctx.fillStyle = palette.text;
+        ctx.fillText(app.viewer.hint, x + 12, y + metrics.lineHeight + 22);
+    }
+
+    if (app.viewer.type === 'ascii' || app.viewer.type === 'movie') {
+        ctx.fillStyle = palette.text;
+        ctx.font = metrics.textFont;
+        ctx.textBaseline = 'top';
+        const lines = Array.isArray(app.viewer.lines) ? app.viewer.lines : [];
+        lines.forEach((line, index) => {
+            ctx.fillText(line, x + 14, y + metrics.viewerTop + index * metrics.lineHeight);
+        });
+    } else if (app.viewer.type === 'image') {
+        const entry = getMediaEntry(app.viewer.src, 'image');
+        if (entry?.ready && entry.element) {
+            const dimensions = getMediaDimensions(entry, width - 28);
+            ctx.drawImage(entry.element, x + 14, y + metrics.viewerTop, dimensions.width, dimensions.height);
+        } else {
+            ctx.fillStyle = palette.text;
+            ctx.font = metrics.textFont;
+            ctx.textBaseline = 'top';
+            ctx.fillText('[image loading]', x + 14, y + metrics.viewerTop);
+        }
+    }
+}
+
+function frame(timestamp) {
+    app.frameId = window.requestAnimationFrame(frame);
+    if (app.viewer?.type === 'movie') {
+        updateMovieFrame();
+    }
+    if (app.viewer) {
+        drawViewerScene(timestamp);
+    } else {
+        drawTerminalScene(timestamp);
+    }
+}
+
+function startFrameLoop() {
+    if (!app.frameId) {
+        app.frameId = window.requestAnimationFrame(frame);
+    }
+}
+
+function getCommandHandlers() {
+    return new Map([
+        ['help', window.help_command],
+        ['banner', window.banner_command],
+        ['cat', window.cat_command],
+        ['date', window.date_command],
+        ['echo', window.echo_command],
+        ['fortune', window.fortune_command],
+        ['github', window.github_command],
+        ['history', window.history_command],
+        ['instagram', window.instagram_command],
+        ['linkedin', window.linkedin_command],
+        ['ls', window.ls_command],
+        ['movie', window.movie_command],
+        ['picture', window.picture_command],
+        ['pretext', window.pretext_command],
+        ['post', window.post_command],
+        ['projects', window.projects_command],
+        ['pwd', window.pwd_command],
+        ['qr-totp', window.qr_totp_command],
+        ['resume', window.resume_command],
+        ['su', window.su_command],
+        ['userpic', window.userpic_command],
+        ['visitors', window.visitors_command],
+        ['whoami', window.whoami_command],
+        ['youtube', window.youtube_command]
+    ]);
+}
+
+function appendOutput(output) {
+    if (!Array.isArray(output) || output.length === 0) {
+        return;
+    }
+    output.forEach(line => {
+        app.blocks.push(buildBlock('output', line));
+    });
+}
+
+function appendCommandEcho(commandLine) {
+    const block = buildBlock('command', null, {
+        promptSnapshot: getPromptSnapshot()
+    });
+    block.commandLine = commandLine;
+    app.blocks.push(block);
+}
+
+export async function executeCommand(commandLine) {
+    const safeCommand = typeof commandLine === 'string' ? commandLine.trim() : '';
+    if (!safeCommand) {
+        return;
+    }
+
+    app.commandHistory.push(safeCommand);
+    if (app.commandHistory.length > 100) {
+        app.commandHistory.shift();
+    }
+    app.historyIndex = app.commandHistory.length;
+    appendCommandEcho(safeCommand);
+
+    const parts = safeCommand.split(/\s+/);
+    const command = (parts[0] || '').toLowerCase();
+    const args = parts.slice(1);
+
+    if (command === 'clear') {
+        setupTerminal();
+        return;
+    }
+
+    let output = null;
+    const handler = getCommandHandlers().get(command);
+    if (typeof handler === 'function') {
+        output = await handler(args);
+    } else {
+        output = [`bash: ${command}: command not found`];
+    }
+
+    appendOutput(output);
+    app.inputValue = '';
+    scrollToBottom();
+}
+
+export function setupTerminal() {
+    app.viewer = null;
+    app.blocks = [];
+    app.inputValue = '';
+    app.scrollTop = 0;
+}
+
+function updateMovieFrame() {
+    const viewer = app.viewer;
+    if (!viewer || viewer.type !== 'movie' || !viewer.ctx || !viewer.video) {
+        return;
+    }
+    if (viewer.video.readyState < viewer.video.HAVE_ENOUGH_DATA) {
+        return;
+    }
+    viewer.ctx.drawImage(viewer.video, 0, 0, viewer.width, viewer.height);
+    if (typeof window.processImage === 'function') {
+        viewer.lines = window.processImage(viewer.ctx, viewer.width, viewer.height);
+    }
+}
+
+export async function showMovie(args = []) {
+    ensureCanvas();
+    const width = Number.isFinite(Number(args?.[0])) ? Math.max(24, Math.floor(Number(args[0]))) : 160;
+    const height = Number.isFinite(Number(args?.[1])) ? Math.max(16, Math.floor(Number(args[1]))) : 80;
+    const video = document.createElement('video');
+    video.autoplay = true;
+    video.muted = true;
+    video.playsInline = true;
+    app.scratchCanvas.width = width;
+    app.scratchCanvas.height = height;
+    const ctx = app.scratchCanvas.getContext('2d', { willReadFrequently: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+    video.srcObject = stream;
+    await video.play().catch(() => {});
+    app.viewer = {
+        ctx,
+        height,
+        hint: 'press Escape to close',
+        lines: [],
+        title: 'movie',
+        type: 'movie',
+        video,
+        width
+    };
+    app.viewer.stop = () => {
+        stream.getTracks().forEach(track => track.stop());
+    };
+    app.scrollTop = 0;
+}
+
+export function showAsciiStill(asciiLines, options = {}) {
+    app.viewer = {
+        hint: options.hint || 'press Escape to close',
+        lines: Array.isArray(asciiLines) ? asciiLines : [],
+        title: options.title || 'ascii viewer',
+        type: 'ascii'
+    };
+    app.scrollTop = 0;
+}
+
+export function showImageStill(imageUrl, options = {}) {
+    app.viewer = {
+        hint: options.hint || 'press Escape to close',
+        src: imageUrl,
+        title: options.title || 'image viewer',
+        type: 'image'
+    };
+    app.scrollTop = 0;
+}
+
+function closeViewer() {
+    if (app.viewer?.type === 'movie' && typeof app.viewer.stop === 'function') {
+        app.viewer.stop();
+    }
+    app.viewer = null;
+    scrollToBottom();
+}
+
+function appendDeleteCommitResult(result, prefix) {
+    if (!result?.commitUrl) {
+        return;
+    }
+
+    appendOutput([{
+        type: 'text-link',
+        prefix,
+        href: result.commitUrl,
+        text: 'view commit',
+        newTab: true
+    }]);
+    scrollToBottom();
+}
+
+function removeBlogEntryFromScene(entryTimestamp) {
+    app.blocks = app.blocks.filter(block => !(
+        block?.data
+        && typeof block.data === 'object'
+        && block.data.type === 'blog-entry'
+        && String(block.data.entryTimestamp || '').trim() === String(entryTimestamp || '').trim()
+    ));
+}
+
+function removeBlogMediaFromBlockData(target, imageKey) {
+    if (!target || typeof target !== 'object') {
+        return false;
+    }
+
+    if (Array.isArray(target.blocks)) {
+        const nextBlocks = target.blocks.filter(block => String(block?.imageKey || '') !== String(imageKey || ''));
+        const changed = nextBlocks.length !== target.blocks.length;
+        if (changed) {
+            target.blocks = nextBlocks;
+        }
+        return changed;
+    }
+
+    return false;
+}
+
+function removeBlogMediaFromScene(imageKey) {
+    let removed = false;
+    app.blocks = app.blocks
+        .filter(block => {
+            if (!block?.data || typeof block.data !== 'object') {
+                return true;
+            }
+
+            if ((block.data.type === 'inline-image' || block.data.type === 'inline-video') && String(block.data.imageKey || '') === String(imageKey || '')) {
+                removed = true;
+                return false;
+            }
+
+            if (block.data.type === 'blog-entry') {
+                removed = removeBlogMediaFromBlockData(block.data, imageKey) || removed;
+                return true;
+            }
+
+            return true;
+        });
+    return removed;
+}
+
+async function handleDeleteEntry(target) {
+    if (!target?.entryTimestamp || typeof window.deleteBlogEntryByTimestamp !== 'function') {
+        return;
+    }
+
+    const result = await window.deleteBlogEntryByTimestamp(target.entryTimestamp);
+    if (result?.ok) {
+        removeBlogEntryFromScene(target.entryTimestamp);
+        appendOutput([`post: deleted ${target.entryTimestamp}`]);
+        appendDeleteCommitResult(result, 'post: ');
+        scrollToBottom();
+        return;
+    }
+
+    appendOutput([`post: ${result?.error || 'unable to delete post right now'}`]);
+    scrollToBottom();
+}
+
+async function handleDeleteMedia(target) {
+    if (!target || typeof window.deleteBlogImageByBlockIndex !== 'function') {
+        return;
+    }
+
+    const result = await window.deleteBlogImageByBlockIndex(
+        target.imageBlockIndex,
+        '',
+        target.imageKey || '',
+        target.src || '',
+        target.entryTimestamp || '',
+        target.entryImageIndex ?? null,
+        target.previousTextLine || '',
+        target.nextTextLine || ''
+    );
+
+    if (result?.ok) {
+        removeBlogMediaFromScene(target.imageKey || '');
+        appendOutput(['post: deleted media item']);
+        appendDeleteCommitResult(result, 'post: ');
+        scrollToBottom();
+        return;
+    }
+
+    appendOutput([`post: ${result?.error || 'unable to delete image right now'}`]);
+    scrollToBottom();
+}
+
+function hitTest(clientX, clientY) {
+    const rect = app.canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top + (app.viewer ? 0 : app.scrollTop);
+    return [...app.interactiveRegions].reverse().find(region => (
+        x >= region.x
+        && x <= region.x + region.width
+        && y >= region.y
+        && y <= region.y + region.height
+    )) || null;
+}
+
+function onPointerDown(event) {
+    const region = hitTest(event.clientX, event.clientY);
+    if (!region) {
+        return;
+    }
+
+    if (region.action === 'drag-media') {
+        const block = app.blocks.find(item => item.id === region.data?.blockId);
+        const mediaState = block?.editorialMediaState?.get(region.data?.mediaId);
+        if (!mediaState) {
+            return;
+        }
+        app.pointerDrag = {
+            blockId: block.id,
+            mediaId: region.data.mediaId,
+            moved: false,
+            originX: mediaState.x,
+            originY: mediaState.y,
+            pointerId: event.pointerId,
+            startClientX: event.clientX,
+            startClientY: event.clientY
+        };
+        if (typeof app.canvas.setPointerCapture === 'function') {
+            app.canvas.setPointerCapture(event.pointerId);
+        }
+        return;
+    }
+
+    app.pointerDrag = {
+        moved: false,
+        pointerId: event.pointerId,
+        region,
+        startClientX: event.clientX,
+        startClientY: event.clientY
+    };
+}
+
+function onPointerMove(event) {
+    if (!app.pointerDrag || app.pointerDrag.pointerId !== event.pointerId || !app.pointerDrag.mediaId) {
+        return;
+    }
+
+    const deltaX = event.clientX - app.pointerDrag.startClientX;
+    const deltaY = event.clientY - app.pointerDrag.startClientY;
+    if (!app.pointerDrag.moved && Math.hypot(deltaX, deltaY) > 4) {
+        app.pointerDrag.moved = true;
+    }
+    if (!app.pointerDrag.moved) {
+        return;
+    }
+
+    const block = app.blocks.find(item => item.id === app.pointerDrag.blockId);
+    const mediaState = block?.editorialMediaState?.get(app.pointerDrag.mediaId);
+    if (!mediaState) {
+        return;
+    }
+
+    mediaState.x = Math.max(0, app.pointerDrag.originX + deltaX);
+    mediaState.y = Math.max(0, app.pointerDrag.originY + deltaY);
+}
+
+function onPointerUp(event) {
+    if (!app.pointerDrag || app.pointerDrag.pointerId !== event.pointerId) {
+        return;
+    }
+
+    const drag = app.pointerDrag;
+    app.pointerDrag = null;
+    if (typeof app.canvas.hasPointerCapture === 'function' && app.canvas.hasPointerCapture(event.pointerId)) {
+        app.canvas.releasePointerCapture(event.pointerId);
+    }
+
+    if (drag.mediaId) {
+        if (!drag.moved) {
+            const block = app.blocks.find(item => item.id === drag.blockId);
+            const mediaRect = block?.data?.blocks?.find(item => `${item.imageKey || item.src || ''}` === drag.mediaId);
+            if (mediaRect?.src) {
+                window.open(normalizeLinkTarget(mediaRect.src), '_blank', 'noopener,noreferrer');
+            }
+        }
+        return;
+    }
+
+    if (drag.moved || !drag.region) {
+        return;
+    }
+
+    switch (drag.region.action) {
+    case 'delete-entry':
+        handleDeleteEntry(drag.region.data).catch(error => {
+            console.error('delete entry failed', error);
+            appendOutput(['post: unable to delete post right now']);
+        });
+        break;
+    case 'delete-media':
+        handleDeleteMedia(drag.region.data).catch(error => {
+            console.error('delete media failed', error);
+            appendOutput(['post: unable to delete image right now']);
+        });
+        break;
+    case 'link':
+        activateLink(drag.region.data);
+        break;
+    case 'open-media':
+        window.open(normalizeLinkTarget(drag.region.data.src || ''), '_blank', 'noopener,noreferrer');
+        break;
+    case 'viewer-close':
+        closeViewer();
+        break;
+    default:
+        break;
+    }
+}
+
+function onPointerCancel(event) {
+    if (!app.pointerDrag || app.pointerDrag.pointerId !== event.pointerId) {
+        return;
+    }
+
+    if (typeof app.canvas.hasPointerCapture === 'function' && app.canvas.hasPointerCapture(event.pointerId)) {
+        app.canvas.releasePointerCapture(event.pointerId);
+    }
+    app.pointerDrag = null;
+}
+
+function onWheel(event) {
+    if (app.viewer) {
+        return;
+    }
+    if (event.ctrlKey) {
+        return;
+    }
+    app.scrollTop += event.deltaY;
+    clampScroll();
+    event.preventDefault();
+}
+
+function navigateHistory(delta) {
+    if (!app.commandHistory.length) {
+        return;
+    }
+    app.historyIndex = clamp((Number.isInteger(app.historyIndex) ? app.historyIndex : app.commandHistory.length) + delta, 0, app.commandHistory.length);
+    app.inputValue = app.historyIndex >= app.commandHistory.length ? '' : app.commandHistory[app.historyIndex];
+}
+
+function autocompleteInput() {
+    const partial = String(app.inputValue || '').toLowerCase();
+    const matches = [...getCommandHandlers().keys()].filter(name => name.startsWith(partial));
+    if (matches.length === 1) {
+        app.inputValue = matches[0];
+    }
+}
+
+function onPaste(event) {
+    if (app.viewer) {
+        return;
+    }
+    const pasted = event.clipboardData?.getData('text');
+    if (!pasted) {
+        return;
+    }
+    app.inputValue += pasted.replace(/\r\n/g, '\n').replace(/\n/g, ' ');
+    scrollToBottom();
+    event.preventDefault();
+}
+
+function onKeyDown(event) {
+    if (app.viewer) {
+        if (event.key === 'Escape') {
+            closeViewer();
+            event.preventDefault();
+        }
+        return;
+    }
+
+    switch (event.key) {
+    case 'Enter': {
+        const command = app.inputValue;
+        app.inputValue = '';
+        executeCommand(command);
+        event.preventDefault();
+        return;
+    }
+    case 'Backspace':
+        app.inputValue = app.inputValue.slice(0, -1);
+        scrollToBottom();
+        event.preventDefault();
+        return;
+    case 'ArrowUp':
+        navigateHistory(-1);
+        event.preventDefault();
+        return;
+    case 'ArrowDown':
+        navigateHistory(1);
+        event.preventDefault();
+        return;
+    case 'Tab':
+        autocompleteInput();
+        event.preventDefault();
+        return;
+    case 'PageUp':
+        app.scrollTop -= app.viewportHeight * 0.85;
+        clampScroll();
+        event.preventDefault();
+        return;
+    case 'PageDown':
+        app.scrollTop += app.viewportHeight * 0.85;
+        clampScroll();
+        event.preventDefault();
+        return;
+    case 'Home':
+        app.scrollTop = 0;
+        event.preventDefault();
+        return;
+    case 'End':
+        scrollToBottom();
+        event.preventDefault();
+        return;
+    default:
+        break;
+    }
+
+    if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        app.inputValue += event.key;
+        scrollToBottom();
+        event.preventDefault();
+    }
+}
+
+function bindEvents() {
+    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('paste', onPaste);
+    app.canvas.addEventListener('wheel', onWheel, { passive: false });
+    app.canvas.addEventListener('pointerdown', onPointerDown);
+    app.canvas.addEventListener('pointermove', onPointerMove);
+    app.canvas.addEventListener('pointerup', onPointerUp);
+    app.canvas.addEventListener('pointercancel', onPointerCancel);
+}
+
+export function refreshTerminalInputPrompt() {
+    scrollToBottom();
+}
+
+export function syncTerminalSessionAwareLines() {
+    refreshBinaryColumns();
+}
+
+export function syncTerminalVisualEffects() {
+    refreshBinaryColumns();
+}
+
+export function getPromptPath() {
+    return getPromptSnapshot().path;
+}
+
+export function getPromptUser() {
+    return getPromptSnapshot().user;
+}
+
+export function getPromptHost() {
+    return getPromptSnapshot().host;
+}
+
+export async function bootTerminalSite(defaultCommand) {
+    ensureCanvas();
+    resizeCanvas();
+    if (!app.isBooted) {
+        bindEvents();
+        startFrameLoop();
+        app.isBooted = true;
+    }
+
+    if (typeof window.ensureTerminalSessionReady === 'function') {
+        await window.ensureTerminalSessionReady();
+    }
+    if (typeof window.ensureTerminalPretextReady === 'function') {
+        await window.ensureTerminalPretextReady();
+    }
+
+    setupTerminal();
+    refreshBinaryColumns();
+    const params = new URLSearchParams(window.location.search);
+    await executeCommand(params.get('command') || defaultCommand);
+}
