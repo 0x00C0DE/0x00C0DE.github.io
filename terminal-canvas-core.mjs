@@ -1,3 +1,4 @@
+import { splitBannerWaveGlyphs } from './banner-wave-core.mjs';
 import * as pretext from './pretext-browser.mjs';
 import {
     layoutPreparedTerminalEditorialText,
@@ -173,6 +174,11 @@ function buildFont(fontSize, weight = '400') {
     return `${weight} ${fontSize}px ${MONO_FONT_FAMILY}`;
 }
 
+function extractFontSizePx(font, fallback = 16) {
+    const match = String(font || '').match(/(\d+(?:\.\d+)?)px/);
+    return match ? Number(match[1]) : fallback;
+}
+
 function getPromptSnapshot() {
     if (typeof window.getTerminalPromptSnapshot === 'function') {
         const snapshot = window.getTerminalPromptSnapshot();
@@ -240,6 +246,8 @@ function resolveMetrics() {
     const contentWidth = Math.max(120, width - paddingX * 2 - scrollbarWidth);
 
     return {
+        bannerSubtitleFont: buildFont(clamp(round(width * (narrow ? 0.052 : 0.035)), 18, 32), '700'),
+        bannerTitleFont: buildFont(clamp(round(width * (narrow ? 0.16 : 0.12)), 48, 120), '700'),
         blockGap,
         buttonFont: buildFont(clamp(fontSize - 1, 12, 17), '700'),
         commandFont: buildFont(fontSize, '400'),
@@ -264,6 +272,76 @@ function getButtonLayout(text, font) {
         text,
         width: measureTextWidth(text, font)
     };
+}
+
+function fitFontToWidth(text, font, width, minimumPx = 16, weight = '700') {
+    const safeText = typeof text === 'string' ? text : String(text ?? '');
+    let fontPx = extractFontSizePx(font, minimumPx);
+
+    while (fontPx > minimumPx && measureTextWidth(safeText, buildFont(fontPx, weight)) > width) {
+        fontPx -= 1;
+    }
+
+    return buildFont(fontPx, weight);
+}
+
+function measureGlyphRunWidth(glyphs, font, letterSpacing = 0) {
+    if (!Array.isArray(glyphs) || glyphs.length === 0) {
+        return 0;
+    }
+
+    return glyphs.reduce((total, glyph, index) => (
+        total
+        + measureTextWidth(glyph.text || '', font)
+        + (index < glyphs.length - 1 ? letterSpacing : 0)
+    ), 0);
+}
+
+function drawBannerGlyphRun(ctx, glyphs, originX, originY, font, palette, options = {}) {
+    if (!Array.isArray(glyphs) || glyphs.length === 0) {
+        return;
+    }
+
+    const fontPx = extractFontSizePx(font, 16);
+    const letterSpacing = Number.isFinite(options.letterSpacing) ? options.letterSpacing : 0;
+    const waveAmplitude = Number.isFinite(options.waveAmplitude) ? options.waveAmplitude : fontPx * 0.06;
+    const phaseStep = Number.isFinite(options.phaseStep) ? options.phaseStep : 0.46;
+    const periodMs = Number.isFinite(options.periodMs) ? options.periodMs : 3100;
+    const shadowOffsetX = Number.isFinite(options.shadowOffsetX) ? options.shadowOffsetX : fontPx * 0.04;
+    const shadowOffsetY = Number.isFinite(options.shadowOffsetY) ? options.shadowOffsetY : fontPx * 0.05;
+    const now = performance.now();
+    const phaseBase = (now / periodMs) * Math.PI * 2;
+    let cursorX = originX;
+
+    ctx.save();
+    ctx.font = font;
+    ctx.textBaseline = 'top';
+
+    glyphs.forEach((glyph, index) => {
+        const text = glyph.text || '';
+        const glyphWidth = measureTextWidth(text, font);
+        const isWhitespace = /^\s+$/.test(text);
+        const waveIndex = Number.isFinite(glyph.waveIndex) ? glyph.waveIndex : index;
+        const waveOffset = glyph.isAnimated ? Math.sin(phaseBase + waveIndex * phaseStep) * waveAmplitude : 0;
+
+        if (!isWhitespace) {
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = palette.promptPunctuation;
+            ctx.globalAlpha = 0.78;
+            ctx.fillText(text, cursorX + shadowOffsetX, originY + shadowOffsetY + waveOffset * 0.35);
+
+            ctx.fillStyle = palette.accent;
+            ctx.shadowColor = palette.title;
+            ctx.shadowBlur = Math.max(8, round(fontPx * 0.16));
+            ctx.globalAlpha = 1;
+            ctx.fillText(text, cursorX, originY + waveOffset);
+        }
+
+        cursorX += glyphWidth + (index < glyphs.length - 1 ? letterSpacing : 0);
+    });
+
+    ctx.restore();
 }
 
 function canManageBlogEntries() {
@@ -715,24 +793,43 @@ function layoutCommandEcho(block, width, metrics, showCursor = false) {
 }
 
 function layoutBanner(block, width, metrics) {
-    const title = buildTextLayout(block, block.data.title || '', width, metrics.titleFont, round(parseInt(metrics.titleFont, 10) * 1.12) || metrics.lineHeight, {
-        slotName: '__bannerTitle',
-        tokenizeLinks: false
-    });
+    const titleText = block.data.title || '';
+    const titleFont = fitFontToWidth(titleText, metrics.bannerTitleFont, width, 34, '700');
+    const titleFontPx = extractFontSizePx(titleFont, extractFontSizePx(metrics.bannerTitleFont, metrics.fontSize * 3.8));
+    const titleGlyphs = splitBannerWaveGlyphs(titleText);
+    const titleLetterSpacing = Math.max(0, round(titleFontPx * 0.04));
+    const titleWidth = measureGlyphRunWidth(titleGlyphs, titleFont, titleLetterSpacing);
+    const titleHeight = Math.max(metrics.lineHeight * 2, round(titleFontPx * 1.12));
+    const subtitleFontPx = extractFontSizePx(metrics.bannerSubtitleFont, extractFontSizePx(metrics.subtitleFont, metrics.lineHeight));
     const subtitle = block.data.subtitle
-        ? buildTextLayout(block, block.data.subtitle || '', width, metrics.subtitleFont, round(parseInt(metrics.subtitleFont, 10) * 1.25) || metrics.lineHeight, {
+        ? buildTextLayout(block, block.data.subtitle || '', width, metrics.bannerSubtitleFont, Math.max(metrics.lineHeight, round(subtitleFontPx * 1.18)), {
             slotName: '__bannerSubtitle',
             tokenizeLinks: false
         })
         : null;
+    const subtitleGap = subtitle ? Math.max(6, round(titleFontPx * 0.08)) : 0;
 
     return {
-        height: title.height + (subtitle ? subtitle.height + 8 : 0),
+        height: titleHeight + (subtitle ? subtitle.height + subtitleGap : 0),
         hitRegions: [],
         render(ctx, originX, originY, palette) {
-            title.render(ctx, originX, originY, palette, palette.title);
+            drawBannerGlyphRun(ctx, titleGlyphs, originX, originY, titleFont, palette, {
+                letterSpacing: titleLetterSpacing
+            });
             if (subtitle) {
-                subtitle.render(ctx, originX, originY + title.height + 8, palette, palette.accent);
+                ctx.save();
+                ctx.shadowColor = palette.title;
+                ctx.shadowBlur = Math.max(8, round(subtitleFontPx * 0.24));
+                ctx.shadowOffsetX = Math.max(1, round(subtitleFontPx * 0.08));
+                ctx.shadowOffsetY = Math.max(1, round(subtitleFontPx * 0.08));
+                subtitle.render(
+                    ctx,
+                    originX + Math.max(0, round((titleWidth - Math.min(titleWidth, width)) * 0.02)),
+                    originY + titleHeight + subtitleGap,
+                    palette,
+                    palette.accent
+                );
+                ctx.restore();
             }
         }
     };
