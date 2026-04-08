@@ -69,19 +69,19 @@ Credit to Cheng Lou for the original [Pretext](https://github.com/chenglou/prete
 │  │ projects.html│      │ (boot bridge)│      │   .mjs (canvas REPL) │        │
 │  └──────────────┘      └──────────────┘      └──────────┬───────────┘        │
 │                                                         │                    │
-│                                ┌────────────────────────▼──────────────────┐  │
-│                                │ commands.js (shell verbs / blog parsing) │  │
-│                                └────────────────────────┬──────────────────┘  │
+│                                ┌────────────────────────▼──────────────────┐ │
+│                                │ commands.js (shell verbs / blog parsing)  │ │
+│                                └────────────────────────┬──────────────────┘ │
 │                                                         │                    │
 │                     ┌───────────────┐      ┌────────────▼────────────┐       │
 │                     │ pictures.js   │      │ terminal-pretext-core   │       │
-│                     │ ASCII / video │      │ prepare/layout adapter   │       │
+│                     │ ASCII / video │      │ prepare/layout adapter  │       │
 │                     └───────────────┘      └────────────┬────────────┘       │
 │                                                         │                    │
-│                                ┌────────────────────────▼──────────────────┐  │
-│                                │ pretext-browser.mjs / vendor/pretext     │  │
-│                                │ Cheng Lou's text measurement + layout     │  │
-│                                └────────────────────────┬──────────────────┘  │
+│                                ┌────────────────────────▼──────────────────┐ │
+│                                │ pretext-browser.mjs / vendor/pretext      │ │
+│                                │ Cheng Lou's text measurement + layout     │ │
+│                                └────────────────────────┬──────────────────┘ │
 │                                                         │                    │
 │                    ┌──────────────────┐   ┌─────────────▼────────────┐       │
 │                    │ banner-wave-core │   │ terminal-visuals-core    │       │
