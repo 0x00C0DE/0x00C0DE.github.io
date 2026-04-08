@@ -47,30 +47,49 @@ const MEDIA_PLACEHOLDER_ASPECT_RATIO = 16 / 9;
 
 const PALETTES = Object.freeze({
     default: {
-        accent: '#ff7d86',
-        background: '#030001',
-        block: 'rgba(18, 0, 3, 0.72)',
-        border: 'rgba(255, 115, 126, 0.28)',
-        command: '#ffbcc1',
-        cursor: '#ff8d95',
-        helpCommand: '#ffd9dd',
-        helpSeparator: '#ff7279',
-        link: '#fff0f2',
-        linkUnderline: 'rgba(255, 218, 222, 0.92)',
-        media: 'rgba(16, 0, 2, 0.8)',
-        promptHost: '#ff9aa1',
-        promptPath: '#ffd0d3',
-        promptPunctuation: '#ff6d76',
-        promptUser: '#ff545f',
-        scrollbarThumb: 'rgba(255, 122, 128, 0.48)',
-        scrollbarTrack: 'rgba(255, 122, 128, 0.12)',
-        text: '#ff6672',
-        title: '#ffe2e4',
-        glow: 'rgba(120, 10, 18, 0.3)'
+        accent: '#ff6b78',
+        background: '#000000',
+        bannerFill: '#ff6b78',
+        bannerGlow: '#ff6b78',
+        bannerShadowFar: '#9a1c2d',
+        bannerShadowNear: '#6a101c',
+        block: 'rgba(12, 0, 1, 0.75)',
+        border: 'rgba(255, 143, 153, 0.65)',
+        command: '#ff4d4d',
+        cursor: '#ff4d4d',
+        helpCommand: '#fff1f1',
+        helpSeparator: '#ff6b78',
+        link: '#ff8585',
+        linkUnderline: 'rgba(255, 133, 133, 0.92)',
+        media: 'rgba(12, 0, 1, 0.75)',
+        promptHost: '#ffb0b0',
+        promptPath: '#ffd166',
+        promptPunctuation: '#ff4d4d',
+        promptUser: '#ff4d4d',
+        scanline: 'rgba(0, 0, 0, 0.15)',
+        scrollbarThumb: '#333333',
+        scrollbarTrack: '#000000',
+        text: '#ff6b78',
+        textGlow: 'rgba(255, 214, 214, 0.72)',
+        title: '#fff2f3',
+        glow: 'rgba(85, 10, 16, 0.82)',
+        widgetBackgroundBottom: 'rgba(10, 0, 1, 0.94)',
+        widgetBackgroundTop: 'rgba(33, 0, 4, 0.96)',
+        widgetDim: 'rgba(255, 179, 187, 0.16)',
+        widgetInset: 'rgba(103, 13, 26, 0.95)',
+        widgetLabel: '#ffb3bb',
+        widgetLabelGlow: 'rgba(255, 95, 109, 0.35)',
+        widgetOuterGlow: 'rgba(120, 15, 31, 0.18)',
+        widgetValue: '#ff5f6d',
+        widgetValueGlow: 'rgba(255, 95, 109, 0.45)'
     },
     root: {
         accent: '#ff5252',
         background: '#000000',
+        bannerFill: '#ff6b78',
+        bannerGlow: '#ff6b78',
+        bannerShadowFar: '#9a1c2d',
+        bannerShadowNear: '#6a101c',
         block: 'rgba(18, 0, 0, 0.76)',
         border: 'rgba(255, 84, 84, 0.32)',
         command: '#ffc0c0',
@@ -84,15 +103,21 @@ const PALETTES = Object.freeze({
         promptPath: '#ffd2d2',
         promptPunctuation: '#ff6f6f',
         promptUser: '#ff3636',
+        scanline: 'rgba(255, 255, 255, 0.05)',
         scrollbarThumb: 'rgba(255, 90, 90, 0.54)',
         scrollbarTrack: 'rgba(255, 90, 90, 0.14)',
         text: '#ff5962',
+        textGlow: 'rgba(255, 214, 214, 0.72)',
         title: '#ffe3e3',
         glow: 'rgba(255, 22, 22, 0.18)'
     },
     godlike: {
         accent: '#ffd46f',
         background: '#060400',
+        bannerFill: '#ffd98a',
+        bannerGlow: 'rgba(255, 207, 84, 0.88)',
+        bannerShadowFar: '#8b670d',
+        bannerShadowNear: '#5b4208',
         block: 'rgba(28, 18, 2, 0.8)',
         border: 'rgba(255, 214, 118, 0.26)',
         command: '#ffe7bc',
@@ -106,9 +131,11 @@ const PALETTES = Object.freeze({
         promptPath: '#fff0c2',
         promptPunctuation: '#ffcd5f',
         promptUser: '#ffd870',
+        scanline: 'rgba(255, 241, 211, 0.05)',
         scrollbarThumb: 'rgba(255, 214, 118, 0.5)',
         scrollbarTrack: 'rgba(255, 214, 118, 0.12)',
         text: '#f7d78c',
+        textGlow: 'rgba(255, 232, 182, 0.28)',
         title: '#fff7de',
         glow: 'rgba(184, 128, 30, 0.22)'
     },
@@ -128,9 +155,11 @@ const PALETTES = Object.freeze({
         promptPath: '#ebf2ff',
         promptPunctuation: '#94b0ff',
         promptUser: '#d7e3ff',
+        scanline: 'rgba(255, 255, 255, 0.04)',
         scrollbarThumb: 'rgba(168, 194, 255, 0.44)',
         scrollbarTrack: 'rgba(168, 194, 255, 0.12)',
         text: '#d8e2ff',
+        textGlow: 'rgba(196, 214, 255, 0.18)',
         title: '#f7f9ff',
         glow: 'rgba(60, 86, 150, 0.26)'
     }
@@ -246,8 +275,8 @@ function resolveMetrics() {
     const contentWidth = Math.max(120, width - paddingX * 2 - scrollbarWidth);
 
     return {
-        bannerSubtitleFont: buildFont(clamp(round(width * (narrow ? 0.052 : 0.035)), 18, 32), '700'),
-        bannerTitleFont: buildFont(clamp(round(width * (narrow ? 0.16 : 0.12)), 48, 120), '700'),
+        bannerSubtitleFont: buildFont(clamp(round(width * 0.033), 28, 54), '700'),
+        bannerTitleFont: buildFont(clamp(round(width * 0.145), 120, 210), '700'),
         blockGap,
         buttonFont: buildFont(clamp(fontSize - 1, 12, 17), '700'),
         commandFont: buildFont(fontSize, '400'),
@@ -304,18 +333,17 @@ function drawBannerGlyphRun(ctx, glyphs, originX, originY, font, palette, option
 
     const fontPx = extractFontSizePx(font, 16);
     const letterSpacing = Number.isFinite(options.letterSpacing) ? options.letterSpacing : 0;
-    const waveAmplitude = Number.isFinite(options.waveAmplitude) ? options.waveAmplitude : fontPx * 0.06;
-    const phaseStep = Number.isFinite(options.phaseStep) ? options.phaseStep : 0.46;
+    const waveAmplitude = Number.isFinite(options.waveAmplitude) ? options.waveAmplitude : fontPx * 0.11;
+    const phaseStep = Number.isFinite(options.phaseStep) ? options.phaseStep : 0.42;
     const periodMs = Number.isFinite(options.periodMs) ? options.periodMs : 3100;
-    const shadowOffsetX = Number.isFinite(options.shadowOffsetX) ? options.shadowOffsetX : fontPx * 0.04;
-    const shadowOffsetY = Number.isFinite(options.shadowOffsetY) ? options.shadowOffsetY : fontPx * 0.05;
+    const nearShadowOffset = Number.isFinite(options.nearShadowOffset) ? options.nearShadowOffset : app.viewportWidth * 0.0012;
+    const farShadowOffset = Number.isFinite(options.farShadowOffset) ? options.farShadowOffset : app.viewportWidth * 0.0024;
+    const highlightBlur = Number.isFinite(options.highlightBlur) ? options.highlightBlur : app.viewportWidth * 0.0025;
+    const glowBlur = Number.isFinite(options.glowBlur) ? options.glowBlur : app.viewportWidth * 0.007;
+    const skewAmplitude = Number.isFinite(options.skewAmplitude) ? options.skewAmplitude : 0.05;
     const now = performance.now();
     const phaseBase = (now / periodMs) * Math.PI * 2;
     let cursorX = originX;
-
-    ctx.save();
-    ctx.font = font;
-    ctx.textBaseline = 'top';
 
     glyphs.forEach((glyph, index) => {
         const text = glyph.text || '';
@@ -323,25 +351,42 @@ function drawBannerGlyphRun(ctx, glyphs, originX, originY, font, palette, option
         const isWhitespace = /^\s+$/.test(text);
         const waveIndex = Number.isFinite(glyph.waveIndex) ? glyph.waveIndex : index;
         const waveOffset = glyph.isAnimated ? Math.sin(phaseBase + waveIndex * phaseStep) * waveAmplitude : 0;
+        const skew = glyph.isAnimated ? Math.sin(phaseBase + waveIndex * phaseStep) * skewAmplitude : 0;
 
         if (!isWhitespace) {
+            ctx.save();
+            ctx.translate(cursorX, originY + waveOffset);
+            ctx.transform(1, 0, skew, 1, 0, 0);
+            ctx.font = font;
+            ctx.textBaseline = 'top';
+            ctx.globalAlpha = 1;
             ctx.shadowColor = 'transparent';
             ctx.shadowBlur = 0;
-            ctx.fillStyle = palette.promptPunctuation;
-            ctx.globalAlpha = 0.78;
-            ctx.fillText(text, cursorX + shadowOffsetX, originY + shadowOffsetY + waveOffset * 0.35);
 
-            ctx.fillStyle = palette.accent;
+            ctx.fillStyle = palette.bannerShadowFar || palette.promptPunctuation;
+            ctx.fillText(text, farShadowOffset, farShadowOffset);
+
+            ctx.fillStyle = palette.bannerShadowNear || palette.promptPunctuation;
+            ctx.fillText(text, nearShadowOffset, nearShadowOffset);
+
+            ctx.shadowColor = palette.bannerGlow || palette.accent;
+            ctx.shadowBlur = glowBlur;
+            ctx.fillStyle = palette.bannerFill || palette.accent;
+            ctx.fillText(text, 0, 0);
+
             ctx.shadowColor = palette.title;
-            ctx.shadowBlur = Math.max(8, round(fontPx * 0.16));
-            ctx.globalAlpha = 1;
-            ctx.fillText(text, cursorX, originY + waveOffset);
+            ctx.shadowBlur = highlightBlur;
+            ctx.fillText(text, 0, 0);
+
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = palette.bannerFill || palette.accent;
+            ctx.fillText(text, 0, 0);
+            ctx.restore();
         }
 
         cursorX += glyphWidth + (index < glyphs.length - 1 ? letterSpacing : 0);
     });
-
-    ctx.restore();
 }
 
 function canManageBlogEntries() {
@@ -487,18 +532,26 @@ function resolveFragmentColor(fragment, palette, fallback) {
 function drawFragmentPlans(ctx, plans, originX, originY, lineHeight, font, palette, fallback) {
     ctx.font = font;
     ctx.textBaseline = 'top';
+    ctx.shadowColor = palette.textGlow || 'transparent';
+    ctx.shadowBlur = palette.textGlow ? Math.max(2, app.viewportWidth * 0.004) : 0;
     plans.forEach(plan => {
         ctx.fillStyle = resolveFragmentColor(plan.fragment, palette, fallback);
         ctx.fillText(plan.text, originX + plan.x, originY);
         if (plan.fragment?.type === 'link') {
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
             ctx.strokeStyle = palette.linkUnderline;
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(originX + plan.x, originY + lineHeight - 4);
             ctx.lineTo(originX + plan.x + plan.width, originY + lineHeight - 4);
             ctx.stroke();
+            ctx.shadowColor = palette.textGlow || 'transparent';
+            ctx.shadowBlur = palette.textGlow ? Math.max(2, app.viewportWidth * 0.004) : 0;
         }
     });
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
 }
 
 function buildTextLayout(block, text, width, font, lineHeight, options = {}) {
@@ -657,6 +710,22 @@ function formatVisitorLine(label, value) {
     return `${label} ${String(safeValue).padStart(7, '0')}`;
 }
 
+function formatVisitorDigits(value, width = 7) {
+    const safeValue = Math.max(0, Number.isFinite(Number(value)) ? Math.floor(Number(value)) : 0);
+    return String(safeValue).padStart(width, '0');
+}
+
+function getVisitorDigitParts(value, width = 7) {
+    const digits = formatVisitorDigits(value, width);
+    const firstNonZeroIndex = digits.search(/[1-9]/);
+    const zeroCutoff = firstNonZeroIndex === -1 ? digits.length - 1 : firstNonZeroIndex;
+
+    return digits.split('').map((digit, index) => ({
+        dim: index < zeroCutoff && digit === '0',
+        text: digit
+    }));
+}
+
 function getMediaEntry(src, type = 'image') {
     const cacheKey = `${type}:${src}`;
     if (app.mediaCache.has(cacheKey)) {
@@ -797,39 +866,39 @@ function layoutBanner(block, width, metrics) {
     const titleFont = fitFontToWidth(titleText, metrics.bannerTitleFont, width, 34, '700');
     const titleFontPx = extractFontSizePx(titleFont, extractFontSizePx(metrics.bannerTitleFont, metrics.fontSize * 3.8));
     const titleGlyphs = splitBannerWaveGlyphs(titleText);
-    const titleLetterSpacing = Math.max(0, round(titleFontPx * 0.04));
-    const titleWidth = measureGlyphRunWidth(titleGlyphs, titleFont, titleLetterSpacing);
-    const titleHeight = Math.max(metrics.lineHeight * 2, round(titleFontPx * 1.12));
-    const subtitleFontPx = extractFontSizePx(metrics.bannerSubtitleFont, extractFontSizePx(metrics.subtitleFont, metrics.lineHeight));
-    const subtitle = block.data.subtitle
-        ? buildTextLayout(block, block.data.subtitle || '', width, metrics.bannerSubtitleFont, Math.max(metrics.lineHeight, round(subtitleFontPx * 1.18)), {
-            slotName: '__bannerSubtitle',
-            tokenizeLinks: false
-        })
-        : null;
-    const subtitleGap = subtitle ? Math.max(6, round(titleFontPx * 0.08)) : 0;
+    const titleLetterSpacing = Math.max(0, round(titleFontPx * 0.06));
+    const titleHeight = Math.max(metrics.lineHeight * 2, round(titleFontPx * 0.88) + round(app.viewportWidth * 0.022));
+    const subtitleText = block.data.subtitle || '';
+    const subtitleFont = fitFontToWidth(subtitleText, metrics.bannerSubtitleFont, width, 16, '700');
+    const subtitleFontPx = extractFontSizePx(subtitleFont, extractFontSizePx(metrics.bannerSubtitleFont, metrics.lineHeight));
+    const subtitleGlyphs = splitBannerWaveGlyphs(subtitleText);
+    const subtitleLetterSpacing = Math.max(0, round(subtitleFontPx * 0.04));
+    const subtitleHeight = subtitleText ? Math.max(metrics.lineHeight, round(subtitleFontPx * 1) + round(app.viewportWidth * 0.012)) : 0;
+    const subtitleGap = subtitleText ? Math.max(4, round(app.viewportWidth * 0.006)) : 0;
 
     return {
-        height: titleHeight + (subtitle ? subtitle.height + subtitleGap : 0),
+        height: titleHeight + (subtitleText ? subtitleHeight + subtitleGap : 0),
         hitRegions: [],
         render(ctx, originX, originY, palette) {
             drawBannerGlyphRun(ctx, titleGlyphs, originX, originY, titleFont, palette, {
-                letterSpacing: titleLetterSpacing
+                glowBlur: app.viewportWidth * 0.007,
+                highlightBlur: app.viewportWidth * 0.0025,
+                letterSpacing: titleLetterSpacing,
+                nearShadowOffset: app.viewportWidth * 0.0012,
+                farShadowOffset: app.viewportWidth * 0.0024,
+                skewAmplitude: 0.05,
+                waveAmplitude: titleFontPx * 0.11
             });
-            if (subtitle) {
-                ctx.save();
-                ctx.shadowColor = palette.title;
-                ctx.shadowBlur = Math.max(8, round(subtitleFontPx * 0.24));
-                ctx.shadowOffsetX = Math.max(1, round(subtitleFontPx * 0.08));
-                ctx.shadowOffsetY = Math.max(1, round(subtitleFontPx * 0.08));
-                subtitle.render(
-                    ctx,
-                    originX + Math.max(0, round((titleWidth - Math.min(titleWidth, width)) * 0.02)),
-                    originY + titleHeight + subtitleGap,
-                    palette,
-                    palette.accent
-                );
-                ctx.restore();
+            if (subtitleText) {
+                drawBannerGlyphRun(ctx, subtitleGlyphs, originX + round(app.viewportWidth * 0.002), originY + titleHeight + subtitleGap, subtitleFont, palette, {
+                    glowBlur: app.viewportWidth * 0.0045,
+                    highlightBlur: app.viewportWidth * 0.0016,
+                    letterSpacing: subtitleLetterSpacing,
+                    nearShadowOffset: app.viewportWidth * 0.0008,
+                    farShadowOffset: app.viewportWidth * 0.0016,
+                    skewAmplitude: 0.036,
+                    waveAmplitude: subtitleFontPx * 0.11
+                });
             }
         }
     };
@@ -875,28 +944,59 @@ function layoutHelpEntry(block, width, metrics) {
 
 function layoutVisitorWidget(block, width, metrics) {
     const stats = block.data.stats || getCurrentVisitorStats();
-    const lines = [
-        formatVisitorLine('Visits:        ', stats.visits),
-        formatVisitorLine('Uniq. Visitors:', stats.uniqueVisitors),
-        formatVisitorLine('On-site:       ', stats.onSite)
+    const rows = [
+        { label: 'Visits:', value: stats.visits },
+        { label: 'Uniq. Visitors:', value: stats.uniqueVisitors },
+        { label: 'On-site:', value: stats.onSite }
     ];
+    const labelFont = buildFont(clamp(metrics.fontSize + 5, 18, 24), '700');
+    const valueFont = labelFont;
+    const rowHeight = Math.max(metrics.lineHeight, round(extractFontSizePx(labelFont, metrics.fontSize) * 1.18));
+    const labelWidth = Math.max(...rows.map(row => measureTextWidth(row.label, labelFont)));
+    const valueWidth = measureTextWidth('0000000', valueFont);
+    const boxWidth = Math.max(Math.min(width, 420), Math.min(width, round(labelWidth + valueWidth + 88)));
 
     return {
-        height: 14 + lines.length * metrics.lineHeight + 12,
+        height: 16 + rows.length * rowHeight + 14,
         hitRegions: [],
         render(ctx, originX, originY, palette) {
-            const boxWidth = Math.max(240, Math.min(width, measureTextWidth(lines[0], metrics.textFont) + 32));
-            ctx.fillStyle = palette.block;
+            const background = ctx.createLinearGradient(originX, originY, originX, originY + 16 + rows.length * rowHeight + 14);
+            background.addColorStop(0, palette.widgetBackgroundTop || palette.block);
+            background.addColorStop(1, palette.widgetBackgroundBottom || palette.block);
+            ctx.shadowColor = palette.widgetOuterGlow || 'transparent';
+            ctx.shadowBlur = 12;
+            ctx.fillStyle = background;
+            ctx.fillRect(originX, originY, boxWidth, 16 + rows.length * rowHeight + 14);
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
             ctx.strokeStyle = palette.border;
             ctx.lineWidth = 1;
-            ctx.fillRect(originX, originY, boxWidth, 14 + lines.length * metrics.lineHeight + 12);
-            ctx.strokeRect(originX + 0.5, originY + 0.5, boxWidth - 1, 14 + lines.length * metrics.lineHeight + 11);
-            lines.forEach((line, index) => {
-                ctx.font = metrics.textFont;
+            ctx.strokeRect(originX + 0.5, originY + 0.5, boxWidth - 1, 16 + rows.length * rowHeight + 13);
+            ctx.strokeStyle = palette.widgetInset || palette.border;
+            ctx.strokeRect(originX + 1.5, originY + 1.5, boxWidth - 3, 16 + rows.length * rowHeight + 11);
+
+            rows.forEach((row, index) => {
+                const baselineY = originY + 10 + index * rowHeight;
+                const valueX = originX + boxWidth - 18 - valueWidth;
+                ctx.font = labelFont;
                 ctx.textBaseline = 'top';
-                ctx.fillStyle = palette.text;
-                ctx.fillText(line, originX + 12, originY + 10 + index * metrics.lineHeight);
+                ctx.shadowColor = palette.widgetLabelGlow || palette.textGlow || 'transparent';
+                ctx.shadowBlur = 4;
+                ctx.fillStyle = palette.widgetLabel || palette.text;
+                ctx.fillText(row.label, originX + 16, baselineY);
+
+                let digitX = valueX;
+                ctx.font = valueFont;
+                getVisitorDigitParts(row.value).forEach(part => {
+                    ctx.shadowColor = part.dim ? 'transparent' : (palette.widgetValueGlow || palette.textGlow || 'transparent');
+                    ctx.shadowBlur = part.dim ? 0 : 6;
+                    ctx.fillStyle = part.dim ? (palette.widgetDim || palette.text) : (palette.widgetValue || palette.accent);
+                    ctx.fillText(part.text, digitX, baselineY);
+                    digitX += measureTextWidth(part.text, valueFont);
+                });
             });
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
         }
     };
 }
@@ -1346,7 +1446,14 @@ function drawBackground(ctx, palette, timestamp) {
     ctx.fillStyle = palette.background;
     ctx.fillRect(0, 0, app.viewportWidth, app.viewportHeight);
 
-    const glow = ctx.createRadialGradient(app.viewportWidth * 0.5, 0, 0, app.viewportWidth * 0.5, 0, Math.max(app.viewportWidth, app.viewportHeight));
+    const glow = ctx.createRadialGradient(
+        app.viewportWidth * 0.5,
+        app.viewportHeight * 0.5,
+        0,
+        app.viewportWidth * 0.5,
+        app.viewportHeight * 0.5,
+        Math.max(app.viewportWidth, app.viewportHeight) * 1.2
+    );
     glow.addColorStop(0, palette.glow);
     glow.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = glow;
@@ -1370,6 +1477,15 @@ function drawBackground(ctx, palette, timestamp) {
         ctx.restore();
         ctx.globalAlpha = 1;
     }
+}
+
+function drawScreenOverlay(ctx, palette) {
+    ctx.save();
+    ctx.fillStyle = palette.scanline || 'rgba(0, 0, 0, 0.15)';
+    for (let y = 0; y < app.viewportHeight; y += 2) {
+        ctx.fillRect(0, y, app.viewportWidth, 1);
+    }
+    ctx.restore();
 }
 
 function drawScrollbar(ctx, palette, metrics) {
@@ -1411,6 +1527,7 @@ function drawTerminalScene(timestamp) {
     app.inputLayout.render(ctx, metrics.paddingX, app.inputTop, palette);
     ctx.restore();
     drawScrollbar(ctx, palette, metrics);
+    drawScreenOverlay(ctx, palette);
 }
 
 function drawViewerScene(timestamp) {
@@ -1475,6 +1592,8 @@ function drawViewerScene(timestamp) {
             ctx.fillText('[image loading]', x + 14, y + metrics.viewerTop);
         }
     }
+
+    drawScreenOverlay(ctx, palette);
 }
 
 function frame(timestamp) {
