@@ -2843,6 +2843,8 @@ window.ensureTerminalPretextReady = ensureTerminalPretextReady;
 window.ensureTerminalSessionReady = ensureTerminalSessionReady;
 window.getTerminalPromptSnapshot = getTerminalPromptSnapshot;
 window.getTerminalSessionState = () => terminalSessionState;
+window.getCurrentVisitorStats = getCurrentVisitorStats;
+window.normalizeTerminalTextFilename = normalizeTextFilename;
 window.setTerminalSessionState = setTerminalSessionState;
 window.refreshTerminalSessionUi = refreshTerminalSessionUi;
 

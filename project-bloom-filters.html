@@ -6,7 +6,6 @@
     <meta name="description" content="Bloom filter password screening project page.">
     <meta http-equiv="Cache-Control" content="no-cache">
     <title>Bloom Filters | 0x00C0DE</title>
-    <link rel="stylesheet" href="style.css?v=20260404b">
     <script>
         const DEFAULT_COMMAND = "cat bloom.txt";
     </script>
@@ -15,9 +14,8 @@
     <script src="term.js?v=20260404a"></script>
 </head>
 <body>
-    <canvas id="canvas"></canvas>
-    <input id="user-image-input" type="file" accept="image/*" hidden>
-    <div id="terminal" class="terminal-container"></div>
+    <canvas id="terminal-canvas"></canvas>
+    <canvas id="canvas" hidden></canvas>
     <script>
         bootTerminalSite(DEFAULT_COMMAND);
     </script>

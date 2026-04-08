@@ -163,8 +163,14 @@ function sliceTerminalTokensByOffsets(tokens, startOffset, endOffset) {
             continue;
         }
 
+        const baseFragment = { ...token };
+        delete baseFragment.start;
+        delete baseFragment.end;
+        delete baseFragment.text;
+
         if (token.type === 'link') {
             fragments.push({
+                ...baseFragment,
                 type: 'link',
                 text: slicedText,
                 href: token.href,
@@ -174,6 +180,7 @@ function sliceTerminalTokensByOffsets(tokens, startOffset, endOffset) {
         }
 
         fragments.push({
+            ...baseFragment,
             type: 'text',
             text: slicedText
         });
@@ -244,20 +251,70 @@ function buildAvailableRowSegments(maxWidth, rowTop, lineHeight, obstacleRects, 
     return availableSegments;
 }
 
-export function buildTerminalPretextLayout(pretextApi, options = {}) {
-    if (!pretextApi || typeof pretextApi.prepareWithSegments !== 'function' || typeof pretextApi.layoutWithLines !== 'function') {
+function assertTerminalPrepareApi(pretextApi) {
+    if (!pretextApi || typeof pretextApi.prepareWithSegments !== 'function') {
         throw new Error('pretext api is required');
     }
+}
 
-    const tokens = Array.isArray(options.tokens)
+function assertTerminalLayoutApi(pretextApi) {
+    if (!pretextApi || typeof pretextApi.layoutWithLines !== 'function') {
+        throw new Error('pretext api is required');
+    }
+}
+
+function assertTerminalEditorialApi(pretextApi) {
+    if (!pretextApi || typeof pretextApi.layoutNextLine !== 'function') {
+        throw new Error('pretext editorial api is required');
+    }
+}
+
+function resolveTerminalTokens(options = {}) {
+    return Array.isArray(options.tokens)
         ? options.tokens
         : tokenizeTerminalText(options.text || '', options.linkOptions);
+}
+
+export function prepareTerminalText(pretextApi, options = {}) {
+    assertTerminalPrepareApi(pretextApi);
+
+    const tokens = resolveTerminalTokens(options);
     const text = getTerminalTextFromTokens(tokens);
     const font = options.font || '18px "Courier New", monospace';
     const whiteSpace = options.whiteSpace || 'pre-wrap';
+    const wordBreak = typeof options.wordBreak === 'string' && options.wordBreak
+        ? options.wordBreak
+        : null;
+    const preparedOptions = { whiteSpace };
+    if (wordBreak) {
+        preparedOptions.wordBreak = wordBreak;
+    }
+    const prepared = pretextApi.prepareWithSegments(text, font, preparedOptions);
+
+    return {
+        font,
+        prepared,
+        text,
+        tokens,
+        whiteSpace,
+        wordBreak: wordBreak || 'normal'
+    };
+}
+
+export function layoutPreparedTerminalText(pretextApi, preparedTextState, options = {}) {
+    assertTerminalLayoutApi(pretextApi);
+
+    if (!preparedTextState || typeof preparedTextState !== 'object') {
+        throw new Error('prepared terminal text state is required');
+    }
+
+    const tokens = Array.isArray(preparedTextState.tokens) ? preparedTextState.tokens : [];
+    const text = typeof preparedTextState.text === 'string' ? preparedTextState.text : '';
+    const font = preparedTextState.font || options.font || '18px "Courier New", monospace';
+    const whiteSpace = preparedTextState.whiteSpace || options.whiteSpace || 'pre-wrap';
     const lineHeight = Number(options.lineHeight) || 20;
     const maxWidth = Number(options.maxWidth) || 0;
-    const prepared = pretextApi.prepareWithSegments(text, font, { whiteSpace });
+    const prepared = preparedTextState.prepared;
     const layout = pretextApi.layoutWithLines(prepared, maxWidth, lineHeight);
 
     return {
@@ -281,17 +338,17 @@ export function buildTerminalPretextLayout(pretextApi, options = {}) {
     };
 }
 
-export function buildTerminalEditorialLayout(pretextApi, options = {}) {
-    if (!pretextApi || typeof pretextApi.prepareWithSegments !== 'function' || typeof pretextApi.layoutNextLine !== 'function') {
-        throw new Error('pretext editorial api is required');
+export function layoutPreparedTerminalEditorialText(pretextApi, preparedTextState, options = {}) {
+    assertTerminalEditorialApi(pretextApi);
+
+    if (!preparedTextState || typeof preparedTextState !== 'object') {
+        throw new Error('prepared terminal text state is required');
     }
 
-    const tokens = Array.isArray(options.tokens)
-        ? options.tokens
-        : tokenizeTerminalText(options.text || '', options.linkOptions);
-    const text = getTerminalTextFromTokens(tokens);
-    const font = options.font || '18px "Courier New", monospace';
-    const whiteSpace = options.whiteSpace || 'pre-wrap';
+    const tokens = Array.isArray(preparedTextState.tokens) ? preparedTextState.tokens : [];
+    const text = typeof preparedTextState.text === 'string' ? preparedTextState.text : '';
+    const font = preparedTextState.font || options.font || '18px "Courier New", monospace';
+    const whiteSpace = preparedTextState.whiteSpace || options.whiteSpace || 'pre-wrap';
     const lineHeight = Math.max(1, Number(options.lineHeight) || 20);
     const maxWidth = Math.max(0, Number(options.maxWidth) || 0);
     const minSegmentWidth = Math.max(24, Number(options.minSegmentWidth) || Math.min(72, Math.max(32, Math.round(maxWidth * 0.18))));
@@ -306,7 +363,7 @@ export function buildTerminalEditorialLayout(pretextApi, options = {}) {
             .filter(rect => rect.width > 0 && rect.height > 0)
         : [];
 
-    const prepared = pretextApi.prepareWithSegments(text, font, { whiteSpace });
+    const prepared = preparedTextState.prepared;
     if (!prepared || !Array.isArray(prepared.widths) || prepared.widths.length === 0) {
         const obstacleBottom = obstacleRects.reduce((currentMax, rect) => Math.max(currentMax, rect.y + rect.height), 0);
         return {
@@ -402,4 +459,14 @@ export function buildTerminalEditorialLayout(pretextApi, options = {}) {
     }
 
     throw new Error('unable to resolve terminal editorial layout');
+}
+
+export function buildTerminalPretextLayout(pretextApi, options = {}) {
+    const preparedTextState = prepareTerminalText(pretextApi, options);
+    return layoutPreparedTerminalText(pretextApi, preparedTextState, options);
+}
+
+export function buildTerminalEditorialLayout(pretextApi, options = {}) {
+    const preparedTextState = prepareTerminalText(pretextApi, options);
+    return layoutPreparedTerminalEditorialText(pretextApi, preparedTextState, options);
 }

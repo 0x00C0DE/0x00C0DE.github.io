@@ -1,29 +1,29 @@
-0x00C0DE Terminal Portfolio
-==========================
-This site is a static browser application that emulates a compact Unix-like shell for portfolio navigation.
+About this site
+---------------
+This portfolio now renders as a canvas terminal instead of a DOM terminal.
 
 Architecture
 ------------
 Entry points  : index.html, projects.html, project-*.html
-Terminal loop : term.js renders the prompt, command history, and output stream
-Command layer : commands.js implements shell verbs plus async integrations such as fortune
-ASCII media   : pictures.js converts images and webcam frames into terminal glyph output
-Theme         : style.css supplies the dark-red CRT palette and prompt styling
+Terminal loop : term.js loads terminal-canvas-core.mjs
+Layout engine : Pretext measures and wraps text without DOM reflow
+Command layer : commands.js implements shell verbs and backend integrations
+ASCII media   : pictures.js converts images and webcam frames into glyph output
 
-Data model
-----------
-The cat command loads real .txt files over HTTP instead of embedding file contents inside JavaScript.
-That keeps terminal-readable documentation versioned as standalone assets and lets the shell mirror actual files on disk.
+What changed
+------------
+The live terminal no longer depends on style.css or DOM row layout.
+Prompts, wrapped output, links, widgets, and media are drawn directly to canvas.
 
 Suggested entry points
 ----------------------
 cat blog.txt
 cat projects.txt
 cat links.txt
-post Your blog entry goes here
+pretext
 resume
 fortune
 
 Blog backend
 ------------
-The recommended public deployment path is a Cloudflare Worker backend that appends to blog.txt through the GitHub API.
+The public deployment path still uses a Cloudflare Worker that updates blog.txt through the GitHub API.
