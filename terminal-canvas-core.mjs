@@ -284,7 +284,7 @@ function resolveMetrics() {
         fontSize,
         helpGap: round(fontSize * 0.9),
         lineHeight,
-        mediaMaxWidth: Math.max(220, Math.min(contentWidth, round(width * (narrow ? 0.88 : 0.68)))),
+        mediaMaxWidth: Math.min(contentWidth, 544),
         paddingX,
         paddingY,
         scrollbarWidth,
@@ -735,6 +735,8 @@ function getMediaEntry(src, type = 'image') {
     const entry = {
         aspectRatio: MEDIA_PLACEHOLDER_ASPECT_RATIO,
         element: null,
+        intrinsicHeight: null,
+        intrinsicWidth: null,
         ready: false,
         src,
         type
@@ -749,6 +751,8 @@ function getMediaEntry(src, type = 'image') {
         video.src = src;
         video.addEventListener('loadedmetadata', () => {
             if (video.videoWidth > 0 && video.videoHeight > 0) {
+                entry.intrinsicWidth = video.videoWidth;
+                entry.intrinsicHeight = video.videoHeight;
                 entry.aspectRatio = video.videoWidth / video.videoHeight;
                 entry.ready = true;
             }
@@ -765,6 +769,8 @@ function getMediaEntry(src, type = 'image') {
         image.src = src;
         image.addEventListener('load', () => {
             if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+                entry.intrinsicWidth = image.naturalWidth;
+                entry.intrinsicHeight = image.naturalHeight;
                 entry.aspectRatio = image.naturalWidth / image.naturalHeight;
                 entry.ready = true;
             }
@@ -778,9 +784,16 @@ function getMediaEntry(src, type = 'image') {
 
 function getMediaDimensions(entry, maxWidth, preferredWidth = null) {
     const aspectRatio = entry?.aspectRatio && entry.aspectRatio > 0 ? entry.aspectRatio : MEDIA_PLACEHOLDER_ASPECT_RATIO;
-    const width = Math.max(140, Math.min(maxWidth, preferredWidth || maxWidth));
+    const widthCap = Math.max(1, Math.min(maxWidth, preferredWidth || maxWidth));
+    const intrinsicWidth = Number.isFinite(entry?.intrinsicWidth) && entry.intrinsicWidth > 0
+        ? entry.intrinsicWidth
+        : null;
+    const width = intrinsicWidth
+        ? Math.min(widthCap, intrinsicWidth)
+        : widthCap;
+
     return {
-        height: Math.max(84, round(width / aspectRatio)),
+        height: Math.max(1, round(width / aspectRatio)),
         width
     };
 }
@@ -1013,14 +1026,6 @@ function layoutStandaloneMedia(block, metrics) {
     return {
         height: dimensions.height + (deleteButton ? metrics.lineHeight + buttonGap : 0),
         hitRegions: [
-            {
-                action: 'open-media',
-                data: block.data,
-                height: dimensions.height,
-                width: dimensions.width,
-                x: 0,
-                y: 0
-            },
             ...(deleteButton ? [{
                 action: 'delete-media',
                 data: block.data,
@@ -1059,74 +1064,24 @@ function layoutStandaloneMedia(block, metrics) {
     };
 }
 
-function getEditorialMediaRects(block, width, metrics) {
-    const mediaBlocks = (Array.isArray(block.data?.blocks) ? block.data.blocks : [])
-        .filter(item => item && (item.type === 'inline-image' || item.type === 'inline-video'));
-    if (!block.editorialMediaState) {
-        block.editorialMediaState = new Map();
-    }
-
-    let cursorY = metrics.lineHeight * 1.4;
-    return mediaBlocks.map((mediaBlock, index) => {
-        const id = `${mediaBlock.imageKey || mediaBlock.src || `media-${index}`}`;
-        const type = mediaBlock.type === 'inline-video' ? 'video' : 'image';
-        const entry = getMediaEntry(mediaBlock.src, type);
-        const dimensions = getMediaDimensions(entry, Math.min(metrics.mediaMaxWidth, round(width * 0.34)), round(width * 0.34));
-        const existing = block.editorialMediaState.get(id);
-        const rect = {
-            block: mediaBlock,
-            entry,
-            height: dimensions.height,
-            id,
-            type,
-            width: dimensions.width,
-            x: existing && Number.isFinite(existing.x)
-                ? clamp(existing.x, 0, Math.max(0, width - dimensions.width))
-                : Math.max(0, width - dimensions.width),
-            y: existing && Number.isFinite(existing.y)
-                ? Math.max(0, existing.y)
-                : cursorY
-        };
-        cursorY += dimensions.height + metrics.blockGap;
-        block.editorialMediaState.set(id, {
-            x: rect.x,
-            y: rect.y
-        });
-        return rect;
-    });
-}
-
-function shiftObstacles(obstacles, deltaY) {
-    return obstacles.map(obstacle => ({
-        ...obstacle,
-        y: obstacle.y - deltaY
-    })).filter(obstacle => obstacle.y + obstacle.height > -64);
-}
-
 function layoutBlogEntry(block, width, metrics, editorial) {
     const children = [];
     let cursorY = 0;
-    const mediaRects = editorial ? getEditorialMediaRects(block, width, metrics) : [];
-    const obstacleRects = mediaRects.map(rect => ({
-        height: rect.height + 10,
-        width: rect.width + 10,
-        x: rect.x - 5,
-        y: rect.y - 5
-    }));
     const deleteEntryButton = canManageBlogEntries() && block.data?.deletable
         ? getButtonLayout('[delete post]', metrics.buttonFont)
         : null;
+    const mediaRects = [];
 
-    const header = editorial
-        ? buildEditorialTextLayout(block, '__blogHeaderEditorial', block.data.text || '', width, metrics.textFont, metrics.lineHeight, shiftObstacles(obstacleRects, cursorY), {
-            tokenizeLinks: false
-        })
-        : buildTextLayout(block, block.data.text || '', width, metrics.textFont, metrics.lineHeight, {
-            slotName: '__blogHeaderFlat',
-            tokenizeLinks: false
-        });
+    if (editorial && !block.editorialMediaState) {
+        block.editorialMediaState = new Map();
+    }
+
+    const header = buildTextLayout(block, block.data.text || '', width, metrics.textFont, metrics.lineHeight, {
+        slotName: editorial ? '__blogHeaderEditorialFlat' : '__blogHeaderFlat',
+        tokenizeLinks: false
+    });
     children.push({ layout: header, x: 0, y: cursorY });
-    cursorY += (editorial ? header.textHeight : header.height) + metrics.blockGap;
+    cursorY += header.height + metrics.blockGap;
 
     (Array.isArray(block.data.blocks) ? block.data.blocks : []).forEach((segment, segmentIndex) => {
         if (segment.type === 'blog-entry-text-block') {
@@ -1136,22 +1091,58 @@ function layoutBlogEntry(block, width, metrics, editorial) {
                     cursorY += metrics.lineHeight;
                     return;
                 }
-                const layout = editorial
-                    ? buildEditorialTextLayout(block, `__blogEditorial${segmentIndex}-${lineIndex}`, lineText, width, metrics.textFont, metrics.lineHeight, shiftObstacles(obstacleRects, cursorY))
-                    : buildTextLayout(block, lineText, width, metrics.textFont, metrics.lineHeight, {
-                        slotName: `__blogFlat${segmentIndex}-${lineIndex}`
-                    });
+                const layout = buildTextLayout(block, lineText, width, metrics.textFont, metrics.lineHeight, {
+                    slotName: editorial
+                        ? `__blogEditorialFlat${segmentIndex}-${lineIndex}`
+                        : `__blogFlat${segmentIndex}-${lineIndex}`
+                });
                 children.push({ layout, x: 0, y: cursorY });
-                cursorY += editorial ? layout.textHeight : layout.height;
+                cursorY += layout.height;
             });
             cursorY += metrics.blockGap;
             return;
         }
 
-        if (!editorial && (segment.type === 'inline-image' || segment.type === 'inline-video')) {
-            const mediaLayout = layoutStandaloneMedia({ ...block, data: segment }, metrics);
-            children.push({ layout: mediaLayout, x: 0, y: cursorY });
-            cursorY += mediaLayout.height + metrics.blockGap;
+        if (segment.type === 'inline-image' || segment.type === 'inline-video') {
+            if (!editorial) {
+                const mediaLayout = layoutStandaloneMedia({ ...block, data: segment }, metrics);
+                children.push({ layout: mediaLayout, x: 0, y: cursorY });
+                cursorY += mediaLayout.height + metrics.blockGap;
+                return;
+            }
+
+            const id = `${segment.imageKey || segment.src || `media-${segmentIndex}`}`;
+            const type = segment.type === 'inline-video' ? 'video' : 'image';
+            const entry = getMediaEntry(segment.src, type);
+            const dimensions = getMediaDimensions(entry, metrics.mediaMaxWidth);
+            const deleteButton = canManageBlogEntries() && segment?.deletable
+                ? getButtonLayout('[delete media]', metrics.buttonFont)
+                : null;
+            const deleteGap = deleteButton ? 8 : 0;
+            const existing = block.editorialMediaState.get(id);
+            const rect = {
+                block: segment,
+                deleteButton,
+                deleteGap,
+                entry,
+                height: dimensions.height,
+                id,
+                type,
+                width: dimensions.width,
+                x: existing && Number.isFinite(existing.x)
+                    ? clamp(existing.x, 0, Math.max(0, width - dimensions.width))
+                    : 0,
+                y: existing && Number.isFinite(existing.y)
+                    ? Math.max(0, existing.y)
+                    : cursorY
+            };
+
+            mediaRects.push(rect);
+            block.editorialMediaState.set(id, {
+                x: rect.x,
+                y: rect.y
+            });
+            cursorY += rect.height + (deleteButton ? metrics.lineHeight + deleteGap : 0) + metrics.blockGap;
         }
     });
 
@@ -1183,14 +1174,6 @@ function layoutBlogEntry(block, width, metrics, editorial) {
     if (editorial) {
         mediaRects.forEach(rect => {
             hitRegions.push({
-                action: 'open-media',
-                data: rect.block,
-                height: rect.height,
-                width: rect.width,
-                x: rect.x,
-                y: rect.y
-            });
-            hitRegions.push({
                 action: 'drag-media',
                 data: {
                     blockId: block.id,
@@ -1201,15 +1184,14 @@ function layoutBlogEntry(block, width, metrics, editorial) {
                 x: rect.x,
                 y: rect.y
             });
-            if (canManageBlogEntries() && rect.block?.deletable) {
-                const deleteButton = getButtonLayout('[delete media]', metrics.buttonFont);
+            if (rect.deleteButton) {
                 hitRegions.push({
                     action: 'delete-media',
                     data: rect.block,
                     height: metrics.lineHeight,
-                    width: deleteButton.width,
+                    width: rect.deleteButton.width,
                     x: rect.x,
-                    y: rect.y + rect.height + 8
+                    y: rect.y + rect.height + rect.deleteGap
                 });
             }
         });
@@ -1218,7 +1200,7 @@ function layoutBlogEntry(block, width, metrics, editorial) {
     return {
         height: Math.max(
             cursorY,
-            ...[0, ...mediaRects.map(rect => rect.y + rect.height + (canManageBlogEntries() && rect.block?.deletable ? metrics.lineHeight + 8 : 0))]
+            ...[0, ...mediaRects.map(rect => rect.y + rect.height + (rect.deleteButton ? metrics.lineHeight + rect.deleteGap : 0))]
         ),
         hitRegions,
         render(ctx, originX, originY, palette) {
@@ -1256,12 +1238,11 @@ function layoutBlogEntry(block, width, metrics, editorial) {
                     ctx.fillText(rect.type === 'video' ? '[video]' : '[image]', originX + rect.x + 12, originY + rect.y + rect.height / 2);
                 }
 
-                if (canManageBlogEntries() && rect.block?.deletable) {
-                    const deleteButton = getButtonLayout('[delete media]', metrics.buttonFont);
-                    ctx.font = deleteButton.font;
+                if (rect.deleteButton) {
+                    ctx.font = rect.deleteButton.font;
                     ctx.textBaseline = 'top';
                     ctx.fillStyle = palette.accent;
-                    ctx.fillText(deleteButton.text, originX + rect.x, originY + rect.y + rect.height + 8);
+                    ctx.fillText(rect.deleteButton.text, originX + rect.x, originY + rect.y + rect.height + rect.deleteGap);
                 }
             });
         }
@@ -1969,13 +1950,6 @@ function onPointerUp(event) {
     }
 
     if (drag.mediaId) {
-        if (!drag.moved) {
-            const block = app.blocks.find(item => item.id === drag.blockId);
-            const mediaRect = block?.data?.blocks?.find(item => `${item.imageKey || item.src || ''}` === drag.mediaId);
-            if (mediaRect?.src) {
-                window.open(normalizeLinkTarget(mediaRect.src), '_blank', 'noopener,noreferrer');
-            }
-        }
         return;
     }
 
@@ -1998,9 +1972,6 @@ function onPointerUp(event) {
         break;
     case 'link':
         activateLink(drag.region.data);
-        break;
-    case 'open-media':
-        window.open(normalizeLinkTarget(drag.region.data.src || ''), '_blank', 'noopener,noreferrer');
         break;
     case 'viewer-close':
         closeViewer();
