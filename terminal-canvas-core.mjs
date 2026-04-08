@@ -726,17 +726,179 @@ function getVisitorDigitParts(value, width = 7) {
     }));
 }
 
-function getMediaEntry(src, type = 'image') {
+function normalizeMimeType(value) {
+    return String(value || '').split(';')[0].trim().toLowerCase();
+}
+
+function inferMediaMimeType(src, fallback = '') {
+    const normalizedFallback = normalizeMimeType(fallback);
+    if (normalizedFallback) {
+        return normalizedFallback;
+    }
+
+    const dataUrlMatch = String(src || '').match(/^data:([^;,]+)/i);
+    if (dataUrlMatch) {
+        return normalizeMimeType(dataUrlMatch[1]);
+    }
+
+    if (/\.gif(?:$|[?#])/i.test(String(src || ''))) {
+        return 'image/gif';
+    }
+
+    return '';
+}
+
+function isAnimatedImageMimeType(mimeType) {
+    return normalizeMimeType(mimeType) === 'image/gif';
+}
+
+function getMediaRenderSource(entry) {
+    return entry?.animation?.frame || entry?.element || null;
+}
+
+function getAnimatedFrameDurationMs(frame) {
+    const durationUs = Number(frame?.duration);
+    if (durationUs > 0) {
+        return Math.max(20, round(durationUs / 1000));
+    }
+    return 100;
+}
+
+function closeAnimatedMedia(entry) {
+    if (!entry?.animation) {
+        return;
+    }
+
+    if (entry.animation.frame && typeof entry.animation.frame.close === 'function') {
+        entry.animation.frame.close();
+    }
+    if (entry.animation.decoder && typeof entry.animation.decoder.close === 'function') {
+        entry.animation.decoder.close();
+    }
+    entry.animation = null;
+}
+
+function shouldDecodeAnimatedImage(entry) {
+    return entry?.type === 'image'
+        && typeof ImageDecoder === 'function'
+        && isAnimatedImageMimeType(inferMediaMimeType(entry?.src, entry?.mimeType));
+}
+
+async function decodeAnimatedImageFrame(entry, frameIndex) {
+    const animation = entry?.animation;
+    if (!animation) {
+        return;
+    }
+    if (animation.pending) {
+        return animation.pending;
+    }
+
+    animation.pending = animation.decoder.decode({ frameIndex }).then(result => {
+        const frame = result.image;
+        const frameWidth = Number(frame?.displayWidth || frame?.codedWidth || 0);
+        const frameHeight = Number(frame?.displayHeight || frame?.codedHeight || 0);
+        if (frameWidth > 0 && frameHeight > 0) {
+            entry.intrinsicWidth = frameWidth;
+            entry.intrinsicHeight = frameHeight;
+            entry.aspectRatio = frameWidth / frameHeight;
+        }
+        if (animation.frame && typeof animation.frame.close === 'function') {
+            animation.frame.close();
+        }
+        animation.frame = frame;
+        animation.nextFrameIndex = (frameIndex + 1) % animation.frameCount;
+        animation.nextFrameAt = performance.now() + getAnimatedFrameDurationMs(frame);
+        entry.ready = true;
+    }).catch(error => {
+        closeAnimatedMedia(entry);
+        throw error;
+    }).finally(() => {
+        if (entry.animation === animation) {
+            animation.pending = null;
+        }
+    });
+
+    return animation.pending;
+}
+
+async function primeAnimatedImageEntry(entry) {
+    if (!shouldDecodeAnimatedImage(entry) || entry.animation || entry.animationBootstrap) {
+        return;
+    }
+
+    entry.animationBootstrap = fetch(entry.src).then(async response => {
+        if (!response.ok) {
+            throw new Error(`animated image fetch failed with status ${response.status}`);
+        }
+
+        const bytes = await response.arrayBuffer();
+        const responseMimeType = normalizeMimeType(response.headers.get('content-type'));
+        const mimeType = inferMediaMimeType(entry.src, responseMimeType || entry.mimeType);
+        if (!isAnimatedImageMimeType(mimeType)) {
+            return;
+        }
+
+        const decoder = new ImageDecoder({
+            data: bytes,
+            type: mimeType
+        });
+        await decoder.tracks.ready;
+        const frameCount = Number(decoder.tracks.selectedTrack?.frameCount) || 1;
+        if (frameCount <= 1) {
+            decoder.close();
+            return;
+        }
+
+        entry.mimeType = mimeType;
+        entry.animation = {
+            decoder,
+            frame: null,
+            frameCount,
+            nextFrameAt: 0,
+            nextFrameIndex: 0,
+            pending: null
+        };
+        await decodeAnimatedImageFrame(entry, 0);
+    }).catch(error => {
+        console.warn('animated image decode unavailable', error);
+        closeAnimatedMedia(entry);
+    }).finally(() => {
+        entry.animationBootstrap = null;
+    });
+}
+
+function updateAnimatedMediaEntries(timestamp) {
+    app.mediaCache.forEach(entry => {
+        const animation = entry?.animation;
+        if (!animation || animation.pending || timestamp < animation.nextFrameAt) {
+            return;
+        }
+        void decodeAnimatedImageFrame(entry, animation.nextFrameIndex).catch(error => {
+            console.warn('animated image frame decode failed', error);
+        });
+    });
+}
+
+function getMediaEntry(src, type = 'image', options = {}) {
     const cacheKey = `${type}:${src}`;
+    const mimeType = inferMediaMimeType(src, options.mimeType);
     if (app.mediaCache.has(cacheKey)) {
-        return app.mediaCache.get(cacheKey);
+        const existing = app.mediaCache.get(cacheKey);
+        if (!existing.mimeType && mimeType) {
+            existing.mimeType = mimeType;
+            void primeAnimatedImageEntry(existing);
+        }
+        return existing;
     }
 
     const entry = {
         aspectRatio: MEDIA_PLACEHOLDER_ASPECT_RATIO,
+        animation: null,
+        animationBootstrap: null,
         element: null,
         intrinsicHeight: null,
         intrinsicWidth: null,
+        mimeType,
         ready: false,
         src,
         type
@@ -776,6 +938,7 @@ function getMediaEntry(src, type = 'image') {
             }
         });
         entry.element = image;
+        void primeAnimatedImageEntry(entry);
     }
 
     app.mediaCache.set(cacheKey, entry);
@@ -1016,7 +1179,7 @@ function layoutVisitorWidget(block, width, metrics) {
 
 function layoutStandaloneMedia(block, metrics) {
     const type = block.data.type === 'inline-video' ? 'video' : 'image';
-    const entry = getMediaEntry(block.data.src, type);
+    const entry = getMediaEntry(block.data.src, type, { mimeType: block.data.mimeType });
     const dimensions = getMediaDimensions(entry, metrics.mediaMaxWidth);
     const deleteButton = canManageBlogEntries() && block.data?.deletable
         ? getButtonLayout('[delete media]', metrics.buttonFont)
@@ -1041,9 +1204,10 @@ function layoutStandaloneMedia(block, metrics) {
             ctx.lineWidth = 1;
             ctx.fillRect(originX, originY, dimensions.width, dimensions.height);
             ctx.strokeRect(originX + 0.5, originY + 0.5, dimensions.width - 1, dimensions.height - 1);
-            if (entry?.ready && entry.element) {
+            const source = getMediaRenderSource(entry);
+            if (entry?.ready && source) {
                 try {
-                    ctx.drawImage(entry.element, originX, originY, dimensions.width, dimensions.height);
+                    ctx.drawImage(source, originX, originY, dimensions.width, dimensions.height);
                 } catch {
                     // Ignore transient media draw issues.
                 }
@@ -1064,24 +1228,104 @@ function layoutStandaloneMedia(block, metrics) {
     };
 }
 
+function getEditorialMediaRects(block, width, metrics, headerHeight) {
+    const segments = Array.isArray(block.data?.blocks) ? block.data.blocks : [];
+    if (!block.editorialMediaState) {
+        block.editorialMediaState = new Map();
+    }
+
+    let cursorY = headerHeight + metrics.blockGap;
+    const mediaRects = [];
+    segments.forEach((segment, segmentIndex) => {
+        if (segment.type === 'blog-entry-text-block') {
+            const lines = Array.isArray(segment.lines) ? segment.lines : [''];
+            lines.forEach((lineText, lineIndex) => {
+                if (!lineText) {
+                    cursorY += metrics.lineHeight;
+                    return;
+                }
+                const layout = buildTextLayout(block, lineText, width, metrics.textFont, metrics.lineHeight, {
+                    slotName: `__blogEditorialSeed${segmentIndex}-${lineIndex}`
+                });
+                cursorY += layout.height;
+            });
+            cursorY += metrics.blockGap;
+            return;
+        }
+
+        if (segment.type !== 'inline-image' && segment.type !== 'inline-video') {
+            return;
+        }
+
+        const id = `${segment.imageKey || segment.src || `media-${segmentIndex}`}`;
+        const type = segment.type === 'inline-video' ? 'video' : 'image';
+        const entry = getMediaEntry(segment.src, type, { mimeType: segment.mimeType });
+        const dimensions = getMediaDimensions(entry, metrics.mediaMaxWidth);
+        const deleteButton = canManageBlogEntries() && segment?.deletable
+            ? getButtonLayout('[delete media]', metrics.buttonFont)
+            : null;
+        const deleteGap = deleteButton ? 8 : 0;
+        const existing = block.editorialMediaState.get(id);
+        const rect = {
+            block: segment,
+            deleteButton,
+            deleteGap,
+            entry,
+            height: dimensions.height,
+            id,
+            type,
+            width: dimensions.width,
+            x: existing && Number.isFinite(existing.x)
+                ? clamp(existing.x, 0, Math.max(0, width - dimensions.width))
+                : 0,
+            y: existing && Number.isFinite(existing.y)
+                ? Math.max(0, existing.y)
+                : cursorY
+        };
+
+        mediaRects.push(rect);
+        block.editorialMediaState.set(id, {
+            x: rect.x,
+            y: rect.y
+        });
+        cursorY += rect.height + (deleteButton ? metrics.lineHeight + deleteGap : 0) + metrics.blockGap;
+    });
+
+    return mediaRects;
+}
+
+function shiftObstacles(obstacles, deltaY) {
+    return obstacles.map(obstacle => ({
+        ...obstacle,
+        y: obstacle.y - deltaY
+    })).filter(obstacle => obstacle.y + obstacle.height > -64);
+}
+
 function layoutBlogEntry(block, width, metrics, editorial) {
     const children = [];
     let cursorY = 0;
     const deleteEntryButton = canManageBlogEntries() && block.data?.deletable
         ? getButtonLayout('[delete post]', metrics.buttonFont)
         : null;
-    const mediaRects = [];
-
-    if (editorial && !block.editorialMediaState) {
-        block.editorialMediaState = new Map();
-    }
-
-    const header = buildTextLayout(block, block.data.text || '', width, metrics.textFont, metrics.lineHeight, {
-        slotName: editorial ? '__blogHeaderEditorialFlat' : '__blogHeaderFlat',
+    const flatHeader = buildTextLayout(block, block.data.text || '', width, metrics.textFont, metrics.lineHeight, {
+        slotName: '__blogHeaderFlat',
         tokenizeLinks: false
     });
+    const mediaRects = editorial ? getEditorialMediaRects(block, width, metrics, flatHeader.height) : [];
+    const obstacleRects = mediaRects.map(rect => ({
+        height: rect.height + 10,
+        width: rect.width + 10,
+        x: rect.x - 5,
+        y: rect.y - 5
+    }));
+    const header = editorial
+        ? buildEditorialTextLayout(block, '__blogHeaderEditorial', block.data.text || '', width, metrics.textFont, metrics.lineHeight, shiftObstacles(obstacleRects, cursorY), {
+            tokenizeLinks: false
+        })
+        : flatHeader;
+
     children.push({ layout: header, x: 0, y: cursorY });
-    cursorY += header.height + metrics.blockGap;
+    cursorY += (editorial ? header.textHeight : header.height) + metrics.blockGap;
 
     (Array.isArray(block.data.blocks) ? block.data.blocks : []).forEach((segment, segmentIndex) => {
         if (segment.type === 'blog-entry-text-block') {
@@ -1091,58 +1335,22 @@ function layoutBlogEntry(block, width, metrics, editorial) {
                     cursorY += metrics.lineHeight;
                     return;
                 }
-                const layout = buildTextLayout(block, lineText, width, metrics.textFont, metrics.lineHeight, {
-                    slotName: editorial
-                        ? `__blogEditorialFlat${segmentIndex}-${lineIndex}`
-                        : `__blogFlat${segmentIndex}-${lineIndex}`
-                });
+                const layout = editorial
+                    ? buildEditorialTextLayout(block, `__blogEditorial${segmentIndex}-${lineIndex}`, lineText, width, metrics.textFont, metrics.lineHeight, shiftObstacles(obstacleRects, cursorY))
+                    : buildTextLayout(block, lineText, width, metrics.textFont, metrics.lineHeight, {
+                        slotName: `__blogFlat${segmentIndex}-${lineIndex}`
+                    });
                 children.push({ layout, x: 0, y: cursorY });
-                cursorY += layout.height;
+                cursorY += editorial ? layout.textHeight : layout.height;
             });
             cursorY += metrics.blockGap;
             return;
         }
 
-        if (segment.type === 'inline-image' || segment.type === 'inline-video') {
-            if (!editorial) {
-                const mediaLayout = layoutStandaloneMedia({ ...block, data: segment }, metrics);
-                children.push({ layout: mediaLayout, x: 0, y: cursorY });
-                cursorY += mediaLayout.height + metrics.blockGap;
-                return;
-            }
-
-            const id = `${segment.imageKey || segment.src || `media-${segmentIndex}`}`;
-            const type = segment.type === 'inline-video' ? 'video' : 'image';
-            const entry = getMediaEntry(segment.src, type);
-            const dimensions = getMediaDimensions(entry, metrics.mediaMaxWidth);
-            const deleteButton = canManageBlogEntries() && segment?.deletable
-                ? getButtonLayout('[delete media]', metrics.buttonFont)
-                : null;
-            const deleteGap = deleteButton ? 8 : 0;
-            const existing = block.editorialMediaState.get(id);
-            const rect = {
-                block: segment,
-                deleteButton,
-                deleteGap,
-                entry,
-                height: dimensions.height,
-                id,
-                type,
-                width: dimensions.width,
-                x: existing && Number.isFinite(existing.x)
-                    ? clamp(existing.x, 0, Math.max(0, width - dimensions.width))
-                    : 0,
-                y: existing && Number.isFinite(existing.y)
-                    ? Math.max(0, existing.y)
-                    : cursorY
-            };
-
-            mediaRects.push(rect);
-            block.editorialMediaState.set(id, {
-                x: rect.x,
-                y: rect.y
-            });
-            cursorY += rect.height + (deleteButton ? metrics.lineHeight + deleteGap : 0) + metrics.blockGap;
+        if (!editorial && (segment.type === 'inline-image' || segment.type === 'inline-video')) {
+            const mediaLayout = layoutStandaloneMedia({ ...block, data: segment }, metrics);
+            children.push({ layout: mediaLayout, x: 0, y: cursorY });
+            cursorY += mediaLayout.height + metrics.blockGap;
         }
     });
 
@@ -1157,6 +1365,13 @@ function layoutBlogEntry(block, width, metrics, editorial) {
         });
     });
 
+    const contentBottom = Math.max(
+        cursorY,
+        ...[0, ...mediaRects.map(rect => rect.y + rect.height + (rect.deleteButton ? metrics.lineHeight + rect.deleteGap : 0))]
+    );
+    const deleteEntryGap = deleteEntryButton ? Math.max(3, round(metrics.lineHeight * 0.18)) : 0;
+    const deleteEntryY = deleteEntryButton ? contentBottom + deleteEntryGap : 0;
+
     if (deleteEntryButton) {
         hitRegions.push({
             action: 'delete-entry',
@@ -1166,8 +1381,8 @@ function layoutBlogEntry(block, width, metrics, editorial) {
             },
             height: metrics.lineHeight,
             width: deleteEntryButton.width,
-            x: Math.max(0, width - deleteEntryButton.width),
-            y: 0
+            x: 0,
+            y: deleteEntryY
         });
     }
 
@@ -1198,10 +1413,7 @@ function layoutBlogEntry(block, width, metrics, editorial) {
     }
 
     return {
-        height: Math.max(
-            cursorY,
-            ...[0, ...mediaRects.map(rect => rect.y + rect.height + (rect.deleteButton ? metrics.lineHeight + rect.deleteGap : 0))]
-        ),
+        height: deleteEntryButton ? deleteEntryY + metrics.lineHeight : contentBottom,
         hitRegions,
         render(ctx, originX, originY, palette) {
             children.forEach(child => {
@@ -1212,7 +1424,7 @@ function layoutBlogEntry(block, width, metrics, editorial) {
                 ctx.font = deleteEntryButton.font;
                 ctx.textBaseline = 'top';
                 ctx.fillStyle = palette.accent;
-                ctx.fillText(deleteEntryButton.text, originX + Math.max(0, width - deleteEntryButton.width), originY);
+                ctx.fillText(deleteEntryButton.text, originX, originY + deleteEntryY);
             }
 
             if (!editorial) {
@@ -1225,9 +1437,10 @@ function layoutBlogEntry(block, width, metrics, editorial) {
                 ctx.lineWidth = 1;
                 ctx.fillRect(originX + rect.x, originY + rect.y, rect.width, rect.height);
                 ctx.strokeRect(originX + rect.x + 0.5, originY + rect.y + 0.5, rect.width - 1, rect.height - 1);
-                if (rect.entry?.ready && rect.entry.element) {
+                const source = getMediaRenderSource(rect.entry);
+                if (rect.entry?.ready && source) {
                     try {
-                        ctx.drawImage(rect.entry.element, originX + rect.x, originY + rect.y, rect.width, rect.height);
+                        ctx.drawImage(source, originX + rect.x, originY + rect.y, rect.width, rect.height);
                     } catch {
                         // Ignore transient media draw failures.
                     }
@@ -1562,10 +1775,11 @@ function drawViewerScene(timestamp) {
             ctx.fillText(line, x + 14, y + metrics.viewerTop + index * metrics.lineHeight);
         });
     } else if (app.viewer.type === 'image') {
-        const entry = getMediaEntry(app.viewer.src, 'image');
-        if (entry?.ready && entry.element) {
+        const entry = getMediaEntry(app.viewer.src, 'image', { mimeType: app.viewer.mimeType });
+        const source = getMediaRenderSource(entry);
+        if (entry?.ready && source) {
             const dimensions = getMediaDimensions(entry, width - 28);
-            ctx.drawImage(entry.element, x + 14, y + metrics.viewerTop, dimensions.width, dimensions.height);
+            ctx.drawImage(source, x + 14, y + metrics.viewerTop, dimensions.width, dimensions.height);
         } else {
             ctx.fillStyle = palette.text;
             ctx.font = metrics.textFont;
@@ -1579,6 +1793,7 @@ function drawViewerScene(timestamp) {
 
 function frame(timestamp) {
     app.frameId = window.requestAnimationFrame(frame);
+    updateAnimatedMediaEntries(timestamp);
     if (app.viewer?.type === 'movie') {
         updateMovieFrame();
     }
@@ -1740,6 +1955,7 @@ export function showAsciiStill(asciiLines, options = {}) {
 export function showImageStill(imageUrl, options = {}) {
     app.viewer = {
         hint: options.hint || 'press Escape to close',
+        mimeType: options.mimeType || '',
         src: imageUrl,
         title: options.title || 'image viewer',
         type: 'image'
