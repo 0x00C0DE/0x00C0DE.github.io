@@ -174,6 +174,7 @@ const app = {
     contentHeight: 0,
     ctx: null,
     dpr: 1,
+    editorialMediaRects: [],
     frameId: 0,
     historyIndex: 0,
     inputValue: '',
@@ -1228,7 +1229,7 @@ function layoutStandaloneMedia(block, metrics) {
     };
 }
 
-function getEditorialMediaRects(block, width, metrics, headerHeight) {
+function getEditorialMediaRects(block, width, metrics, headerHeight, blockTop = 0) {
     const segments = Array.isArray(block.data?.blocks) ? block.data.blocks : [];
     if (!block.editorialMediaState) {
         block.editorialMediaState = new Map();
@@ -1266,7 +1267,11 @@ function getEditorialMediaRects(block, width, metrics, headerHeight) {
             : null;
         const deleteGap = deleteButton ? 8 : 0;
         const existing = block.editorialMediaState.get(id);
+        const maxX = Math.max(0, width - dimensions.width);
+        const isPinned = Boolean(existing?.pinned);
+        const anchorY = cursorY;
         const rect = {
+            anchorY,
             block: segment,
             deleteButton,
             deleteGap,
@@ -1275,16 +1280,17 @@ function getEditorialMediaRects(block, width, metrics, headerHeight) {
             id,
             type,
             width: dimensions.width,
-            x: existing && Number.isFinite(existing.x)
-                ? clamp(existing.x, 0, Math.max(0, width - dimensions.width))
+            x: isPinned && Number.isFinite(existing?.x)
+                ? clamp(existing.x, 0, maxX)
                 : 0,
-            y: existing && Number.isFinite(existing.y)
+            y: isPinned && Number.isFinite(existing?.y)
                 ? Math.max(0, existing.y)
-                : cursorY
+                : blockTop + anchorY
         };
 
         mediaRects.push(rect);
         block.editorialMediaState.set(id, {
+            pinned: isPinned,
             x: rect.x,
             y: rect.y
         });
@@ -1301,9 +1307,10 @@ function shiftObstacles(obstacles, deltaY) {
     })).filter(obstacle => obstacle.y + obstacle.height > -64);
 }
 
-function layoutBlogEntry(block, width, metrics, editorial) {
+function layoutBlogEntry(block, width, metrics, editorial, context = {}) {
     const children = [];
     let cursorY = 0;
+    const blockTop = Number.isFinite(context.blockTop) ? context.blockTop : 0;
     const deleteEntryButton = canManageBlogEntries() && block.data?.deletable
         ? getButtonLayout('[delete post]', metrics.buttonFont)
         : null;
@@ -1311,12 +1318,12 @@ function layoutBlogEntry(block, width, metrics, editorial) {
         slotName: '__blogHeaderFlat',
         tokenizeLinks: false
     });
-    const mediaRects = editorial ? getEditorialMediaRects(block, width, metrics, flatHeader.height) : [];
+    const mediaRects = editorial ? getEditorialMediaRects(block, width, metrics, flatHeader.height, blockTop) : [];
     const obstacleRects = mediaRects.map(rect => ({
         height: rect.height + 10,
         width: rect.width + 10,
         x: rect.x - 5,
-        y: rect.y - 5
+        y: rect.y - blockTop - 5
     }));
     const header = editorial
         ? buildEditorialTextLayout(block, '__blogHeaderEditorial', block.data.text || '', width, metrics.textFont, metrics.lineHeight, shiftObstacles(obstacleRects, cursorY), {
@@ -1367,7 +1374,7 @@ function layoutBlogEntry(block, width, metrics, editorial) {
 
     const contentBottom = Math.max(
         cursorY,
-        ...[0, ...mediaRects.map(rect => rect.y + rect.height + (rect.deleteButton ? metrics.lineHeight + rect.deleteGap : 0))]
+        ...[0, ...mediaRects.map(rect => rect.anchorY + rect.height + (rect.deleteButton ? metrics.lineHeight + rect.deleteGap : 0))]
     );
     const deleteEntryGap = deleteEntryButton ? Math.max(3, round(metrics.lineHeight * 0.18)) : 0;
     const deleteEntryY = deleteEntryButton ? contentBottom + deleteEntryGap : 0;
@@ -1386,33 +1393,8 @@ function layoutBlogEntry(block, width, metrics, editorial) {
         });
     }
 
-    if (editorial) {
-        mediaRects.forEach(rect => {
-            hitRegions.push({
-                action: 'drag-media',
-                data: {
-                    blockId: block.id,
-                    mediaId: rect.id
-                },
-                height: rect.height,
-                width: rect.width,
-                x: rect.x,
-                y: rect.y
-            });
-            if (rect.deleteButton) {
-                hitRegions.push({
-                    action: 'delete-media',
-                    data: rect.block,
-                    height: metrics.lineHeight,
-                    width: rect.deleteButton.width,
-                    x: rect.x,
-                    y: rect.y + rect.height + rect.deleteGap
-                });
-            }
-        });
-    }
-
     return {
+        editorialMediaRects: editorial ? mediaRects : [],
         height: deleteEntryButton ? deleteEntryY + metrics.lineHeight : contentBottom,
         hitRegions,
         render(ctx, originX, originY, palette) {
@@ -1427,37 +1409,6 @@ function layoutBlogEntry(block, width, metrics, editorial) {
                 ctx.fillText(deleteEntryButton.text, originX, originY + deleteEntryY);
             }
 
-            if (!editorial) {
-                return;
-            }
-
-            mediaRects.forEach(rect => {
-                ctx.fillStyle = palette.media;
-                ctx.strokeStyle = palette.border;
-                ctx.lineWidth = 1;
-                ctx.fillRect(originX + rect.x, originY + rect.y, rect.width, rect.height);
-                ctx.strokeRect(originX + rect.x + 0.5, originY + rect.y + 0.5, rect.width - 1, rect.height - 1);
-                const source = getMediaRenderSource(rect.entry);
-                if (rect.entry?.ready && source) {
-                    try {
-                        ctx.drawImage(source, originX + rect.x, originY + rect.y, rect.width, rect.height);
-                    } catch {
-                        // Ignore transient media draw failures.
-                    }
-                } else {
-                    ctx.font = metrics.textFont;
-                    ctx.textBaseline = 'middle';
-                    ctx.fillStyle = palette.text;
-                    ctx.fillText(rect.type === 'video' ? '[video]' : '[image]', originX + rect.x + 12, originY + rect.y + rect.height / 2);
-                }
-
-                if (rect.deleteButton) {
-                    ctx.font = rect.deleteButton.font;
-                    ctx.textBaseline = 'top';
-                    ctx.fillStyle = palette.accent;
-                    ctx.fillText(rect.deleteButton.text, originX + rect.x, originY + rect.y + rect.height + rect.deleteGap);
-                }
-            });
         }
     };
 }
@@ -1495,7 +1446,7 @@ function isEditorialModeActive() {
     return Boolean(snapshot.isRoot || String(snapshot.user || '').toLowerCase() === 'root');
 }
 
-function layoutOutputBlock(block, width, metrics) {
+function layoutOutputBlock(block, width, metrics, context = {}) {
     if (block.kind === 'command') {
         return layoutCommandEcho(block, width, metrics, false);
     }
@@ -1514,7 +1465,7 @@ function layoutOutputBlock(block, width, metrics) {
     case 'banner':
         return layoutBanner(block, width, metrics);
     case 'blog-entry':
-        return layoutBlogEntry(block, width, metrics, isEditorialModeActive());
+        return layoutBlogEntry(block, width, metrics, isEditorialModeActive(), context);
     case 'blog-entry-header':
     case 'blog-entry-text':
         return buildTextLayout(block, block.data.text || '', width, metrics.textFont, metrics.lineHeight);
@@ -1604,9 +1555,12 @@ function relayoutScene() {
     const nearBottom = app.scrollTop >= Math.max(0, app.contentHeight - app.viewportHeight - metrics.lineHeight * 2);
     let cursorY = metrics.paddingY;
     const regions = [];
+    const editorialRects = [];
 
     app.blocks.forEach(block => {
-        block.layout = layoutOutputBlock(block, metrics.contentWidth, metrics);
+        block.layout = layoutOutputBlock(block, metrics.contentWidth, metrics, {
+            blockTop: cursorY
+        });
         block.top = cursorY;
         block.bottom = cursorY + block.layout.height;
         block.layout.hitRegions.forEach(region => {
@@ -1616,6 +1570,14 @@ function relayoutScene() {
                 y: cursorY + region.y
             });
         });
+        if (Array.isArray(block.layout.editorialMediaRects)) {
+            block.layout.editorialMediaRects.forEach(rect => {
+                editorialRects.push({
+                    ...rect,
+                    blockId: block.id
+                });
+            });
+        }
         cursorY += block.layout.height + metrics.blockGap;
     });
 
@@ -1625,8 +1587,35 @@ function relayoutScene() {
     }, metrics.contentWidth, metrics, true);
     app.inputTop = cursorY;
     cursorY += app.inputLayout.height + metrics.paddingY;
-    app.contentHeight = Math.max(app.viewportHeight, cursorY);
-    app.interactiveRegions = regions;
+    const editorialBottom = editorialRects.reduce((maximum, rect) => (
+        Math.max(maximum, rect.y + rect.height + (rect.deleteButton ? metrics.lineHeight + rect.deleteGap : 0))
+    ), 0);
+    app.contentHeight = Math.max(app.viewportHeight, cursorY, editorialBottom + metrics.paddingY);
+    app.editorialMediaRects = editorialRects;
+    app.interactiveRegions = [
+        ...regions,
+        ...editorialRects.flatMap(rect => ([
+            {
+                action: 'drag-media',
+                data: {
+                    blockId: rect.blockId,
+                    mediaId: rect.id
+                },
+                height: rect.height,
+                width: rect.width,
+                x: metrics.paddingX + rect.x,
+                y: rect.y
+            },
+            ...(rect.deleteButton ? [{
+                action: 'delete-media',
+                data: rect.block,
+                height: metrics.lineHeight,
+                width: rect.deleteButton.width,
+                x: metrics.paddingX + rect.x,
+                y: rect.y + rect.height + rect.deleteGap
+            }] : [])
+        ]))
+    ];
 
     if (nearBottom) {
         scrollToBottom();
@@ -1719,6 +1708,39 @@ function drawTerminalScene(timestamp) {
         block.layout.render(ctx, metrics.paddingX, block.top, palette);
     });
     app.inputLayout.render(ctx, metrics.paddingX, app.inputTop, palette);
+    app.editorialMediaRects.forEach(rect => {
+        const rectBottom = rect.y + rect.height + (rect.deleteButton ? metrics.lineHeight + rect.deleteGap : 0);
+        if (rectBottom < app.scrollTop - 64 || rect.y > app.scrollTop + app.viewportHeight + 64) {
+            return;
+        }
+
+        const rectX = metrics.paddingX + rect.x;
+        ctx.fillStyle = palette.media;
+        ctx.strokeStyle = palette.border;
+        ctx.lineWidth = 1;
+        ctx.fillRect(rectX, rect.y, rect.width, rect.height);
+        ctx.strokeRect(rectX + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1);
+        const source = getMediaRenderSource(rect.entry);
+        if (rect.entry?.ready && source) {
+            try {
+                ctx.drawImage(source, rectX, rect.y, rect.width, rect.height);
+            } catch {
+                // Ignore transient media draw failures.
+            }
+        } else {
+            ctx.font = metrics.textFont;
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = palette.text;
+            ctx.fillText(rect.type === 'video' ? '[video]' : '[image]', rectX + 12, rect.y + rect.height / 2);
+        }
+
+        if (rect.deleteButton) {
+            ctx.font = rect.deleteButton.font;
+            ctx.textBaseline = 'top';
+            ctx.fillStyle = palette.accent;
+            ctx.fillText(rect.deleteButton.text, rectX, rect.y + rect.height + rect.deleteGap);
+        }
+    });
     ctx.restore();
     drawScrollbar(ctx, palette, metrics);
     drawScreenOverlay(ctx, palette);
@@ -2150,6 +2172,7 @@ function onPointerMove(event) {
         return;
     }
 
+    mediaState.pinned = true;
     mediaState.x = Math.max(0, app.pointerDrag.originX + deltaX);
     mediaState.y = Math.max(0, app.pointerDrag.originY + deltaY);
 }
