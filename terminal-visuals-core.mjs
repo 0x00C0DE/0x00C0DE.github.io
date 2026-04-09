@@ -122,17 +122,19 @@ export function createBinaryRainColumns(options = {}) {
 export function advanceBinaryRainColumn(column, options = {}) {
     const rng = typeof options.rng === 'function' ? options.rng : Math.random;
     const glyphs = normalizeGlyphs(options.glyphs ?? column?.glyphs);
-    const cells = Array.isArray(column?.cells)
-        ? [...column.cells]
+    const sourceCells = Array.isArray(column?.cells)
+        ? column.cells
         : String(column?.stream || '')
             .split('\n')
             .filter(entry => entry.length > 0);
+    const cells = [...sourceCells];
 
     if (cells.length === 0) {
         return {
             ...column,
             cells,
             glyphs,
+            mutatedIndexes: [],
             stream: ''
         };
     }
@@ -148,10 +150,18 @@ export function advanceBinaryRainColumn(column, options = {}) {
         cells[cellIndex] = pickDifferentGlyph(cells[cellIndex], glyphs, rng);
     }
 
+    const mutatedIndexes = [];
+    for (let index = 0; index < cells.length; index += 1) {
+        if (cells[index] !== sourceCells[index]) {
+            mutatedIndexes.push(index);
+        }
+    }
+
     return {
         ...column,
         cells,
         glyphs,
+        mutatedIndexes,
         stream: createBinaryRainStream(cells)
     };
 }

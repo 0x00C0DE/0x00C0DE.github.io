@@ -167,6 +167,7 @@ const PALETTES = Object.freeze({
 });
 
 const app = {
+    backgroundLayer: null,
     binaryColumns: [],
     blockId: 0,
     blocks: [],
@@ -182,10 +183,12 @@ const app = {
     interactiveRegions: [],
     isBooted: false,
     lastBackgroundStep: 0,
+    layoutDirty: true,
     measureCanvas: null,
     measureCtx: null,
     mediaCache: new Map(),
     pointerDrag: null,
+    screenOverlayLayer: null,
     scratchCanvas: null,
     scrollTop: 0,
     viewer: null,
@@ -263,6 +266,10 @@ function measureTextWidth(text, font) {
     const ctx = ensureMeasureContext();
     ctx.font = font;
     return ctx.measureText(text).width;
+}
+
+function markLayoutDirty() {
+    app.layoutDirty = true;
 }
 
 function resolveMetrics() {
@@ -1246,76 +1253,6 @@ function layoutBanner(block, width, metrics, context = {}) {
     const subtitleFontPx = extractFontSizePx(subtitleFont, extractFontSizePx(metrics.bannerSubtitleFont, metrics.lineHeight));
     const subtitleLetterSpacing = Math.max(0, round(subtitleFontPx * 0.04));
     const subtitleGap = subtitleText ? Math.max(2, round(app.viewportWidth * 0.0025)) : 0;
-
-    if (hasGlobalEditorialObstacles(context)) {
-        const titleLayout = buildEditorialTextLayout(
-            block,
-            '__bannerTitleEditorial',
-            titleText,
-            width,
-            titleFont,
-            metrics.lineHeight,
-            getRelativeEditorialObstacles(context),
-            {
-                minSegmentWidth: 132,
-                tokenizeLinks: false
-            }
-        );
-        const titleGlyphLines = buildBannerGlyphLines(titleLayout.plans);
-        const titleHeight = Math.max(titleLayout.textHeight, metrics.lineHeight * 2);
-        const subtitleLayout = subtitleText
-            ? buildEditorialTextLayout(
-                block,
-                '__bannerSubtitleEditorial',
-                subtitleText,
-                width,
-                subtitleFont,
-                metrics.lineHeight,
-                getRelativeEditorialObstacles(context, {
-                    offsetY: titleHeight + subtitleGap
-                }),
-                {
-                    minSegmentWidth: 96,
-                    tokenizeLinks: false
-                }
-            )
-            : null;
-        const subtitleGlyphLines = subtitleLayout ? buildBannerGlyphLines(subtitleLayout.plans) : [];
-        const subtitleHeight = subtitleLayout ? subtitleLayout.textHeight : 0;
-
-        return {
-            height: titleHeight + (subtitleLayout ? subtitleHeight + subtitleGap : 0),
-            hitRegions: [],
-            render(ctx, originX, originY, palette) {
-                titleGlyphLines.forEach(line => {
-                    drawBannerGlyphRun(ctx, line.glyphs, originX + line.x, originY + line.y, titleFont, palette, {
-                        glowBlur: app.viewportWidth * 0.007,
-                        highlightBlur: app.viewportWidth * 0.0025,
-                        letterSpacing: titleLetterSpacing,
-                        nearShadowOffset: app.viewportWidth * 0.0012,
-                        farShadowOffset: app.viewportWidth * 0.0024,
-                        skewAmplitude: 0.05,
-                        waveAmplitude: titleFontPx * 0.11
-                    });
-                });
-                if (!subtitleLayout) {
-                    return;
-                }
-                subtitleGlyphLines.forEach(line => {
-                    drawBannerGlyphRun(ctx, line.glyphs, originX + round(app.viewportWidth * 0.002) + line.x, originY + titleHeight + subtitleGap + line.y, subtitleFont, palette, {
-                        glowBlur: app.viewportWidth * 0.0045,
-                        highlightBlur: app.viewportWidth * 0.0016,
-                        letterSpacing: subtitleLetterSpacing,
-                        nearShadowOffset: app.viewportWidth * 0.0008,
-                        farShadowOffset: app.viewportWidth * 0.0016,
-                        skewAmplitude: 0.036,
-                        waveAmplitude: subtitleFontPx * 0.11
-                    });
-                });
-            }
-        };
-    }
-
     const titleGlyphs = splitBannerWaveGlyphs(titleText);
     const titleHeight = Math.max(metrics.lineHeight * 2, round(titleFontPx * 0.88) + round(app.viewportWidth * 0.008));
     const subtitleGlyphs = splitBannerWaveGlyphs(subtitleText);
@@ -1429,120 +1366,61 @@ function layoutVisitorWidget(block, width, metrics, context = {}) {
     const labelWidth = Math.max(...rows.map(row => measureTextWidth(row.label, labelFont)));
     const valueWidth = measureTextWidth('0000000', valueFont);
     const boxWidth = Math.max(250, Math.min(width, round(labelWidth + valueWidth + 44)));
-
-    if (hasGlobalEditorialObstacles(context)) {
-        const paddingX = 10;
-        const paddingTop = 8;
-        const paddingBottom = 8;
-        let cursorY = paddingTop;
-        const rowLayouts = rows.map((row, index) => {
-            const layout = buildEditorialTextLayout(
-                block,
-                `__visitorWidgetEditorial${index}`,
-                `${row.label} ${formatVisitorDigits(row.value)}`,
-                width,
-                labelFont,
-                rowHeight,
-                getRelativeEditorialObstacles(context, {
-                    offsetY: cursorY
-                }),
-                {
-                    minSegmentWidth: 84,
-                    tokens: buildVisitorRowTokens(row.label, row.value)
-                }
-            );
-            const result = {
-                bounds: getLayoutPlanBounds(layout.plans, rowHeight),
-                layout,
-                y: cursorY
-            };
-            cursorY += layout.textHeight;
-            return result;
-        });
-        const aggregateBounds = rowLayouts.reduce((union, row) => {
-            const top = row.y + row.bounds.minY;
-            const bottom = row.y + row.bounds.maxY;
-            return {
-                maxX: Math.max(union.maxX, row.bounds.maxX),
-                maxY: Math.max(union.maxY, bottom),
-                minX: Math.min(union.minX, row.bounds.minX),
-                minY: Math.min(union.minY, top)
-            };
-        }, {
-            maxX: 0,
-            maxY: paddingTop,
-            minX: Number.POSITIVE_INFINITY,
-            minY: paddingTop
-        });
-        const safeMinX = Number.isFinite(aggregateBounds.minX) ? aggregateBounds.minX : 0;
-        const boxLeft = Math.max(0, safeMinX - paddingX);
-        const boxTop = Math.max(0, aggregateBounds.minY - paddingTop);
-        const boxRight = aggregateBounds.maxX + paddingX;
-        const boxBottom = aggregateBounds.maxY + paddingBottom;
-        const widgetWidth = Math.max(140, boxRight - boxLeft);
-        const widgetHeight = Math.max(rowHeight + paddingTop + paddingBottom, boxBottom - boxTop);
-
-        return {
-            height: Math.max(widgetHeight, cursorY + paddingBottom),
-            hitRegions: [],
-            render(ctx, originX, originY, palette) {
-                const background = ctx.createLinearGradient(originX + boxLeft, originY + boxTop, originX + boxLeft, originY + boxTop + widgetHeight);
-                background.addColorStop(0, palette.widgetBackgroundTop || palette.block);
-                background.addColorStop(1, palette.widgetBackgroundBottom || palette.block);
-                ctx.shadowColor = palette.widgetOuterGlow || 'transparent';
-                ctx.shadowBlur = 8;
-                ctx.fillStyle = background;
-                ctx.fillRect(originX + boxLeft, originY + boxTop, widgetWidth, widgetHeight);
-                ctx.shadowColor = 'transparent';
-                ctx.shadowBlur = 0;
-                ctx.strokeStyle = palette.border;
-                ctx.lineWidth = 1;
-                ctx.strokeRect(originX + boxLeft + 0.5, originY + boxTop + 0.5, widgetWidth - 1, widgetHeight - 1);
-                ctx.strokeStyle = palette.widgetInset || palette.border;
-                ctx.strokeRect(originX + boxLeft + 1.5, originY + boxTop + 1.5, widgetWidth - 3, widgetHeight - 3);
-
-                rowLayouts.forEach(row => {
-                    row.layout.render(ctx, originX, originY + row.y, palette);
-                });
-            }
-        };
-    }
+    const boxHeight = 12 + rows.length * rowHeight + 10;
+    const widgetState = block.widgetState || (block.widgetState = {
+        pinned: false,
+        x: 0
+    });
+    const offsetX = context.editorial
+        ? clamp(Number.isFinite(widgetState.x) ? widgetState.x : 0, 0, Math.max(0, width - boxWidth))
+        : 0;
+    const widgetPalette = PALETTES.default;
 
     return {
-        height: 12 + rows.length * rowHeight + 10,
-        hitRegions: [],
-        render(ctx, originX, originY, palette) {
-            const background = ctx.createLinearGradient(originX, originY, originX, originY + 12 + rows.length * rowHeight + 10);
-            background.addColorStop(0, palette.widgetBackgroundTop || palette.block);
-            background.addColorStop(1, palette.widgetBackgroundBottom || palette.block);
-            ctx.shadowColor = palette.widgetOuterGlow || 'transparent';
+        height: boxHeight,
+        hitRegions: context.editorial ? [{
+            action: 'drag-widget',
+            data: {
+                blockId: block.id
+            },
+            height: boxHeight,
+            width: boxWidth,
+            x: offsetX,
+            y: 0
+        }] : [],
+        render(ctx, originX, originY) {
+            const widgetX = originX + offsetX;
+            const background = ctx.createLinearGradient(widgetX, originY, widgetX, originY + boxHeight);
+            background.addColorStop(0, widgetPalette.widgetBackgroundTop || widgetPalette.block);
+            background.addColorStop(1, widgetPalette.widgetBackgroundBottom || widgetPalette.block);
+            ctx.shadowColor = widgetPalette.widgetOuterGlow || 'transparent';
             ctx.shadowBlur = 8;
             ctx.fillStyle = background;
-            ctx.fillRect(originX, originY, boxWidth, 12 + rows.length * rowHeight + 10);
+            ctx.fillRect(widgetX, originY, boxWidth, boxHeight);
             ctx.shadowColor = 'transparent';
             ctx.shadowBlur = 0;
-            ctx.strokeStyle = palette.border;
+            ctx.strokeStyle = widgetPalette.border;
             ctx.lineWidth = 1;
-            ctx.strokeRect(originX + 0.5, originY + 0.5, boxWidth - 1, 12 + rows.length * rowHeight + 9);
-            ctx.strokeStyle = palette.widgetInset || palette.border;
-            ctx.strokeRect(originX + 1.5, originY + 1.5, boxWidth - 3, 12 + rows.length * rowHeight + 7);
+            ctx.strokeRect(widgetX + 0.5, originY + 0.5, boxWidth - 1, boxHeight - 1);
+            ctx.strokeStyle = widgetPalette.widgetInset || widgetPalette.border;
+            ctx.strokeRect(widgetX + 1.5, originY + 1.5, boxWidth - 3, boxHeight - 3);
 
             rows.forEach((row, index) => {
                 const baselineY = originY + 8 + index * rowHeight;
-                const valueX = originX + boxWidth - 12 - valueWidth;
+                const valueX = widgetX + boxWidth - 12 - valueWidth;
                 ctx.font = labelFont;
                 ctx.textBaseline = 'top';
-                ctx.shadowColor = palette.widgetLabelGlow || palette.textGlow || 'transparent';
+                ctx.shadowColor = widgetPalette.widgetLabelGlow || widgetPalette.textGlow || 'transparent';
                 ctx.shadowBlur = 3;
-                ctx.fillStyle = palette.widgetLabel || palette.text;
-                ctx.fillText(row.label, originX + 10, baselineY);
+                ctx.fillStyle = widgetPalette.widgetLabel || widgetPalette.text;
+                ctx.fillText(row.label, widgetX + 10, baselineY);
 
                 let digitX = valueX;
                 ctx.font = valueFont;
                 getVisitorDigitParts(row.value).forEach(part => {
-                    ctx.shadowColor = part.dim ? 'transparent' : (palette.widgetValueGlow || palette.textGlow || 'transparent');
+                    ctx.shadowColor = part.dim ? 'transparent' : (widgetPalette.widgetValueGlow || widgetPalette.textGlow || 'transparent');
                     ctx.shadowBlur = part.dim ? 0 : 6;
-                    ctx.fillStyle = part.dim ? (palette.widgetDim || palette.text) : (palette.widgetValue || palette.accent);
+                    ctx.fillStyle = part.dim ? (widgetPalette.widgetDim || widgetPalette.text) : (widgetPalette.widgetValue || widgetPalette.accent);
                     ctx.fillText(part.text, digitX, baselineY);
                     digitX += measureTextWidth(part.text, valueFont);
                 });
@@ -1881,6 +1759,149 @@ function buildBlock(kind, data, extra = {}) {
     };
 }
 
+function createBinaryRainSprite(column, color) {
+    const glyphs = Array.isArray(column?.cells) ? column.cells : [];
+    if (glyphs.length === 0) {
+        return null;
+    }
+
+    const fontSizePx = Number.isFinite(column?.fontSizePx) ? column.fontSizePx : 16;
+    const font = buildFont(fontSizePx, '700');
+    const glyphHeight = Math.max(12, round(fontSizePx * 0.84));
+    const paddingX = Math.max(8, round(fontSizePx * 0.7));
+    const paddingY = Math.max(10, round(fontSizePx * 0.9));
+    const widestGlyph = glyphs.reduce((maximum, glyph) => (
+        Math.max(maximum, measureTextWidth(glyph, font))
+    ), measureTextWidth('W', font));
+    const spriteWidth = Math.max(24, round(widestGlyph + paddingX * 2));
+    const spriteHeight = Math.max(24, round(glyphs.length * glyphHeight + paddingY * 2));
+    const spriteDpr = Math.max(1, app.dpr || 1);
+    const spriteCanvas = document.createElement('canvas');
+    spriteCanvas.width = Math.max(1, round(spriteWidth * spriteDpr));
+    spriteCanvas.height = Math.max(1, round(spriteHeight * spriteDpr));
+    const spriteCtx = spriteCanvas.getContext('2d');
+    const metrics = {
+        blurPx: Math.max(0, Number(column?.blurPx) || 0),
+        dpr: spriteDpr,
+        font,
+        glyphHeight,
+        height: spriteHeight,
+        paddingY,
+        shadowBlur: Math.max(6, fontSizePx * 0.35),
+        width: spriteWidth
+    };
+    renderBinaryRainSpriteRows(column, spriteCtx, metrics, color);
+
+    return {
+        canvas: spriteCanvas,
+        ctx: spriteCtx,
+        dpr: spriteDpr,
+        glyphHeight,
+        height: spriteHeight,
+        paddingY,
+        shadowBlur: metrics.shadowBlur,
+        width: spriteWidth
+    };
+}
+
+function renderBinaryRainSpriteRows(column, spriteCtx, metrics, color, rowIndexes = null) {
+    if (!spriteCtx || !metrics) {
+        return;
+    }
+
+    const glyphs = Array.isArray(column?.cells) ? column.cells : [];
+    if (glyphs.length === 0) {
+        spriteCtx.clearRect(0, 0, metrics.width, metrics.height);
+        return;
+    }
+
+    const rows = Array.isArray(rowIndexes)
+        ? [...new Set(rowIndexes.filter(index => Number.isInteger(index) && index >= 0 && index < glyphs.length))]
+        : glyphs.map((_, index) => index);
+    if (rows.length === 0) {
+        return;
+    }
+
+    spriteCtx.setTransform(metrics.dpr, 0, 0, metrics.dpr, 0, 0);
+    spriteCtx.font = metrics.font;
+    spriteCtx.textAlign = 'center';
+    spriteCtx.textBaseline = 'top';
+    spriteCtx.fillStyle = color;
+    spriteCtx.shadowColor = color;
+    spriteCtx.shadowBlur = metrics.shadowBlur;
+    if ('filter' in spriteCtx) {
+        spriteCtx.filter = metrics.blurPx > 0 ? `blur(${metrics.blurPx}px)` : 'none';
+    }
+
+    if (!Array.isArray(rowIndexes)) {
+        spriteCtx.clearRect(0, 0, metrics.width, metrics.height);
+    } else {
+        const clearMargin = Math.max(4, round(metrics.shadowBlur + metrics.blurPx * 2 + 2));
+        rows.forEach(index => {
+            const rowTop = metrics.paddingY + index * metrics.glyphHeight;
+            const clearTop = Math.max(0, rowTop - clearMargin);
+            const clearBottom = Math.min(metrics.height, rowTop + metrics.glyphHeight + clearMargin);
+            spriteCtx.clearRect(0, clearTop, metrics.width, clearBottom - clearTop);
+        });
+    }
+
+    rows.forEach(index => {
+        spriteCtx.fillText(glyphs[index], metrics.width / 2, metrics.paddingY + index * metrics.glyphHeight);
+    });
+}
+
+function hydrateBinaryRainColumn(column, palette = getPalette()) {
+    const blurPx = Math.max(0, Number(column?.blurPx) || 0);
+    const canReuseSprite = Boolean(
+        column?.spriteCanvas
+        && column?.spriteCtx
+        && column.spriteColor === palette.accent
+        && column.spriteDpr === Math.max(1, app.dpr || 1)
+        && column.spriteBlurPx === blurPx
+    );
+    let sprite = null;
+
+    if (canReuseSprite) {
+        const metrics = {
+            blurPx,
+            dpr: column.spriteDpr,
+            font: buildFont(Number.isFinite(column?.fontSizePx) ? column.fontSizePx : 16, '700'),
+            glyphHeight: Number.isFinite(column?.spriteGlyphHeight) ? column.spriteGlyphHeight : Math.max(12, round((Number(column?.fontSizePx) || 16) * 0.84)),
+            height: Number.isFinite(column?.spriteHeight) ? column.spriteHeight : 0,
+            paddingY: Number.isFinite(column?.spritePaddingY) ? column.spritePaddingY : Math.max(10, round((Number(column?.fontSizePx) || 16) * 0.9)),
+            shadowBlur: Number.isFinite(column?.spriteShadowBlur) ? column.spriteShadowBlur : Math.max(6, (Number(column?.fontSizePx) || 16) * 0.35),
+            width: Number.isFinite(column?.spriteWidth) ? column.spriteWidth : 0
+        };
+        renderBinaryRainSpriteRows(column, column.spriteCtx, metrics, palette.accent, column.mutatedIndexes);
+        sprite = {
+            canvas: column.spriteCanvas,
+            ctx: column.spriteCtx,
+            dpr: metrics.dpr,
+            glyphHeight: metrics.glyphHeight,
+            height: metrics.height,
+            paddingY: metrics.paddingY,
+            shadowBlur: metrics.shadowBlur,
+            width: metrics.width
+        };
+    } else {
+        sprite = createBinaryRainSprite(column, palette.accent);
+    }
+
+    return {
+        ...column,
+        spriteCanvas: sprite?.canvas || null,
+        spriteColor: palette.accent,
+        spriteCtx: sprite?.ctx || null,
+        spriteDpr: sprite?.dpr || Math.max(1, app.dpr || 1),
+        spriteGlyphHeight: sprite?.glyphHeight || 0,
+        spriteHeight: sprite?.height || 0,
+        spritePaddingY: sprite?.paddingY || 0,
+        spriteShadowBlur: sprite?.shadowBlur || 0,
+        spriteBlurPx: blurPx,
+        spriteWidth: sprite?.width || 0
+    };
+}
+
 function refreshBinaryColumns() {
     const snapshot = getPromptSnapshot();
     if (!shouldUseRootTerminalVisuals(snapshot)) {
@@ -1891,7 +1912,7 @@ function refreshBinaryColumns() {
     app.binaryColumns = createBinaryRainColumns({
         height: app.viewportHeight,
         width: app.viewportWidth
-    });
+    }).map(column => hydrateBinaryRainColumn(column, getPalette(snapshot)));
 }
 
 function advanceBinaryColumns(timestamp) {
@@ -1902,7 +1923,72 @@ function advanceBinaryColumns(timestamp) {
         return;
     }
     app.lastBackgroundStep = timestamp;
-    app.binaryColumns = app.binaryColumns.map(column => advanceBinaryRainColumn(column));
+    const palette = getPalette();
+    app.binaryColumns = app.binaryColumns.map(column => hydrateBinaryRainColumn(advanceBinaryRainColumn(column), palette));
+}
+
+function invalidateRenderLayers() {
+    app.backgroundLayer = null;
+    app.screenOverlayLayer = null;
+}
+
+function getBackgroundLayer(palette) {
+    const key = [
+        app.viewportWidth,
+        app.viewportHeight,
+        app.dpr,
+        palette.background,
+        palette.glow
+    ].join('|');
+    if (app.backgroundLayer?.key === key) {
+        return app.backgroundLayer.canvas;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, round(app.viewportWidth * app.dpr));
+    canvas.height = Math.max(1, round(app.viewportHeight * app.dpr));
+    const layerCtx = canvas.getContext('2d');
+    layerCtx.setTransform(app.dpr, 0, 0, app.dpr, 0, 0);
+    layerCtx.fillStyle = palette.background;
+    layerCtx.fillRect(0, 0, app.viewportWidth, app.viewportHeight);
+    const glow = layerCtx.createRadialGradient(
+        app.viewportWidth * 0.5,
+        app.viewportHeight * 0.5,
+        0,
+        app.viewportWidth * 0.5,
+        app.viewportHeight * 0.5,
+        Math.max(app.viewportWidth, app.viewportHeight) * 1.2
+    );
+    glow.addColorStop(0, palette.glow);
+    glow.addColorStop(1, 'rgba(0,0,0,0)');
+    layerCtx.fillStyle = glow;
+    layerCtx.fillRect(0, 0, app.viewportWidth, app.viewportHeight);
+    app.backgroundLayer = { canvas, key };
+    return canvas;
+}
+
+function getScreenOverlayLayer(palette) {
+    const key = [
+        app.viewportWidth,
+        app.viewportHeight,
+        app.dpr,
+        palette.scanline || 'rgba(0, 0, 0, 0.15)'
+    ].join('|');
+    if (app.screenOverlayLayer?.key === key) {
+        return app.screenOverlayLayer.canvas;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, round(app.viewportWidth * app.dpr));
+    canvas.height = Math.max(1, round(app.viewportHeight * app.dpr));
+    const layerCtx = canvas.getContext('2d');
+    layerCtx.setTransform(app.dpr, 0, 0, app.dpr, 0, 0);
+    layerCtx.fillStyle = palette.scanline || 'rgba(0, 0, 0, 0.15)';
+    for (let y = 0; y < app.viewportHeight; y += 2) {
+        layerCtx.fillRect(0, y, app.viewportWidth, 1);
+    }
+    app.screenOverlayLayer = { canvas, key };
+    return canvas;
 }
 
 function ensureCanvas() {
@@ -1927,16 +2013,31 @@ function resizeCanvas() {
     app.canvas.style.width = `${app.viewportWidth}px`;
     app.canvas.style.height = `${app.viewportHeight}px`;
     app.ctx.setTransform(app.dpr, 0, 0, app.dpr, 0, 0);
+    invalidateRenderLayers();
     setDocumentFrame();
     refreshBinaryColumns();
+    markLayoutDirty();
 }
 
 function clampScroll() {
     app.scrollTop = clamp(app.scrollTop, 0, Math.max(0, app.contentHeight - app.viewportHeight));
 }
 
-function scrollToBottom() {
+function applyScrollToBottom() {
     app.scrollTop = Math.max(0, app.contentHeight - app.viewportHeight);
+}
+
+function ensureLayoutCurrent() {
+    if (app.viewer || !app.layoutDirty) {
+        return;
+    }
+
+    relayoutScene();
+}
+
+function scrollToBottom() {
+    ensureLayoutCurrent();
+    applyScrollToBottom();
 }
 
 function layoutScenePass(metrics, editorialSeedRects = []) {
@@ -1992,6 +2093,7 @@ function layoutScenePass(metrics, editorialSeedRects = []) {
 }
 
 function relayoutScene() {
+    app.layoutDirty = false;
     const metrics = resolveMetrics();
     const nearBottom = app.scrollTop >= Math.max(0, app.contentHeight - app.viewportHeight - metrics.lineHeight * 2);
     let pass = layoutScenePass(metrics, []);
@@ -2038,7 +2140,7 @@ function relayoutScene() {
     ];
 
     if (nearBottom) {
-        scrollToBottom();
+        applyScrollToBottom();
     } else {
         clampScroll();
     }
@@ -2046,30 +2148,15 @@ function relayoutScene() {
 
 function drawBackground(ctx, palette, timestamp) {
     ctx.clearRect(0, 0, app.viewportWidth, app.viewportHeight);
-    ctx.fillStyle = palette.background;
-    ctx.fillRect(0, 0, app.viewportWidth, app.viewportHeight);
-
-    const glow = ctx.createRadialGradient(
-        app.viewportWidth * 0.5,
-        app.viewportHeight * 0.5,
-        0,
-        app.viewportWidth * 0.5,
-        app.viewportHeight * 0.5,
-        Math.max(app.viewportWidth, app.viewportHeight) * 1.2
-    );
-    glow.addColorStop(0, palette.glow);
-    glow.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, app.viewportWidth, app.viewportHeight);
+    const backgroundLayer = getBackgroundLayer(palette);
+    ctx.drawImage(backgroundLayer, 0, 0, app.viewportWidth, app.viewportHeight);
 
     advanceBinaryColumns(timestamp);
     if (app.binaryColumns.length > 0) {
         ctx.save();
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
         app.binaryColumns.forEach(column => {
-            const glyphs = Array.isArray(column.cells) ? column.cells : [];
-            if (glyphs.length === 0) {
+            const spriteCanvas = column?.spriteCanvas;
+            if (!spriteCanvas) {
                 return;
             }
 
@@ -2077,36 +2164,24 @@ function drawBackground(ctx, palette, timestamp) {
                 height: app.viewportHeight,
                 timestamp
             });
-            const x = app.viewportWidth * frame.x;
-
-            ctx.save();
-            ctx.font = buildFont(frame.fontSizePx, '700');
             ctx.globalAlpha = frame.opacity;
-            ctx.fillStyle = palette.accent;
-            ctx.shadowColor = palette.accent;
-            ctx.shadowBlur = Math.max(6, frame.fontSizePx * 0.35);
-            if ('filter' in ctx) {
-                ctx.filter = frame.blurPx > 0 ? `blur(${frame.blurPx}px)` : 'none';
-            }
-            glyphs.forEach((glyph, index) => {
-                const y = frame.y + index * frame.glyphHeight;
-                if (y < -frame.glyphHeight * 2 || y > app.viewportHeight + frame.glyphHeight * 2) {
-                    return;
-                }
-                ctx.fillText(glyph, x, y);
-            });
-            ctx.restore();
+            ctx.drawImage(
+                spriteCanvas,
+                app.viewportWidth * frame.x - (column.spriteWidth || 0) / 2,
+                frame.y - (column.spritePaddingY || 0),
+                column.spriteWidth || spriteCanvas.width,
+                column.spriteHeight || spriteCanvas.height
+            );
         });
         ctx.restore();
+        ctx.globalAlpha = 1;
     }
 }
 
 function drawScreenOverlay(ctx, palette) {
     ctx.save();
-    ctx.fillStyle = palette.scanline || 'rgba(0, 0, 0, 0.15)';
-    for (let y = 0; y < app.viewportHeight; y += 2) {
-        ctx.fillRect(0, y, app.viewportWidth, 1);
-    }
+    const overlayLayer = getScreenOverlayLayer(palette);
+    ctx.drawImage(overlayLayer, 0, 0, app.viewportWidth, app.viewportHeight);
     ctx.restore();
 }
 
@@ -2129,7 +2204,7 @@ function drawScrollbar(ctx, palette, metrics) {
 }
 
 function drawTerminalScene(timestamp) {
-    relayoutScene();
+    ensureLayoutCurrent();
     const ctx = app.ctx;
     const metrics = resolveMetrics();
     const palette = getPalette();
@@ -2304,6 +2379,7 @@ function appendOutput(output) {
     output.forEach(line => {
         app.blocks.push(buildBlock('output', line));
     });
+    markLayoutDirty();
 }
 
 function appendCommandEcho(commandLine) {
@@ -2312,6 +2388,7 @@ function appendCommandEcho(commandLine) {
     });
     block.commandLine = commandLine;
     app.blocks.push(block);
+    markLayoutDirty();
 }
 
 export async function executeCommand(commandLine) {
@@ -2353,7 +2430,9 @@ export function setupTerminal() {
     app.viewer = null;
     app.blocks = [];
     app.inputValue = '';
+    app.interactiveRegions = [];
     app.scrollTop = 0;
+    markLayoutDirty();
 }
 
 function updateMovieFrame() {
@@ -2419,6 +2498,7 @@ export function showImageStill(imageUrl, options = {}) {
         type: 'image'
     };
     app.scrollTop = 0;
+    markLayoutDirty();
 }
 
 function closeViewer() {
@@ -2426,6 +2506,7 @@ function closeViewer() {
         app.viewer.stop();
     }
     app.viewer = null;
+    markLayoutDirty();
     scrollToBottom();
 }
 
@@ -2579,6 +2660,27 @@ function onPointerDown(event) {
         return;
     }
 
+    if (region.action === 'drag-widget') {
+        const block = app.blocks.find(item => item.id === region.data?.blockId);
+        const widgetState = block?.widgetState;
+        if (!widgetState) {
+            return;
+        }
+        app.pointerDrag = {
+            blockId: block.id,
+            moved: false,
+            originX: Number.isFinite(widgetState.x) ? widgetState.x : 0,
+            pointerId: event.pointerId,
+            startClientX: event.clientX,
+            startClientY: event.clientY,
+            widgetBlockId: block.id
+        };
+        if (typeof app.canvas.setPointerCapture === 'function') {
+            app.canvas.setPointerCapture(event.pointerId);
+        }
+        return;
+    }
+
     app.pointerDrag = {
         moved: false,
         pointerId: event.pointerId,
@@ -2589,7 +2691,31 @@ function onPointerDown(event) {
 }
 
 function onPointerMove(event) {
-    if (!app.pointerDrag || app.pointerDrag.pointerId !== event.pointerId || !app.pointerDrag.mediaId) {
+    if (!app.pointerDrag || app.pointerDrag.pointerId !== event.pointerId) {
+        return;
+    }
+
+    if (app.pointerDrag.widgetBlockId) {
+        const deltaX = event.clientX - app.pointerDrag.startClientX;
+        if (!app.pointerDrag.moved && Math.abs(deltaX) > 4) {
+            app.pointerDrag.moved = true;
+        }
+        if (!app.pointerDrag.moved) {
+            return;
+        }
+
+        const block = app.blocks.find(item => item.id === app.pointerDrag.widgetBlockId);
+        if (!block?.widgetState) {
+            return;
+        }
+
+        block.widgetState.pinned = true;
+        block.widgetState.x = Math.max(0, app.pointerDrag.originX + deltaX);
+        markLayoutDirty();
+        return;
+    }
+
+    if (!app.pointerDrag.mediaId) {
         return;
     }
 
@@ -2611,6 +2737,7 @@ function onPointerMove(event) {
     mediaState.pinned = true;
     mediaState.x = Math.max(0, app.pointerDrag.originX + deltaX);
     mediaState.y = Math.max(0, app.pointerDrag.originY + deltaY);
+    markLayoutDirty();
 }
 
 function onPointerUp(event) {
@@ -2624,7 +2751,7 @@ function onPointerUp(event) {
         app.canvas.releasePointerCapture(event.pointerId);
     }
 
-    if (drag.mediaId) {
+    if (drag.mediaId || drag.widgetBlockId) {
         return;
     }
 
@@ -2704,6 +2831,7 @@ function onPaste(event) {
         return;
     }
     app.inputValue += pasted.replace(/\r\n/g, '\n').replace(/\n/g, ' ');
+    markLayoutDirty();
     scrollToBottom();
     event.preventDefault();
 }
@@ -2727,19 +2855,23 @@ function onKeyDown(event) {
     }
     case 'Backspace':
         app.inputValue = app.inputValue.slice(0, -1);
+        markLayoutDirty();
         scrollToBottom();
         event.preventDefault();
         return;
     case 'ArrowUp':
         navigateHistory(-1);
+        markLayoutDirty();
         event.preventDefault();
         return;
     case 'ArrowDown':
         navigateHistory(1);
+        markLayoutDirty();
         event.preventDefault();
         return;
     case 'Tab':
         autocompleteInput();
+        markLayoutDirty();
         event.preventDefault();
         return;
     case 'PageUp':
@@ -2766,6 +2898,7 @@ function onKeyDown(event) {
 
     if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
         app.inputValue += event.key;
+        markLayoutDirty();
         scrollToBottom();
         event.preventDefault();
     }
@@ -2783,15 +2916,18 @@ function bindEvents() {
 }
 
 export function refreshTerminalInputPrompt() {
+    markLayoutDirty();
     scrollToBottom();
 }
 
 export function syncTerminalSessionAwareLines() {
     refreshBinaryColumns();
+    markLayoutDirty();
 }
 
 export function syncTerminalVisualEffects() {
     refreshBinaryColumns();
+    markLayoutDirty();
 }
 
 export function getPromptPath() {
@@ -2818,10 +2954,6 @@ export async function bootTerminalSite(defaultCommand) {
     if (typeof window.ensureTerminalSessionReady === 'function') {
         await window.ensureTerminalSessionReady();
     }
-    if (typeof window.ensureTerminalPretextReady === 'function') {
-        await window.ensureTerminalPretextReady();
-    }
-
     setupTerminal();
     refreshBinaryColumns();
     const params = new URLSearchParams(window.location.search);

@@ -119,10 +119,16 @@ test('site boot loads the vendored pretext generated assets without module failu
     await page.waitForTimeout(2500);
 
     const generatedAssetUrl = `${server.origin}/vendor/pretext/generated/bidi-data.js`;
+    const legacyPretextRuntimeRequests = [...responses.keys()].filter(url => url.includes('terminal-pretext-runtime.mjs'));
     assert.equal(
         responses.get(generatedAssetUrl),
         200,
         'expected the generated Pretext bidi data module to be served'
+    );
+    assert.deepEqual(
+        legacyPretextRuntimeRequests,
+        [],
+        'expected site boot to skip the legacy terminal-pretext runtime shim'
     );
     assert.deepEqual(pageErrors, [], 'expected site boot to avoid browser page errors');
     assert.deepEqual(
