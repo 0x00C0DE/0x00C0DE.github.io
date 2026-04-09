@@ -97,6 +97,28 @@ async function createMobilePage(t) {
     return page;
 }
 
+async function createDesktopPage(t) {
+    const browser = await chromium.launch({
+        executablePath: CHROME_PATH,
+        headless: true
+    });
+    t.after(async () => {
+        await browser.close();
+    });
+
+    const page = await browser.newPage({
+        viewport: {
+            height: 900,
+            width: 1440
+        }
+    });
+    t.after(async () => {
+        await page.close();
+    });
+
+    return page;
+}
+
 async function stubVisitorApis(page, stats = { onSite: 4, uniqueVisitors: 23, visits: 456 }) {
     await page.route('https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors', route => route.fulfill({
         body: JSON.stringify(stats),
@@ -343,5 +365,110 @@ test('mobile touch drag across the terminal body scrolls without needing the scr
     assert.ok(
         after.scrollTop < before.state.scrollTop - 50,
         `expected touch-dragging the terminal body to reduce scrollTop, before=${before.state.scrollTop} after=${after.scrollTop}`
+    );
+});
+
+test('mobile touch drag keeps gliding briefly after release instead of stopping abruptly', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const page = await createMobilePage(t);
+    await stubVisitorApis(page);
+
+    await page.goto(server.origin, { waitUntil: 'load' });
+    await page.waitForFunction(() => typeof window.executeCommand === 'function');
+    await page.waitForFunction(() => Boolean(window.__terminalCanvasTestHooks));
+    await page.waitForTimeout(2500);
+    await page.evaluate(async () => {
+        for (let index = 0; index < 12; index += 1) {
+            await window.executeCommand('help');
+        }
+    });
+
+    const before = await page.evaluate(() => window.__terminalCanvasTestHooks.getState());
+    assert.ok(before.scrollTop > 200, `expected enough scroll depth before inertial drag, got ${before.scrollTop}`);
+
+    const startPoint = {
+        x: 72,
+        y: Math.round(before.viewportHeight * 0.44)
+    };
+    const movePoint = {
+        x: startPoint.x,
+        y: Math.min(before.viewportHeight - 70, startPoint.y + 150)
+    };
+    await page.dispatchEvent('#terminal-canvas', 'pointerdown', {
+        bubbles: true,
+        clientX: startPoint.x,
+        clientY: startPoint.y,
+        isPrimary: true,
+        pointerId: 3,
+        pointerType: 'touch'
+    });
+    await page.dispatchEvent('#terminal-canvas', 'pointermove', {
+        bubbles: true,
+        clientX: movePoint.x,
+        clientY: movePoint.y,
+        isPrimary: true,
+        pointerId: 3,
+        pointerType: 'touch'
+    });
+    await page.dispatchEvent('#terminal-canvas', 'pointerup', {
+        bubbles: true,
+        clientX: movePoint.x,
+        clientY: movePoint.y,
+        isPrimary: true,
+        pointerId: 3,
+        pointerType: 'touch'
+    });
+
+    const afterRelease = await page.evaluate(() => window.__terminalCanvasTestHooks.getState());
+    await page.waitForTimeout(260);
+    const afterGlide = await page.evaluate(() => window.__terminalCanvasTestHooks.getState());
+    assert.ok(
+        afterGlide.scrollTop < afterRelease.scrollTop - 14,
+        `expected mobile inertial scrolling after release, release=${afterRelease.scrollTop} glide=${afterGlide.scrollTop}`
+    );
+});
+
+test('desktop wheel scrolling glides after the initial wheel event', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const page = await createDesktopPage(t);
+    await stubVisitorApis(page);
+
+    await page.goto(server.origin, { waitUntil: 'load' });
+    await page.waitForFunction(() => typeof window.executeCommand === 'function');
+    await page.waitForFunction(() => Boolean(window.__terminalCanvasTestHooks));
+    await page.waitForTimeout(2500);
+    await page.evaluate(async () => {
+        for (let index = 0; index < 12; index += 1) {
+            await window.executeCommand('help');
+        }
+    });
+
+    const before = await page.evaluate(() => window.__terminalCanvasTestHooks.getState());
+    assert.ok(before.scrollTop > 200, `expected enough scroll depth before desktop wheel glide, got ${before.scrollTop}`);
+
+    await page.dispatchEvent('#terminal-canvas', 'wheel', {
+        bubbles: true,
+        cancelable: true,
+        deltaMode: 0,
+        deltaX: 0,
+        deltaY: -180
+    });
+
+    await page.waitForTimeout(40);
+    const afterWheel = await page.evaluate(() => window.__terminalCanvasTestHooks.getState());
+    await page.waitForTimeout(260);
+    const afterGlide = await page.evaluate(() => window.__terminalCanvasTestHooks.getState());
+    assert.ok(afterWheel.scrollTop < before.scrollTop, 'expected the initial desktop wheel event to move the terminal');
+    assert.ok(
+        afterGlide.scrollTop < afterWheel.scrollTop - 14,
+        `expected desktop wheel scrolling to glide after the event, wheel=${afterWheel.scrollTop} glide=${afterGlide.scrollTop}`
     );
 });
