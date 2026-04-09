@@ -136,15 +136,35 @@ async function installHelpDrawCapture(page) {
     });
 }
 
-async function renderHelp(page, origin) {
+async function renderHelp(page, origin, options = {}) {
     await page.goto(origin, { waitUntil: 'load' });
     await page.waitForFunction(() => typeof window.executeCommand === 'function');
     await page.waitForTimeout(2500);
-    await page.evaluate(async () => {
+    await page.evaluate(async ({ preCommands, user }) => {
+        if (user === 'root') {
+            await window.executeCommand('su');
+        } else if (user === 'guest' || user === 'godlike') {
+            window.setTerminalSessionState({
+                shell: 'default',
+                user
+            });
+        }
+        for (const command of Array.isArray(preCommands) ? preCommands : []) {
+            await window.executeCommand(command);
+        }
         window.__helpDraws.length = 0;
         await window.executeCommand('help');
+    }, {
+        preCommands: options.preCommands || [],
+        user: options.user || 'guest'
     });
-    await page.waitForTimeout(350);
+    await page.waitForFunction(() => {
+        const entries = window.help_command()
+            .filter(entry => entry && typeof entry === 'object' && entry.type === 'help-entry')
+            .map(entry => entry.command);
+        return Array.isArray(window.__helpDraws) && window.__helpDraws.some(draw => entries.includes(draw?.text));
+    }, { timeout: 10000 });
+    await page.waitForTimeout(150);
 
     return page.evaluate(() => {
         const entries = window.help_command()
@@ -167,6 +187,34 @@ async function renderHelp(page, origin) {
             draws: [...deduped.values()].sort((left, right) => left.y - right.y || left.x - right.x)
         };
     });
+}
+
+function getHelpRow(rendered, commandText) {
+    const commandDraw = rendered.draws.find(draw => draw.text === commandText);
+    assert.ok(commandDraw, `expected a standalone draw for "${commandText}"`);
+
+    const separatorDraw = rendered.draws.find(draw => draw.y === commandDraw.y && draw.text === ' - ');
+    assert.ok(separatorDraw, `expected a separator draw for "${commandText}"`);
+
+    const commandIndex = rendered.commands.indexOf(commandText);
+    const nextCommandText = rendered.commands[commandIndex + 1] || null;
+    const nextCommandDraw = nextCommandText
+        ? rendered.draws.find(draw => draw.text === nextCommandText && draw.y > commandDraw.y)
+        : null;
+    const nextBoundaryY = nextCommandDraw ? nextCommandDraw.y : Number.POSITIVE_INFINITY;
+    const descriptionDraw = rendered.draws.find(draw => (
+        draw.y >= commandDraw.y - 0.5
+        && draw.y < nextBoundaryY - 0.5
+        && !rendered.commands.includes(draw.text)
+        && draw.text !== ' - '
+    ));
+    assert.ok(descriptionDraw, `expected a description draw for "${commandText}"`);
+
+    return {
+        commandDraw,
+        descriptionDraw,
+        separatorDraw
+    };
 }
 
 function roundLineY(y) {
@@ -233,6 +281,52 @@ test('desktop help commands stay on the terminal text color instead of bright wh
     assert.doesNotMatch(commandDraw.fillStyle, /^#fff/i);
 });
 
+test('root desktop help keeps the same tabular command and description columns as guest', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const page = await createPage(t);
+    await installHelpDrawCapture(page);
+    await stubVisitorApis(page);
+
+    const guestRendered = await renderHelp(page, server.origin, { user: 'guest' });
+    const rootRendered = await renderHelp(page, server.origin, { user: 'root' });
+    const guestRow = getHelpRow(guestRendered, 'help');
+    const rootRow = getHelpRow(rootRendered, 'help');
+
+    assert.ok(Math.abs(rootRow.commandDraw.x - guestRow.commandDraw.x) <= 1);
+    assert.ok(Math.abs(rootRow.separatorDraw.x - guestRow.separatorDraw.x) <= 1);
+    assert.ok(Math.abs(rootRow.descriptionDraw.x - guestRow.descriptionDraw.x) <= 1);
+});
+
+test('root desktop help stays tabular even after cat blog.txt adds editorial media obstacles', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const guestPage = await createPage(t);
+    await installHelpDrawCapture(guestPage);
+    await stubVisitorApis(guestPage);
+    const guestRendered = await renderHelp(guestPage, server.origin, { user: 'guest' });
+
+    const rootPage = await createPage(t);
+    await installHelpDrawCapture(rootPage);
+    await stubVisitorApis(rootPage);
+    const rootRendered = await renderHelp(rootPage, server.origin, {
+        preCommands: ['cat blog.txt'],
+        user: 'root'
+    });
+    const guestRow = getHelpRow(guestRendered, 'help');
+    const rootRow = getHelpRow(rootRendered, 'help');
+
+    assert.ok(Math.abs(rootRow.commandDraw.x - guestRow.commandDraw.x) <= 1);
+    assert.ok(Math.abs(rootRow.separatorDraw.x - guestRow.separatorDraw.x) <= 1);
+    assert.ok(Math.abs(rootRow.descriptionDraw.x - guestRow.descriptionDraw.x) <= 1);
+});
+
 test('mobile help keeps wrapped descriptions aligned under the description column', { timeout: 120000 }, async t => {
     const server = await createStaticServer(REPO_ROOT);
     t.after(async () => {
@@ -255,6 +349,53 @@ test('mobile help keeps wrapped descriptions aligned under the description colum
         Math.abs(entry.lineStarts[0].x - entry.lineStarts[1].x) <= 1,
         'expected wrapped description lines to share a single description-column alignment'
     );
+});
+
+test('root mobile help keeps the same wrapped description column as guest and godlike', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const page = await createPage(t, { mobile: true });
+    await installHelpDrawCapture(page);
+    await stubVisitorApis(page);
+
+    const guestRendered = await renderHelp(page, server.origin, { user: 'guest' });
+    const rootRendered = await renderHelp(page, server.origin, { user: 'root' });
+    const godlikeRendered = await renderHelp(page, server.origin, { user: 'godlike' });
+    const guestEntry = getEntryDescriptionLines(guestRendered, 'userpic [w h]');
+    const rootEntry = getEntryDescriptionLines(rootRendered, 'userpic [w h]');
+    const godlikeEntry = getEntryDescriptionLines(godlikeRendered, 'userpic [w h]');
+
+    assert.ok(Math.abs(rootEntry.commandDraw.x - guestEntry.commandDraw.x) <= 1);
+    assert.ok(Math.abs(rootEntry.lineStarts[0].x - guestEntry.lineStarts[0].x) <= 1);
+    assert.ok(Math.abs(rootEntry.lineStarts[0].x - godlikeEntry.lineStarts[0].x) <= 1);
+});
+
+test('root mobile help stays column-aligned after cat blog.txt adds editorial media obstacles', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const guestPage = await createPage(t, { mobile: true });
+    await installHelpDrawCapture(guestPage);
+    await stubVisitorApis(guestPage);
+    const guestRendered = await renderHelp(guestPage, server.origin, { user: 'guest' });
+
+    const rootPage = await createPage(t, { mobile: true });
+    await installHelpDrawCapture(rootPage);
+    await stubVisitorApis(rootPage);
+    const rootRendered = await renderHelp(rootPage, server.origin, {
+        preCommands: ['cat blog.txt'],
+        user: 'root'
+    });
+    const guestEntry = getEntryDescriptionLines(guestRendered, 'userpic [w h]');
+    const rootEntry = getEntryDescriptionLines(rootRendered, 'userpic [w h]');
+
+    assert.ok(Math.abs(rootEntry.commandDraw.x - guestEntry.commandDraw.x) <= 1);
+    assert.ok(Math.abs(rootEntry.lineStarts[0].x - guestEntry.lineStarts[0].x) <= 1);
 });
 
 test('mobile help uses a condensed layout so long command entries fit the screen without zooming out', { timeout: 120000 }, async t => {
