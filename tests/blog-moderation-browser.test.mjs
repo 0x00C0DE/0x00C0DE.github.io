@@ -195,6 +195,22 @@ async function clickRenderedDeleteLabel(page, text) {
     await page.waitForTimeout(200);
 }
 
+async function clickRenderedDeleteButtonPadding(page, text, side = 'right') {
+    const label = await getLatestRenderedLabel(page, text);
+    assert.ok(label, `expected ${text} to be rendered`);
+
+    const width = await page.evaluate(({ text: labelText, font }) => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.font = font;
+        return ctx.measureText(labelText).width;
+    }, label);
+
+    const paddingOffset = side === 'left' ? -4 : width + 4;
+    await page.mouse.click(label.x + label.tx + paddingOffset, label.y + label.ty + 8);
+    await page.waitForTimeout(200);
+}
+
 test('godlike delete controls respond when clicking the rendered label centers', { timeout: 120000 }, async t => {
     const server = await createStaticServer(REPO_ROOT);
     t.after(async () => {
@@ -225,6 +241,39 @@ test('godlike delete controls respond when clicking the rendered label centers',
     await clickRenderedDeleteLabel(mediaPage, '[delete media]');
     const mediaCalls = await mediaPage.evaluate(() => window.__deleteCalls);
     assert.equal(mediaCalls.media.length, 1, 'expected the media delete handler to fire');
+    await mediaPage.close();
+});
+
+test('godlike delete controls respond when clicking inside the rendered button padding', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const browser = await chromium.launch({
+        executablePath: CHROME_PATH,
+        headless: true
+    });
+    t.after(async () => {
+        await browser.close();
+    });
+
+    const postPage = await browser.newPage({
+        viewport: { height: 822, width: 679 }
+    });
+    await setupModerationPage(postPage, server.origin);
+    await clickRenderedDeleteButtonPadding(postPage, '[delete post]');
+    const postCalls = await postPage.evaluate(() => window.__deleteCalls);
+    assert.equal(postCalls.entry.length, 1, 'expected the padded post delete click to fire');
+    await postPage.close();
+
+    const mediaPage = await browser.newPage({
+        viewport: { height: 822, width: 679 }
+    });
+    await setupModerationPage(mediaPage, server.origin);
+    await clickRenderedDeleteButtonPadding(mediaPage, '[delete media]');
+    const mediaCalls = await mediaPage.evaluate(() => window.__deleteCalls);
+    assert.equal(mediaCalls.media.length, 1, 'expected the padded media delete click to fire');
     await mediaPage.close();
 });
 

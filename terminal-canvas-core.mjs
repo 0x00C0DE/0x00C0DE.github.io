@@ -298,11 +298,40 @@ function resolveMetrics() {
 }
 
 function getButtonLayout(text, font) {
+    const horizontalPadding = 8;
+    const verticalPadding = 3;
+    const fontSize = extractFontSizePx(font, 14);
+    const textWidth = measureTextWidth(text, font);
+    const textHeight = Math.max(1, fontSize);
+    const height = textHeight + verticalPadding * 2;
     return {
         font,
+        height,
+        horizontalPadding,
         text,
-        width: measureTextWidth(text, font)
+        textHeight,
+        textOffsetX: horizontalPadding,
+        textOffsetY: verticalPadding,
+        textWidth,
+        verticalPadding,
+        width: textWidth + horizontalPadding * 2
     };
+}
+
+function drawButton(ctx, button, x, y, palette) {
+    if (!button) {
+        return;
+    }
+
+    ctx.fillStyle = palette.block;
+    ctx.strokeStyle = palette.accent;
+    ctx.lineWidth = 1;
+    ctx.fillRect(x, y, button.width, button.height);
+    ctx.strokeRect(x + 0.5, y + 0.5, button.width - 1, button.height - 1);
+    ctx.font = button.font;
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = palette.accent;
+    ctx.fillText(button.text, x + button.textOffsetX, y + button.textOffsetY);
 }
 
 function fitFontToWidth(text, font, width, minimumPx = 16, weight = '700') {
@@ -1534,12 +1563,12 @@ function layoutStandaloneMedia(block, metrics) {
     const buttonGap = deleteButton ? 8 : 0;
 
     return {
-        height: dimensions.height + (deleteButton ? metrics.lineHeight + buttonGap : 0),
+        height: dimensions.height + (deleteButton ? deleteButton.height + buttonGap : 0),
         hitRegions: [
             ...(deleteButton ? [{
                 action: 'delete-media',
                 data: block.data,
-                height: metrics.lineHeight,
+                height: deleteButton.height,
                 width: deleteButton.width,
                 x: 0,
                 y: dimensions.height + buttonGap
@@ -1566,10 +1595,7 @@ function layoutStandaloneMedia(block, metrics) {
             }
 
             if (deleteButton) {
-                ctx.font = deleteButton.font;
-                ctx.textBaseline = 'top';
-                ctx.fillStyle = palette.accent;
-                ctx.fillText(deleteButton.text, originX, originY + dimensions.height + buttonGap);
+                drawButton(ctx, deleteButton, originX, originY + dimensions.height + buttonGap, palette);
             }
         }
     };
@@ -1640,7 +1666,7 @@ function getEditorialMediaRects(block, width, metrics, headerHeight, blockTop = 
             x: rect.x,
             y: rect.y
         });
-        cursorY += rect.height + (deleteButton ? metrics.lineHeight + deleteGap : 0) + metrics.blockGap;
+        cursorY += rect.height + (deleteButton ? deleteButton.height + deleteGap : 0) + metrics.blockGap;
     });
 
     return mediaRects;
@@ -1728,7 +1754,7 @@ function layoutBlogEntry(block, width, metrics, editorial, context = {}) {
 
     const contentBottom = Math.max(
         cursorY,
-        ...[0, ...mediaRects.map(rect => rect.anchorY + rect.height + (rect.deleteButton ? metrics.lineHeight + rect.deleteGap : 0))]
+        ...[0, ...mediaRects.map(rect => rect.anchorY + rect.height + (rect.deleteButton ? rect.deleteButton.height + rect.deleteGap : 0))]
     );
     const deleteEntryGap = deleteEntryButton ? Math.max(3, round(metrics.lineHeight * 0.18)) : 0;
     const deleteEntryY = deleteEntryButton ? contentBottom + deleteEntryGap : 0;
@@ -1740,7 +1766,7 @@ function layoutBlogEntry(block, width, metrics, editorial, context = {}) {
                 entryTimestamp: block.data.entryTimestamp,
                 line: block.data
             },
-            height: metrics.lineHeight,
+            height: deleteEntryButton.height,
             width: deleteEntryButton.width,
             x: 0,
             y: deleteEntryY
@@ -1749,7 +1775,7 @@ function layoutBlogEntry(block, width, metrics, editorial, context = {}) {
 
     return {
         editorialMediaRects: editorial ? mediaRects : [],
-        height: deleteEntryButton ? deleteEntryY + metrics.lineHeight : contentBottom,
+        height: deleteEntryButton ? deleteEntryY + deleteEntryButton.height : contentBottom,
         hitRegions,
         render(ctx, originX, originY, palette) {
             children.forEach(child => {
@@ -1757,10 +1783,7 @@ function layoutBlogEntry(block, width, metrics, editorial, context = {}) {
             });
 
             if (deleteEntryButton) {
-                ctx.font = deleteEntryButton.font;
-                ctx.textBaseline = 'top';
-                ctx.fillStyle = palette.accent;
-                ctx.fillText(deleteEntryButton.text, originX, originY + deleteEntryY);
+                drawButton(ctx, deleteEntryButton, originX, originY + deleteEntryY, palette);
             }
 
         }
@@ -1980,7 +2003,7 @@ function relayoutScene() {
     app.inputLayout = pass.inputLayout;
     app.inputTop = pass.inputTop;
     const editorialBottom = pass.editorialRects.reduce((maximum, rect) => (
-        Math.max(maximum, rect.y + rect.height + (rect.deleteButton ? metrics.lineHeight + rect.deleteGap : 0))
+        Math.max(maximum, rect.y + rect.height + (rect.deleteButton ? rect.deleteButton.height + rect.deleteGap : 0))
     ), 0);
     const blockDeleteRegions = pass.regions.filter(region => region.action === 'delete-entry');
     const baseRegions = pass.regions.filter(region => region.action !== 'delete-entry');
@@ -2000,7 +2023,7 @@ function relayoutScene() {
         .map(rect => ({
             action: 'delete-media',
             data: rect.block,
-            height: metrics.lineHeight,
+            height: rect.deleteButton.height,
             width: rect.deleteButton.width,
             x: metrics.paddingX + rect.x,
             y: rect.y + rect.height + rect.deleteGap
@@ -2125,7 +2148,7 @@ function drawTerminalScene(timestamp) {
     });
     app.inputLayout.render(ctx, metrics.paddingX, app.inputTop, palette);
     app.editorialMediaRects.forEach(rect => {
-        const rectBottom = rect.y + rect.height + (rect.deleteButton ? metrics.lineHeight + rect.deleteGap : 0);
+        const rectBottom = rect.y + rect.height + (rect.deleteButton ? rect.deleteButton.height + rect.deleteGap : 0);
         if (rectBottom < app.scrollTop - 64 || rect.y > app.scrollTop + app.viewportHeight + 64) {
             return;
         }
@@ -2151,10 +2174,7 @@ function drawTerminalScene(timestamp) {
         }
 
         if (rect.deleteButton) {
-            ctx.font = rect.deleteButton.font;
-            ctx.textBaseline = 'top';
-            ctx.fillStyle = palette.accent;
-            ctx.fillText(rect.deleteButton.text, rectX, rect.y + rect.height + rect.deleteGap);
+            drawButton(ctx, rect.deleteButton, rectX, rect.y + rect.height + rect.deleteGap, palette);
         }
     });
     ctx.restore();
