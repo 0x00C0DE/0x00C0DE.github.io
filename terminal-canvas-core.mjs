@@ -408,7 +408,9 @@ function resolveMetrics() {
     const width = Math.max(320, app.viewportWidth || window.innerWidth || 1280);
     const narrow = width < 560;
     const fontSize = width < 440 ? 14 : width < 680 ? 15 : 18;
+    const helpFontSize = width < 420 ? Math.max(12, fontSize - 1) : fontSize;
     const lineHeight = round(fontSize * (narrow ? 1.45 : 1.34));
+    const helpLineHeight = round(helpFontSize * (narrow ? 1.4 : 1.34));
     const paddingX = width < 480 ? 14 : width < 900 ? 18 : 24;
     const paddingY = width < 480 ? 14 : 18;
     const blockGap = width < 480 ? 8 : 10;
@@ -423,7 +425,11 @@ function resolveMetrics() {
         commandFont: buildFont(fontSize, '400'),
         contentWidth,
         fontSize,
-        helpGap: round(fontSize * 0.9),
+        helpCompactMinChars: width < 420 ? 5 : 6,
+        helpDescriptionRatio: width < 420 ? 0.42 : width < 560 ? 0.38 : 0.32,
+        helpFont: buildFont(helpFontSize, '400'),
+        helpGap: width < 420 ? round(helpFontSize * 0.55) : round(helpFontSize * 0.9),
+        helpLineHeight,
         lineHeight,
         mediaMaxWidth: Math.min(contentWidth, 544),
         paddingX,
@@ -691,9 +697,9 @@ function resolveFragmentColor(fragment, palette, fallback) {
     case 'prompt-punctuation':
         return palette.promptPunctuation;
     case 'help-command':
-        return palette.helpCommand;
+        return palette.text;
     case 'help-separator':
-        return palette.helpSeparator;
+        return palette.text;
     case 'widget-label':
         return palette.widgetLabel || palette.text;
     case 'widget-value':
@@ -1421,6 +1427,11 @@ function layoutBanner(block, width, metrics, context = {}) {
 function layoutHelpEntry(block, width, metrics, context = {}) {
     const commandText = String(block.data.command || '');
     const separatorText = ' - ';
+    const helpFont = metrics.helpFont || metrics.textFont;
+    const helpLineHeight = metrics.helpLineHeight || metrics.lineHeight;
+    const helpGap = Number.isFinite(metrics.helpGap) ? metrics.helpGap : round(extractFontSizePx(helpFont, metrics.fontSize) * 0.9);
+    const helpDescriptionRatio = Number.isFinite(metrics.helpDescriptionRatio) ? metrics.helpDescriptionRatio : 0.32;
+    const helpCompactMinChars = Number.isFinite(metrics.helpCompactMinChars) ? metrics.helpCompactMinChars : 6;
     if (hasGlobalEditorialObstacles(context)) {
         const tokens = [
             buildTextToken(commandText, { role: 'help-command' }),
@@ -1432,8 +1443,8 @@ function layoutHelpEntry(block, width, metrics, context = {}) {
             '__helpEditorial',
             `${commandText}${separatorText}${block.data.description || ''}`,
             width,
-            metrics.textFont,
-            metrics.lineHeight,
+            helpFont,
+            helpLineHeight,
             getRelativeEditorialObstacles(context),
             {
                 tokens
@@ -1442,36 +1453,101 @@ function layoutHelpEntry(block, width, metrics, context = {}) {
     }
 
     const commandWidth = Math.max(
-        measureTextWidth('M'.repeat(Math.max(commandText.length, Number(block.data.commandWidth) || commandText.length)), metrics.textFont),
-        measureTextWidth(commandText, metrics.textFont)
+        measureTextWidth('M'.repeat(Math.max(commandText.length, Number(block.data.commandWidth) || commandText.length)), helpFont),
+        measureTextWidth(commandText, helpFont)
     );
-    const separatorWidth = measureTextWidth(separatorText, metrics.textFont);
-    const descriptionWidth = width - commandWidth - separatorWidth - metrics.helpGap;
-    if (descriptionWidth < width * 0.35) {
-        return buildTextLayout(block, `${commandText}${separatorText}${block.data.description || ''}`, width, metrics.textFont, metrics.lineHeight, {
-            slotName: '__helpCollapsed'
+    const actualCommandWidth = measureTextWidth(commandText, helpFont);
+    const separatorWidth = measureTextWidth(separatorText, helpFont);
+    const descriptionWidth = width - commandWidth - separatorWidth - helpGap;
+    const minDescriptionWidth = Math.max(
+        measureTextWidth('M'.repeat(10), helpFont),
+        width * helpDescriptionRatio
+    );
+    if (descriptionWidth < minDescriptionWidth) {
+        const compactCommandWidth = Math.min(
+            commandWidth,
+            width - minDescriptionWidth - separatorWidth - helpGap
+        );
+        const compactDescriptionX = Math.min(
+            width,
+            compactCommandWidth + separatorWidth + helpGap
+        );
+        const compactDescriptionWidth = Math.max(0, width - compactDescriptionX);
+        if (compactDescriptionWidth < measureTextWidth('M'.repeat(helpCompactMinChars), helpFont)) {
+            const commandLine = buildTextLayout(
+                block,
+                `${commandText}${separatorText}`,
+                width,
+                helpFont,
+                helpLineHeight,
+                {
+                    slotName: '__helpStackedCommand',
+                    tokenizeLinks: false,
+                    tokens: [
+                        buildTextToken(commandText, { role: 'help-command' }),
+                        buildTextToken(separatorText, { role: 'help-separator' })
+                    ]
+                }
+            );
+            const description = buildTextLayout(block, block.data.description || '', width, helpFont, helpLineHeight, {
+                slotName: '__helpStackedDescription',
+                tokenizeLinks: false
+            });
+            return {
+                height: commandLine.height + description.height,
+                hitRegions: description.hitRegions.map(region => ({
+                    ...region,
+                    y: commandLine.height + region.y
+                })),
+                render(ctx, originX, originY, palette) {
+                    commandLine.render(ctx, originX, originY, palette, palette.text);
+                    description.render(ctx, originX, originY + commandLine.height, palette, palette.text);
+                }
+            };
+        }
+
+        const description = buildTextLayout(block, block.data.description || '', compactDescriptionWidth, helpFont, helpLineHeight, {
+            slotName: '__helpCompactDescription',
+            tokenizeLinks: false
         });
+        const descriptionOffsetY = actualCommandWidth > compactCommandWidth ? helpLineHeight : 0;
+        return {
+            height: Math.max(helpLineHeight, descriptionOffsetY + description.height),
+            hitRegions: description.hitRegions.map(region => ({
+                ...region,
+                x: compactDescriptionX + region.x,
+                y: descriptionOffsetY + region.y
+            })),
+            render(ctx, originX, originY, palette) {
+                ctx.font = helpFont;
+                ctx.textBaseline = 'top';
+                ctx.fillStyle = palette.text;
+                ctx.fillText(commandText, originX, originY);
+                ctx.fillText(separatorText, originX + actualCommandWidth + helpGap * 0.35, originY);
+                description.render(ctx, originX + compactDescriptionX, originY + descriptionOffsetY, palette, palette.text);
+            }
+        };
     }
 
-    const description = buildTextLayout(block, block.data.description || '', descriptionWidth, metrics.textFont, metrics.lineHeight, {
+    const description = buildTextLayout(block, block.data.description || '', descriptionWidth, helpFont, helpLineHeight, {
         slotName: '__helpDescription',
         tokenizeLinks: false
     });
 
     return {
-        height: Math.max(metrics.lineHeight, description.height),
+        height: Math.max(helpLineHeight, description.height),
         hitRegions: description.hitRegions.map(region => ({
             ...region,
-            x: commandWidth + separatorWidth + metrics.helpGap + region.x
+            x: commandWidth + separatorWidth + helpGap + region.x
         })),
         render(ctx, originX, originY, palette) {
-            ctx.font = metrics.textFont;
+            ctx.font = helpFont;
             ctx.textBaseline = 'top';
-            ctx.fillStyle = palette.helpCommand;
+            ctx.fillStyle = palette.text;
             ctx.fillText(commandText, originX, originY);
-            ctx.fillStyle = palette.helpSeparator;
-            ctx.fillText(separatorText, originX + commandWidth + metrics.helpGap * 0.35, originY);
-            description.render(ctx, originX + commandWidth + separatorWidth + metrics.helpGap, originY, palette, palette.text);
+            ctx.fillStyle = palette.text;
+            ctx.fillText(separatorText, originX + commandWidth + helpGap * 0.35, originY);
+            description.render(ctx, originX + commandWidth + separatorWidth + helpGap, originY, palette, palette.text);
         }
     };
 }
