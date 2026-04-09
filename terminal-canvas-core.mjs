@@ -2365,6 +2365,9 @@ function ensureCanvas() {
     if (!app.canvas) {
         app.canvas = document.getElementById('terminal-canvas');
     }
+    if (app.canvas) {
+        app.canvas.style.touchAction = 'none';
+    }
     if (!app.ctx) {
         app.ctx = app.canvas.getContext('2d');
     }
@@ -2500,13 +2503,39 @@ function relayoutScene() {
             x: metrics.paddingX + rect.x,
             y: rect.y + rect.height + rect.deleteGap
         }));
+    const scrollbarLayout = getScrollbarLayout(metrics);
+    const scrollbarRegions = scrollbarLayout ? [
+        {
+            action: 'scrollbar-track',
+            data: null,
+            fixed: true,
+            height: scrollbarLayout.hitHeight,
+            width: scrollbarLayout.hitWidth,
+            x: scrollbarLayout.hitX,
+            y: scrollbarLayout.hitY
+        },
+        {
+            action: 'scrollbar-thumb',
+            data: null,
+            fixed: true,
+            height: scrollbarLayout.thumbHitHeight,
+            width: scrollbarLayout.hitWidth,
+            x: scrollbarLayout.hitX,
+            y: clamp(
+                scrollbarLayout.thumbY - (scrollbarLayout.thumbHitHeight - scrollbarLayout.thumbHeight) / 2,
+                scrollbarLayout.hitY,
+                scrollbarLayout.hitY + scrollbarLayout.hitHeight - scrollbarLayout.thumbHitHeight
+            )
+        }
+    ] : [];
     app.contentHeight = Math.max(app.viewportHeight, pass.contentBottom, editorialBottom + metrics.paddingY);
     app.editorialMediaRects = pass.editorialRects;
     app.interactiveRegions = [
         ...baseRegions,
         ...editorialDragRegions,
         ...blockDeleteRegions,
-        ...editorialDeleteRegions
+        ...editorialDeleteRegions,
+        ...scrollbarRegions
     ];
 
     if (nearBottom) {
@@ -2555,22 +2584,62 @@ function drawScreenOverlay(ctx, palette) {
     ctx.restore();
 }
 
-function drawScrollbar(ctx, palette, metrics) {
+function getScrollbarLayout(metrics) {
     if (app.contentHeight <= app.viewportHeight + 2) {
-        return;
+        return null;
     }
 
     const trackX = app.viewportWidth - metrics.scrollbarWidth + 2;
     const trackY = metrics.paddingY;
     const trackHeight = app.viewportHeight - metrics.paddingY * 2;
+    const trackWidth = metrics.scrollbarWidth - 4;
     const thumbHeight = Math.max(36, trackHeight * (app.viewportHeight / app.contentHeight));
     const maxTravel = Math.max(0, trackHeight - thumbHeight);
-    const thumbY = trackY + maxTravel * (app.scrollTop / Math.max(1, app.contentHeight - app.viewportHeight));
+    const maxScrollTop = Math.max(0, app.contentHeight - app.viewportHeight);
+    const thumbY = trackY + maxTravel * (app.scrollTop / Math.max(1, maxScrollTop));
+    const hitPaddingX = isVirtualKeyboardDevice() ? 18 : 8;
+    const hitPaddingY = isVirtualKeyboardDevice() ? 6 : 2;
+
+    return {
+        hitHeight: trackHeight + hitPaddingY * 2,
+        hitWidth: trackWidth + hitPaddingX * 2,
+        hitX: Math.max(0, trackX - hitPaddingX),
+        hitY: Math.max(0, trackY - hitPaddingY),
+        maxScrollTop,
+        maxTravel,
+        thumbHeight,
+        thumbHitHeight: Math.max(44, thumbHeight + hitPaddingY * 2),
+        thumbY,
+        trackHeight,
+        trackWidth,
+        trackX,
+        trackY
+    };
+}
+
+function setScrollTopFromScrollbarPointer(clientY, thumbPointerOffset = 0) {
+    const layout = getScrollbarLayout(resolveMetrics());
+    if (!layout) {
+        return;
+    }
+
+    const rect = app.canvas.getBoundingClientRect();
+    const pointerY = clientY - rect.top;
+    const thumbTop = clamp(pointerY - thumbPointerOffset, layout.trackY, layout.trackY + layout.maxTravel);
+    const ratio = layout.maxTravel <= 0 ? 0 : (thumbTop - layout.trackY) / layout.maxTravel;
+    app.scrollTop = clamp(layout.maxScrollTop * ratio, 0, layout.maxScrollTop);
+}
+
+function drawScrollbar(ctx, palette, metrics) {
+    const layout = getScrollbarLayout(metrics);
+    if (!layout) {
+        return;
+    }
 
     ctx.fillStyle = palette.scrollbarTrack;
-    ctx.fillRect(trackX, trackY, metrics.scrollbarWidth - 4, trackHeight);
+    ctx.fillRect(layout.trackX, layout.trackY, layout.trackWidth, layout.trackHeight);
     ctx.fillStyle = palette.scrollbarThumb;
-    ctx.fillRect(trackX, thumbY, metrics.scrollbarWidth - 4, thumbHeight);
+    ctx.fillRect(layout.trackX, layout.thumbY, layout.trackWidth, layout.thumbHeight);
 }
 
 function drawTerminalScene(timestamp) {
@@ -2995,12 +3064,13 @@ async function handleDeleteMedia(target) {
 function hitTest(clientX, clientY) {
     const rect = app.canvas.getBoundingClientRect();
     const x = clientX - rect.left;
-    const y = clientY - rect.top + (app.viewer ? 0 : app.scrollTop);
+    const viewportY = clientY - rect.top;
+    const contentY = viewportY + (app.viewer ? 0 : app.scrollTop);
     return [...app.interactiveRegions].reverse().find(region => (
         x >= region.x
         && x <= region.x + region.width
-        && y >= region.y
-        && y <= region.y + region.height
+        && (region.fixed ? viewportY : contentY) >= region.y
+        && (region.fixed ? viewportY : contentY) <= region.y + region.height
     )) || null;
 }
 
@@ -3010,6 +3080,33 @@ function onPointerDown(event) {
         if (event.pointerType === 'touch' || (event.pointerType !== 'mouse' && isVirtualKeyboardDevice())) {
             focusTextInputProxy();
         }
+        return;
+    }
+
+    if (region.action === 'scrollbar-thumb' || region.action === 'scrollbar-track') {
+        const layout = getScrollbarLayout(resolveMetrics());
+        if (!layout) {
+            return;
+        }
+        const rect = app.canvas.getBoundingClientRect();
+        const pointerY = event.clientY - rect.top;
+        const thumbPointerOffset = region.action === 'scrollbar-thumb'
+            ? clamp(pointerY - layout.thumbY, 0, layout.thumbHeight)
+            : layout.thumbHeight / 2;
+        if (region.action === 'scrollbar-track') {
+            setScrollTopFromScrollbarPointer(event.clientY, thumbPointerOffset);
+        }
+        app.pointerDrag = {
+            moved: region.action === 'scrollbar-track',
+            pointerId: event.pointerId,
+            scrollbarDrag: true,
+            scrollbarThumbOffset: thumbPointerOffset,
+            startClientY: event.clientY
+        };
+        if (typeof app.canvas.setPointerCapture === 'function') {
+            app.canvas.setPointerCapture(event.pointerId);
+        }
+        event.preventDefault();
         return;
     }
 
@@ -3070,6 +3167,16 @@ function onPointerMove(event) {
         return;
     }
 
+    if (app.pointerDrag.scrollbarDrag) {
+        const deltaY = event.clientY - app.pointerDrag.startClientY;
+        if (!app.pointerDrag.moved && Math.abs(deltaY) > 2) {
+            app.pointerDrag.moved = true;
+        }
+        setScrollTopFromScrollbarPointer(event.clientY, app.pointerDrag.scrollbarThumbOffset);
+        event.preventDefault();
+        return;
+    }
+
     if (app.pointerDrag.widgetBlockId) {
         const deltaX = event.clientX - app.pointerDrag.startClientX;
         if (!app.pointerDrag.moved && Math.abs(deltaX) > 4) {
@@ -3124,6 +3231,10 @@ function onPointerUp(event) {
     app.pointerDrag = null;
     if (typeof app.canvas.hasPointerCapture === 'function' && app.canvas.hasPointerCapture(event.pointerId)) {
         app.canvas.releasePointerCapture(event.pointerId);
+    }
+
+    if (drag.scrollbarDrag) {
+        return;
     }
 
     if (drag.mediaId || drag.widgetBlockId) {
@@ -3385,6 +3496,10 @@ function syncLocalTestHooks() {
                 block.data?.type === 'help-entry'
                 && String(block.data.command || '') === String(command || '')
             )));
+        },
+        getScrollbarLayout() {
+            ensureLayoutCurrent();
+            return getScrollbarLayout(resolveMetrics());
         },
         getState() {
             ensureLayoutCurrent();
