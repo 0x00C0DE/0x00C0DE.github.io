@@ -2,6 +2,11 @@ import { isCJK } from './analysis.js';
 let measureContext = null;
 const segmentMetricCaches = new Map();
 let cachedEngineProfile = null;
+// Safari's prefix-fit policy is useful for ordinary word-sized runs, but letting
+// it measure every growing prefix of a giant segment recreates a pathological
+// superlinear prepare-time path. Past this size, switch to the cheaper
+// pair-context model and keep the public behavior linear.
+const MAX_PREFIX_FIT_GRAPHEMES = 96;
 const emojiPresentationRe = /\p{Emoji_Presentation}/u;
 const maybeEmojiRe = /[\p{Emoji_Presentation}\p{Extended_Pictographic}\p{Regional_Indicator}\uFE0F\u20E3]/u;
 let sharedGraphemeSegmenter = null;
@@ -135,31 +140,69 @@ export function getCorrectedSegmentWidth(seg, metrics, emojiCorrection) {
         return metrics.width;
     return metrics.width - getEmojiCount(seg, metrics) * emojiCorrection;
 }
-export function getSegmentGraphemeWidths(seg, metrics, cache, emojiCorrection) {
-    if (metrics.graphemeWidths !== undefined)
-        return metrics.graphemeWidths;
+export function getSegmentGraphemeWidths(seg, cache, emojiCorrection) {
     const widths = [];
     const graphemeSegmenter = getSharedGraphemeSegmenter();
     for (const gs of graphemeSegmenter.segment(seg)) {
         const graphemeMetrics = getSegmentMetrics(gs.segment, cache);
         widths.push(getCorrectedSegmentWidth(gs.segment, graphemeMetrics, emojiCorrection));
     }
-    metrics.graphemeWidths = widths.length > 1 ? widths : null;
-    return metrics.graphemeWidths;
+    return widths.length > 1 ? widths : null;
 }
-export function getSegmentGraphemePrefixWidths(seg, metrics, cache, emojiCorrection) {
-    if (metrics.graphemePrefixWidths !== undefined)
-        return metrics.graphemePrefixWidths;
-    const prefixWidths = [];
+export function getSegmentBreakableFitAdvances(seg, metrics, cache, emojiCorrection, mode) {
+    if (metrics.breakableFitAdvances !== undefined)
+        return metrics.breakableFitAdvances;
     const graphemeSegmenter = getSharedGraphemeSegmenter();
-    let prefix = '';
+    const graphemes = [];
     for (const gs of graphemeSegmenter.segment(seg)) {
-        prefix += gs.segment;
-        const prefixMetrics = getSegmentMetrics(prefix, cache);
-        prefixWidths.push(getCorrectedSegmentWidth(prefix, prefixMetrics, emojiCorrection));
+        graphemes.push(gs.segment);
     }
-    metrics.graphemePrefixWidths = prefixWidths.length > 1 ? prefixWidths : null;
-    return metrics.graphemePrefixWidths;
+    if (graphemes.length <= 1) {
+        metrics.breakableFitAdvances = null;
+        return metrics.breakableFitAdvances;
+    }
+    if (mode === 'sum-graphemes') {
+        const advances = [];
+        for (const grapheme of graphemes) {
+            const graphemeMetrics = getSegmentMetrics(grapheme, cache);
+            advances.push(getCorrectedSegmentWidth(grapheme, graphemeMetrics, emojiCorrection));
+        }
+        metrics.breakableFitAdvances = advances;
+        return metrics.breakableFitAdvances;
+    }
+    if (mode === 'pair-context' || graphemes.length > MAX_PREFIX_FIT_GRAPHEMES) {
+        const advances = [];
+        let previousGrapheme = null;
+        let previousWidth = 0;
+        for (const grapheme of graphemes) {
+            const graphemeMetrics = getSegmentMetrics(grapheme, cache);
+            const currentWidth = getCorrectedSegmentWidth(grapheme, graphemeMetrics, emojiCorrection);
+            if (previousGrapheme === null) {
+                advances.push(currentWidth);
+            }
+            else {
+                const pair = previousGrapheme + grapheme;
+                const pairMetrics = getSegmentMetrics(pair, cache);
+                advances.push(getCorrectedSegmentWidth(pair, pairMetrics, emojiCorrection) - previousWidth);
+            }
+            previousGrapheme = grapheme;
+            previousWidth = currentWidth;
+        }
+        metrics.breakableFitAdvances = advances;
+        return metrics.breakableFitAdvances;
+    }
+    const advances = [];
+    let prefix = '';
+    let prefixWidth = 0;
+    for (const grapheme of graphemes) {
+        prefix += grapheme;
+        const prefixMetrics = getSegmentMetrics(prefix, cache);
+        const nextPrefixWidth = getCorrectedSegmentWidth(prefix, prefixMetrics, emojiCorrection);
+        advances.push(nextPrefixWidth - prefixWidth);
+        prefixWidth = nextPrefixWidth;
+    }
+    metrics.breakableFitAdvances = advances;
+    return metrics.breakableFitAdvances;
 }
 export function getFontMeasurementState(font, needsEmojiCorrection) {
     const ctx = getMeasureContext();
