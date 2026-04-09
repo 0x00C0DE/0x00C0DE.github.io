@@ -192,6 +192,7 @@ const app = {
     screenOverlayLayer: null,
     scratchCanvas: null,
     scrollTop: 0,
+    suppressNextCanvasClick: false,
     textInputProxy: null,
     viewer: null,
     viewportHeight: 0,
@@ -3074,10 +3075,50 @@ function hitTest(clientX, clientY) {
     )) || null;
 }
 
+function isTouchLikePointer(event) {
+    return Boolean(
+        event?.pointerType === 'touch'
+        || (event?.pointerType !== 'mouse' && isVirtualKeyboardDevice())
+    );
+}
+
+function shouldStartTouchScroll(event, region) {
+    if (app.viewer || !isTouchLikePointer(event)) {
+        return false;
+    }
+
+    if (region?.action === 'scrollbar-thumb' || region?.action === 'scrollbar-track') {
+        return false;
+    }
+    if (region?.action === 'drag-media' || region?.action === 'drag-widget') {
+        return false;
+    }
+
+    return true;
+}
+
 function onPointerDown(event) {
     const region = hitTest(event.clientX, event.clientY);
+    if (shouldStartTouchScroll(event, region)) {
+        app.pointerDrag = {
+            contentScrollDrag: true,
+            focusOnRelease: !region,
+            moved: false,
+            originScrollTop: app.scrollTop,
+            pointerId: event.pointerId,
+            region,
+            startClientX: event.clientX,
+            startClientY: event.clientY
+        };
+        if (typeof app.canvas.setPointerCapture === 'function') {
+            app.canvas.setPointerCapture(event.pointerId);
+        }
+        event.preventDefault();
+        return;
+    }
+
     if (!region) {
-        if (event.pointerType === 'touch' || (event.pointerType !== 'mouse' && isVirtualKeyboardDevice())) {
+        if (isTouchLikePointer(event)) {
             focusTextInputProxy();
         }
         return;
@@ -3167,6 +3208,24 @@ function onPointerMove(event) {
         return;
     }
 
+    if (app.pointerDrag.contentScrollDrag) {
+        const deltaX = event.clientX - app.pointerDrag.startClientX;
+        const deltaY = event.clientY - app.pointerDrag.startClientY;
+        if (!app.pointerDrag.moved) {
+            if (Math.abs(deltaY) <= 4 || Math.abs(deltaY) < Math.abs(deltaX)) {
+                return;
+            }
+            app.pointerDrag.moved = true;
+        }
+        app.scrollTop = clamp(
+            app.pointerDrag.originScrollTop - deltaY,
+            0,
+            Math.max(0, app.contentHeight - app.viewportHeight)
+        );
+        event.preventDefault();
+        return;
+    }
+
     if (app.pointerDrag.scrollbarDrag) {
         const deltaY = event.clientY - app.pointerDrag.startClientY;
         if (!app.pointerDrag.moved && Math.abs(deltaY) > 2) {
@@ -3233,7 +3292,22 @@ function onPointerUp(event) {
         app.canvas.releasePointerCapture(event.pointerId);
     }
 
+    if (drag.contentScrollDrag) {
+        if (drag.moved) {
+            app.suppressNextCanvasClick = true;
+            event.preventDefault();
+            return;
+        }
+        if (drag.focusOnRelease) {
+            focusTextInputProxy();
+            return;
+        }
+    }
+
     if (drag.scrollbarDrag) {
+        if (drag.moved) {
+            app.suppressNextCanvasClick = true;
+        }
         return;
     }
 
@@ -3270,6 +3344,11 @@ function onPointerUp(event) {
 }
 
 function onCanvasClick(event) {
+    if (app.suppressNextCanvasClick) {
+        app.suppressNextCanvasClick = false;
+        return;
+    }
+
     if (!isVirtualKeyboardDevice() || app.viewer) {
         return;
     }
