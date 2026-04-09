@@ -1432,25 +1432,6 @@ function layoutHelpEntry(block, width, metrics, context = {}) {
     const helpGap = Number.isFinite(metrics.helpGap) ? metrics.helpGap : round(extractFontSizePx(helpFont, metrics.fontSize) * 0.9);
     const helpDescriptionRatio = Number.isFinite(metrics.helpDescriptionRatio) ? metrics.helpDescriptionRatio : 0.32;
     const helpCompactMinChars = Number.isFinite(metrics.helpCompactMinChars) ? metrics.helpCompactMinChars : 6;
-    if (hasGlobalEditorialObstacles(context)) {
-        const tokens = [
-            buildTextToken(commandText, { role: 'help-command' }),
-            buildTextToken(separatorText, { role: 'help-separator' }),
-            buildTextToken(block.data.description || '')
-        ];
-        return buildEditorialTextLayout(
-            block,
-            '__helpEditorial',
-            `${commandText}${separatorText}${block.data.description || ''}`,
-            width,
-            helpFont,
-            helpLineHeight,
-            getRelativeEditorialObstacles(context),
-            {
-                tokens
-            }
-        );
-    }
 
     const commandWidth = Math.max(
         measureTextWidth('M'.repeat(Math.max(commandText.length, Number(block.data.commandWidth) || commandText.length)), helpFont),
