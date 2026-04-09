@@ -2716,17 +2716,20 @@ function buildVisitorWidgetElement(stats = null) {
 
 function renderVisitorCounter() {
     const elements = document.querySelectorAll('[data-visitor-counter]');
-    if (!elements.length) {
-        return;
+    const currentStats = getCurrentVisitorStats();
+
+    if (elements.length) {
+        elements.forEach(element => {
+            element.querySelectorAll('[data-visitor-field]').forEach(field => {
+                const fieldName = field.getAttribute('data-visitor-field');
+                field.replaceChildren(createVisitorDigitsFragment(currentStats[fieldName]));
+            });
+        });
     }
 
-    const currentStats = getCurrentVisitorStats();
-    elements.forEach(element => {
-        element.querySelectorAll('[data-visitor-field]').forEach(field => {
-            const fieldName = field.getAttribute('data-visitor-field');
-            field.replaceChildren(createVisitorDigitsFragment(currentStats[fieldName]));
-        });
-    });
+    if (typeof window.refreshTerminalVisitorStats === 'function') {
+        window.refreshTerminalVisitorStats();
+    }
 }
 
 function isValidVisitorStats(payload) {
