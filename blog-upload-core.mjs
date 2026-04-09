@@ -72,6 +72,49 @@ export async function collectExactPostMediaFiles(openPicker, requiredCount, opti
     };
 }
 
+export async function collectIncrementalPostMediaFiles(openPicker, requiredCount, options = {}) {
+    if (typeof openPicker !== 'function') {
+        throw new TypeError('openPicker must be a function');
+    }
+
+    const exactCount = normalizeRequiredMediaCount(requiredCount);
+    const files = [];
+    const pickerPlan = [];
+
+    while (files.length < exactCount) {
+        const remainingCount = exactCount - files.length;
+        const pickerOptions = buildPostMediaPickerOptions(remainingCount, options);
+        pickerPlan.push(pickerOptions);
+
+        const selectedFiles = normalizeSelectedFiles(await openPicker(pickerOptions));
+        if (selectedFiles.length === 0) {
+            const result = validateExactPostMediaFiles(files, exactCount);
+            return {
+                ...result,
+                files,
+                pickerPlan
+            };
+        }
+
+        if (selectedFiles.length > remainingCount) {
+            return {
+                error: `post: upload cancelled; expected ${remainingCount} more media item${remainingCount === 1 ? '' : 's'} but received ${selectedFiles.length}`,
+                files: [...files, ...selectedFiles],
+                ok: false,
+                pickerPlan
+            };
+        }
+
+        files.push(...selectedFiles);
+    }
+
+    return {
+        files,
+        ok: true,
+        pickerPlan
+    };
+}
+
 export async function collectSequentialPostMediaFiles(openPicker, requiredCount, options = {}) {
     if (typeof openPicker !== 'function') {
         throw new TypeError('openPicker must be a function');

@@ -6,6 +6,7 @@ import {
     buildPostMediaPickerOptions,
     buildSequentialPostMediaPickerPlan,
     collectExactPostMediaFiles,
+    collectIncrementalPostMediaFiles,
     collectSequentialPostMediaFiles
 } from '../blog-upload-core.mjs';
 
@@ -43,6 +44,17 @@ function createExpectedExactPickerOptions(exactCount) {
         exactCount,
         multiple: exactCount > 1
     };
+}
+
+function createExpectedIncrementalPickerPlan(totalSelections) {
+    return Array.from({ length: totalSelections }, (_, index) => {
+        const remaining = totalSelections - index;
+        return {
+            accept: 'image/*,video/mp4',
+            exactCount: remaining,
+            multiple: remaining > 1
+        };
+    });
 }
 
 async function loadSampleMediaFiles() {
@@ -96,6 +108,27 @@ test('collectExactPostMediaFiles accepts three selected files from one multi-sel
     assert.deepEqual(pickerCalls[0], createExpectedExactPickerOptions(3));
     assert.equal(result.ok, true);
     assert.equal(result.files.length, 3);
+    assert.deepEqual(
+        result.files.map(file => file.name),
+        ['spongebob1.jpg', 'patrick2.jpg', 'plankton1.jpg']
+    );
+});
+
+test('collectIncrementalPostMediaFiles keeps reopening the picker until all requested media files are selected', async () => {
+    const sampleFiles = await loadSampleMediaFiles();
+    const pickerCalls = [];
+
+    const result = await collectIncrementalPostMediaFiles(async pickerOptions => {
+        pickerCalls.push(pickerOptions);
+        return [sampleFiles[pickerCalls.length - 1]];
+    }, 3, {
+        accept: 'image/*,video/mp4'
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.files.length, 3);
+    assert.deepEqual(result.pickerPlan, createExpectedIncrementalPickerPlan(3));
+    assert.deepEqual(pickerCalls, createExpectedIncrementalPickerPlan(3));
     assert.deepEqual(
         result.files.map(file => file.name),
         ['spongebob1.jpg', 'patrick2.jpg', 'plankton1.jpg']
