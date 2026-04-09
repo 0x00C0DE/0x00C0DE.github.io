@@ -408,7 +408,7 @@ function getSafeTerminalHref(href) {
 }
 
 let blogUploadCoreReadyPromise = null;
-const BLOG_UPLOAD_CORE_MODULE_URL = './blog-upload-core.mjs?v=20260404c';
+const BLOG_UPLOAD_CORE_MODULE_URL = './blog-upload-core.mjs?v=20260408a';
 
 function ensureBlogUploadCoreReady() {
     if (blogUploadCoreReadyPromise) {
@@ -1803,18 +1803,33 @@ async function selectPostMediaAttachments(requiredCount = 1) {
         ? requiredCount
         : 1;
     const uploadCore = await ensureBlogUploadCoreReady();
-    const selectedFiles = await selectUserImageFilesSequentially(normalizedCount, {
-        accept: BLOG_POST_FILE_ACCEPT
-    });
-    const selection = uploadCore?.validateExactPostMediaFiles
-        ? uploadCore.validateExactPostMediaFiles(selectedFiles, normalizedCount)
-        : {
-            ok: selectedFiles.length === normalizedCount,
-            files: selectedFiles,
-            error: selectedFiles.length === 0
-                ? 'post: no media selected'
-                : `post: upload cancelled; expected ${normalizedCount} media item${normalizedCount === 1 ? '' : 's'} but received ${selectedFiles.length}`
-        };
+    const selection = uploadCore?.collectExactPostMediaFiles
+        ? await uploadCore.collectExactPostMediaFiles(
+            pickerOptions => selectUserImageFiles({
+                accept: pickerOptions.accept,
+                exactCount: pickerOptions.exactCount,
+                multiple: pickerOptions.multiple
+            }),
+            normalizedCount,
+            {
+                accept: BLOG_POST_FILE_ACCEPT
+            }
+        )
+        : await (async () => {
+            const selectedFiles = await selectUserImageFiles({
+                accept: BLOG_POST_FILE_ACCEPT,
+                exactCount: normalizedCount,
+                multiple: normalizedCount > 1
+            });
+
+            return {
+                ok: selectedFiles.length === normalizedCount,
+                files: selectedFiles,
+                error: selectedFiles.length === 0
+                    ? 'post: no media selected'
+                    : `post: upload cancelled; expected ${normalizedCount} media item${normalizedCount === 1 ? '' : 's'} but received ${selectedFiles.length}`
+            };
+        })();
 
     if (!selection.ok) {
         return { error: selection.error };

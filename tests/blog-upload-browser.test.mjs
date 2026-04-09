@@ -12,7 +12,7 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 const CHROME_PATH = 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
 const SAMPLE_MEDIA_PATHS = [
     'E:/Downloads/spongebob1.jpg',
-    'E:/Downloads/patrick2.jpg',
+    'E:/Downloads/50cent1.gif',
     'E:/Downloads/plankton1.jpg'
 ];
 
@@ -25,12 +25,6 @@ function createMediaPostCommand(requestedCount) {
     }
     output.push(textBlocks[requestedCount] || `block-${requestedCount + 1}`);
     return output.join(' ');
-}
-
-function createExpectedMediaPaths(requestedCount) {
-    return Array.from({ length: requestedCount }, (_, index) => (
-        SAMPLE_MEDIA_PATHS[index % SAMPLE_MEDIA_PATHS.length]
-    ));
 }
 
 function getContentType(filePath) {
@@ -81,7 +75,7 @@ async function createStaticServer(rootDirectory) {
                 'Cache-Control': 'no-store'
             });
             response.end(file);
-        } catch (error) {
+        } catch {
             response.writeHead(404);
             response.end('not found');
         }
@@ -99,23 +93,7 @@ async function createStaticServer(rootDirectory) {
     };
 }
 
-test('post reopens the file chooser once per requested media slot and succeeds for 1 through 4 and 10 attachments', { timeout: 120000 }, async t => {
-    const server = await createStaticServer(REPO_ROOT);
-    t.after(async () => {
-        await server.close();
-    });
-
-    const browser = await chromium.launch({
-        executablePath: CHROME_PATH,
-        headless: true
-    });
-    t.after(async () => {
-        await browser.close();
-    });
-
-    const page = await browser.newPage();
-    let appendPayload = null;
-
+async function prepareUploadPage(page, origin) {
     await page.route('https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors', async route => {
         await route.fulfill({
             body: JSON.stringify({ onSite: 1, uniqueVisitors: 9, visits: 254 }),
@@ -137,6 +115,50 @@ test('post reopens the file chooser once per requested media slot and succeeds f
             status: 200
         });
     });
+
+    await page.goto(origin, { waitUntil: 'load' });
+    await page.waitForFunction(() => typeof window.executeCommand === 'function');
+    await page.waitForTimeout(2500);
+}
+
+async function startPostCommand(page, command) {
+    await page.evaluate(commandLine => {
+        window.__postCommandDone = false;
+        window.__postCommandError = null;
+        window.__postCommandResult = null;
+        Promise.resolve(window.executeCommand(commandLine))
+            .then(result => {
+                window.__postCommandResult = result ?? null;
+            })
+            .catch(error => {
+                window.__postCommandError = String(error?.message || error || '');
+            })
+            .finally(() => {
+                window.__postCommandDone = true;
+            });
+    }, command);
+}
+
+test('post opens one multi-select chooser for multiple [image] placeholders and uploads every selected media file in order', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const browser = await chromium.launch({
+        executablePath: CHROME_PATH,
+        headless: true
+    });
+    t.after(async () => {
+        await browser.close();
+    });
+
+    const page = await browser.newPage();
+    t.after(async () => {
+        await page.close();
+    });
+
+    let appendPayload = null;
     await page.route('https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/append', async route => {
         appendPayload = JSON.parse(route.request().postData() || '{}');
         await route.fulfill({
@@ -146,46 +168,38 @@ test('post reopens the file chooser once per requested media slot and succeeds f
         });
     });
 
-    await page.goto(server.origin, { waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('#command-input');
+    await prepareUploadPage(page, server.origin);
 
-    const input = page.locator('#command-input');
+    const chooserPromise = page.waitForEvent('filechooser', { timeout: 5000 });
+    await startPostCommand(page, createMediaPostCommand(3));
 
-    for (const requestedCount of [1, 2, 3, 4, 10]) {
-        appendPayload = null;
-        const expectedMediaPaths = createExpectedMediaPaths(requestedCount);
-        await input.fill(createMediaPostCommand(requestedCount));
+    const chooser = await chooserPromise;
+    const isMultiple = await chooser.element().evaluate(input => input.multiple);
+    assert.equal(isMultiple, true);
+    await chooser.setFiles(SAMPLE_MEDIA_PATHS);
 
-        const chooserPromises = [];
-        for (let index = 0; index < requestedCount; index += 1) {
-            chooserPromises.push(page.waitForEvent('filechooser', { timeout: 5000 }));
-            if (index === 0) {
-                await input.press('Enter');
-            } else {
-                const previousChooser = await chooserPromises[index - 1];
-                await previousChooser.setFiles(expectedMediaPaths[index - 1]);
-            }
-        }
+    const extraChooserOpened = await page.waitForEvent('filechooser', { timeout: 1500 })
+        .then(() => true)
+        .catch(() => false);
+    assert.equal(extraChooserOpened, false);
 
-        const lastChooser = await chooserPromises[requestedCount - 1];
-        await lastChooser.setFiles(expectedMediaPaths[requestedCount - 1]);
+    await page.waitForFunction(() => window.__postCommandDone === true);
+    const postCommandError = await page.evaluate(() => window.__postCommandError);
+    assert.equal(postCommandError, null);
 
-        await page.waitForFunction(
-            count => document.body.textContent.includes(`post: attached ${count} media item${count === 1 ? '' : 's'} in the entry`),
-            requestedCount
-        );
+    assert.ok(appendPayload && Array.isArray(appendPayload.contentBlocks));
+    assert.deepEqual(
+        appendPayload.contentBlocks.map(block => block.type),
+        ['text', 'image', 'text', 'image', 'text', 'image', 'text']
+    );
 
-        const terminalText = await page.locator('#terminal').innerText();
-        assert.match(terminalText, /post: blog entry appended successfully/);
-        assert.match(
-            terminalText,
-            new RegExp(`post: attached ${requestedCount} media item${requestedCount === 1 ? '' : 's'} in the entry`)
-        );
-        assert.doesNotMatch(terminalText, /upload cancelled/);
-        assert.ok(appendPayload && Array.isArray(appendPayload.contentBlocks));
-        assert.equal(
-            appendPayload.contentBlocks.filter(block => block.type === 'image').length,
-            requestedCount
-        );
-    }
+    const imageBlocks = appendPayload.contentBlocks.filter(block => block.type === 'image');
+    assert.equal(imageBlocks.length, 3);
+    assert.deepEqual(
+        imageBlocks.map(block => block.fileName),
+        ['spongebob1.jpg', '50cent1.gif', 'plankton1.jpg']
+    );
+    assert.match(imageBlocks[0].imageDataUrl || '', /^data:image\/jpeg;base64,/);
+    assert.match(imageBlocks[1].imageDataUrl || '', /^data:image\/gif;base64,/);
+    assert.match(imageBlocks[2].imageDataUrl || '', /^data:image\/jpeg;base64,/);
 });

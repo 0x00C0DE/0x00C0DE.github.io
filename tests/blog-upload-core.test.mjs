@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 import {
+    buildPostMediaPickerOptions,
     buildSequentialPostMediaPickerPlan,
+    collectExactPostMediaFiles,
     collectSequentialPostMediaFiles
 } from '../blog-upload-core.mjs';
 
@@ -35,6 +37,14 @@ function createExpectedPickerPlan(totalSelections) {
     }));
 }
 
+function createExpectedExactPickerOptions(exactCount) {
+    return {
+        accept: 'image/*,video/mp4',
+        exactCount,
+        multiple: exactCount > 1
+    };
+}
+
 async function loadSampleMediaFiles() {
     return Promise.all(SAMPLE_MEDIA_FIXTURES.map(async fixture => {
         const bytes = await readFile(fixture.path);
@@ -56,6 +66,39 @@ test('buildSequentialPostMediaPickerPlan creates one single-file picker step per
     assert.deepEqual(
         buildSequentialPostMediaPickerPlan(4, { accept: 'image/*,video/mp4' }),
         createExpectedPickerPlan(4)
+    );
+});
+
+test('buildPostMediaPickerOptions preserves the exact multi-select count for multi-media posts', () => {
+    assert.deepEqual(
+        buildPostMediaPickerOptions(3, { accept: 'image/*,video/mp4' }),
+        createExpectedExactPickerOptions(3)
+    );
+
+    assert.deepEqual(
+        buildPostMediaPickerOptions(1, { accept: 'image/*,video/mp4' }),
+        createExpectedExactPickerOptions(1)
+    );
+});
+
+test('collectExactPostMediaFiles accepts three selected files from one multi-select picker interaction', async () => {
+    const sampleFiles = await loadSampleMediaFiles();
+    const pickerCalls = [];
+
+    const result = await collectExactPostMediaFiles(async pickerOptions => {
+        pickerCalls.push(pickerOptions);
+        return sampleFiles;
+    }, 3, {
+        accept: 'image/*,video/mp4'
+    });
+
+    assert.equal(pickerCalls.length, 1);
+    assert.deepEqual(pickerCalls[0], createExpectedExactPickerOptions(3));
+    assert.equal(result.ok, true);
+    assert.equal(result.files.length, 3);
+    assert.deepEqual(
+        result.files.map(file => file.name),
+        ['spongebob1.jpg', 'patrick2.jpg', 'plankton1.jpg']
     );
 });
 

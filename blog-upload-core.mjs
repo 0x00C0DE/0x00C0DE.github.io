@@ -16,8 +16,8 @@ export function buildPostMediaPickerOptions(requiredCount, options = {}) {
         accept: typeof options.accept === 'string' && options.accept.trim()
             ? options.accept.trim()
             : 'image/*,video/mp4',
-        exactCount: Math.min(exactCount, 1),
-        multiple: false
+        exactCount,
+        multiple: Boolean(options.multiple) || exactCount > 1
     };
 }
 
