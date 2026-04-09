@@ -110,6 +110,10 @@ const BLOG_ALLOWED_POST_MEDIA_MIME_TYPES = new Set([...BLOG_ALLOWED_IMAGE_MIME_T
 const BLOG_ALLOWED_HOSTED_MEDIA_MIME_TYPES = new Set(['image/gif', 'video/mp4']);
 const BLOG_IMAGE_FILE_ACCEPT = 'image/*';
 const BLOG_POST_FILE_ACCEPT = 'image/*,video/mp4';
+const FILE_PICKER_ACCEPT_EXTENSIONS = Object.freeze({
+    'image/*': Object.freeze(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.avif']),
+    'video/mp4': Object.freeze(['.mp4'])
+});
 const BLOG_IMAGE_DATA_URL_PATTERN = /^data:([^;]+);base64,([A-Za-z0-9+/=\r\n]+)$/i;
 const BLOG_Z85_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#';
 const BLOG_Z85_CHAR_TO_VALUE = (() => {
@@ -876,15 +880,92 @@ async function renderImageToAscii(imageSource, width, height, options = {}) {
     return processImage(context, dimensions.width, dimensions.height);
 }
 
+function resolveUserImagePickerAccept(options = {}) {
+    return typeof options.accept === 'string' && options.accept.trim()
+        ? options.accept.trim()
+        : BLOG_IMAGE_FILE_ACCEPT;
+}
+
+function buildNativeFilePickerTypes(acceptValue) {
+    const accept = Object.create(null);
+    String(acceptValue || '')
+        .split(',')
+        .map(token => token.trim().toLowerCase())
+        .filter(Boolean)
+        .forEach(token => {
+            const extensions = FILE_PICKER_ACCEPT_EXTENSIONS[token];
+            if (!extensions) {
+                return;
+            }
+
+            accept[token] = [...extensions];
+        });
+
+    if (Object.keys(accept).length === 0) {
+        return [];
+    }
+
+    return [{
+        accept,
+        description: 'Media files'
+    }];
+}
+
+async function selectUserImageFilesWithOpenPicker(options = {}) {
+    if (typeof window.showOpenFilePicker !== 'function') {
+        return null;
+    }
+
+    const exactCount = Number.isInteger(options.exactCount) && options.exactCount > 0
+        ? options.exactCount
+        : null;
+    const allowMultiple = Boolean(options.multiple || (exactCount && exactCount > 1));
+    const pickerOptions = {
+        excludeAcceptAllOption: false,
+        multiple: allowMultiple
+    };
+    const types = buildNativeFilePickerTypes(resolveUserImagePickerAccept(options));
+    if (types.length > 0) {
+        pickerOptions.types = types;
+    }
+
+    try {
+        const handles = await window.showOpenFilePicker(pickerOptions);
+        const files = await Promise.all(
+            (Array.isArray(handles) ? handles : [])
+                .filter(Boolean)
+                .map(handle => typeof handle.getFile === 'function' ? handle.getFile() : null)
+        );
+        return files.filter(Boolean);
+    } catch (error) {
+        if (error?.name === 'AbortError') {
+            return [];
+        }
+
+        if (error?.name === 'SecurityError' || error?.name === 'NotAllowedError') {
+            return null;
+        }
+
+        throw error;
+    }
+}
+
 async function selectUserImageFiles(options = {}) {
     const exactCount = Number.isInteger(options.exactCount) && options.exactCount > 0
         ? options.exactCount
         : null;
     const allowMultiple = Boolean(options.multiple || (exactCount && exactCount > 1));
+    const pickerFiles = await selectUserImageFilesWithOpenPicker({
+        ...options,
+        exactCount,
+        multiple: allowMultiple
+    });
+    if (pickerFiles !== null) {
+        return pickerFiles;
+    }
+
     const input = createTransientUserImageInput({
-        accept: typeof options.accept === 'string' && options.accept.trim()
-            ? options.accept.trim()
-            : BLOG_IMAGE_FILE_ACCEPT,
+        accept: resolveUserImagePickerAccept(options),
         multiple: allowMultiple
     });
 
@@ -894,6 +975,7 @@ async function selectUserImageFiles(options = {}) {
 
     return new Promise(resolve => {
         let settled = false;
+        const supportsInputCancelEvent = 'oncancel' in input;
 
         const finish = files => {
             if (settled) {
@@ -901,47 +983,27 @@ async function selectUserImageFiles(options = {}) {
             }
             settled = true;
             input.removeEventListener('change', handleChange);
-            window.removeEventListener('focus', handleFocus);
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            input.removeEventListener('cancel', handleCancel);
             removeTransientUserImageInput(input);
-            resolve(Array.isArray(files) ? files : []);
+            resolve(Array.isArray(files) ? files.filter(Boolean) : []);
         };
 
         const resolveSelectedFiles = () => {
-            const files = input.files ? Array.from(input.files).filter(Boolean) : [];
-            if (exactCount && files.length !== exactCount) {
-                finish(files);
-                return;
-            }
-
-            finish(files);
+            finish(input.files ? Array.from(input.files).filter(Boolean) : []);
         };
 
         const handleChange = () => {
             resolveSelectedFiles();
         };
 
-        const handleFocus = () => {
-            setTimeout(() => {
-                if (!settled) {
-                    resolveSelectedFiles();
-                }
-            }, 400);
+        const handleCancel = () => {
+            finish([]);
         };
 
-        const handleVisibilityChange = () => {
-            if (document.visibilityState === 'visible') {
-                setTimeout(() => {
-                    if (!settled) {
-                        resolveSelectedFiles();
-                    }
-                }, 400);
-            }
-        };
-
-        input.addEventListener('change', handleChange, { once: true });
-        window.addEventListener('focus', handleFocus, { once: true });
-        document.addEventListener('visibilitychange', handleVisibilityChange);
+        input.addEventListener('change', handleChange);
+        if (supportsInputCancelEvent) {
+            input.addEventListener('cancel', handleCancel);
+        }
         triggerUserImageInputPicker(input);
     });
 }

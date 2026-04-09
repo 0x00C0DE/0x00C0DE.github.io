@@ -139,7 +139,55 @@ async function startPostCommand(page, command) {
     }, command);
 }
 
-test('post opens one multi-select chooser for multiple [image] placeholders and uploads every selected media file in order', { timeout: 120000 }, async t => {
+async function installShowOpenFilePickerMock(page, selectedFiles, options = {}) {
+    const delayMs = Number.isFinite(options.delayMs) ? Math.max(0, Math.floor(options.delayMs)) : 0;
+    await page.evaluate(({ delayMs: responseDelayMs, selectedFiles: fixtures }) => {
+        window.__showOpenFilePickerCalls = [];
+        window.showOpenFilePicker = async options => {
+            window.__showOpenFilePickerCalls.push({
+                excludeAcceptAllOption: Boolean(options?.excludeAcceptAllOption),
+                multiple: Boolean(options?.multiple),
+                types: Array.isArray(options?.types)
+                    ? options.types.map(type => ({
+                        accept: type?.accept || null,
+                        description: type?.description || ''
+                    }))
+                    : []
+            });
+
+            if (responseDelayMs > 0) {
+                await new Promise(resolve => window.setTimeout(resolve, responseDelayMs));
+            }
+
+            return fixtures.map(fixture => ({
+                kind: 'file',
+                name: fixture.name,
+                async getFile() {
+                    return new File(
+                        [Uint8Array.from(fixture.bytes)],
+                        fixture.name,
+                        { type: fixture.type }
+                    );
+                }
+            }));
+        };
+        HTMLInputElement.prototype.click = function() {
+            throw new Error('legacy input picker fallback should not run when showOpenFilePicker is available');
+        };
+        HTMLInputElement.prototype.showPicker = function() {
+            throw new Error('legacy input picker fallback should not run when showOpenFilePicker is available');
+        };
+    }, {
+        delayMs,
+        selectedFiles: selectedFiles.map(file => ({
+            bytes: Array.from(new TextEncoder().encode(file.contents)),
+            name: file.name,
+            type: file.type
+        }))
+    });
+}
+
+test('post uses showOpenFilePicker for multiple [image] placeholders and uploads every selected media file in order', { timeout: 120000 }, async t => {
     const server = await createStaticServer(REPO_ROOT);
     t.after(async () => {
         await server.close();
@@ -169,23 +217,32 @@ test('post opens one multi-select chooser for multiple [image] placeholders and 
     });
 
     await prepareUploadPage(page, server.origin);
+    await installShowOpenFilePickerMock(page, [
+        {
+            contents: 'fake-jpeg-1',
+            name: 'spongebob1.jpg',
+            type: 'image/jpeg'
+        },
+        {
+            contents: 'fake-gif-2',
+            name: '50cent1.gif',
+            type: 'image/gif'
+        },
+        {
+            contents: 'fake-jpeg-3',
+            name: 'plankton1.jpg',
+            type: 'image/jpeg'
+        }
+    ]);
 
-    const chooserPromise = page.waitForEvent('filechooser', { timeout: 5000 });
     await startPostCommand(page, createMediaPostCommand(3));
-
-    const chooser = await chooserPromise;
-    const isMultiple = await chooser.element().evaluate(input => input.multiple);
-    assert.equal(isMultiple, true);
-    await chooser.setFiles(SAMPLE_MEDIA_PATHS);
-
-    const extraChooserOpened = await page.waitForEvent('filechooser', { timeout: 1500 })
-        .then(() => true)
-        .catch(() => false);
-    assert.equal(extraChooserOpened, false);
 
     await page.waitForFunction(() => window.__postCommandDone === true);
     const postCommandError = await page.evaluate(() => window.__postCommandError);
     assert.equal(postCommandError, null);
+    const pickerCalls = await page.evaluate(() => window.__showOpenFilePickerCalls || []);
+    assert.equal(pickerCalls.length, 1);
+    assert.equal(pickerCalls[0].multiple, true);
 
     assert.ok(appendPayload && Array.isArray(appendPayload.contentBlocks));
     assert.deepEqual(
@@ -202,4 +259,66 @@ test('post opens one multi-select chooser for multiple [image] placeholders and 
     assert.match(imageBlocks[0].imageDataUrl || '', /^data:image\/jpeg;base64,/);
     assert.match(imageBlocks[1].imageDataUrl || '', /^data:image\/gif;base64,/);
     assert.match(imageBlocks[2].imageDataUrl || '', /^data:image\/jpeg;base64,/);
+});
+
+test('post waits for a delayed showOpenFilePicker resolution instead of treating focus return as an empty selection', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const browser = await chromium.launch({
+        executablePath: CHROME_PATH,
+        headless: true
+    });
+    t.after(async () => {
+        await browser.close();
+    });
+
+    const page = await browser.newPage();
+    t.after(async () => {
+        await page.close();
+    });
+
+    let appendPayload = null;
+    await page.route('https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/append', async route => {
+        appendPayload = JSON.parse(route.request().postData() || '{}');
+        await route.fulfill({
+            body: JSON.stringify({ commitUrl: 'https://example.com/commit' }),
+            contentType: 'application/json',
+            status: 200
+        });
+    });
+
+    await prepareUploadPage(page, server.origin);
+    await installShowOpenFilePickerMock(page, [
+        {
+            contents: 'fake-jpeg-1',
+            name: 'first.jpg',
+            type: 'image/jpeg'
+        },
+        {
+            contents: 'fake-gif-2',
+            name: 'second.gif',
+            type: 'image/gif'
+        },
+        {
+            contents: 'fake-jpeg-3',
+            name: 'third.jpg',
+            type: 'image/jpeg'
+        }
+    ], {
+        delayMs: 650
+    });
+
+    await startPostCommand(page, createMediaPostCommand(3));
+    await page.waitForFunction(() => window.__postCommandDone === true);
+
+    const terminalText = await page.evaluate(() => document.body.innerText);
+    assert.doesNotMatch(terminalText, /post: no media selected/);
+    assert.ok(appendPayload && Array.isArray(appendPayload.contentBlocks));
+    assert.equal(
+        appendPayload.contentBlocks.filter(block => block.type === 'image').length,
+        3
+    );
 });
