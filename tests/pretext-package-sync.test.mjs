@@ -26,5 +26,6 @@ test('root package and vendored browser copy stay aligned to @chenglou/pretext',
 
     await access(path.join(repoRoot, 'vendor', 'pretext', 'layout.js'));
     await access(path.join(repoRoot, 'vendor', 'pretext', 'analysis.js'));
+    await access(path.join(repoRoot, 'vendor', 'pretext', 'generated', 'bidi-data.js'));
     await access(path.join(repoRoot, 'pretext-browser.mjs'));
 });

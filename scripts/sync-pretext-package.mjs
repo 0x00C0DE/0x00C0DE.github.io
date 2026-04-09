@@ -21,6 +21,14 @@ async function copyDistFiles(sourceDir, destinationDir) {
     const entries = await readdir(sourceDir, { withFileTypes: true });
 
     for (const entry of entries) {
+        if (entry.isDirectory()) {
+            const nestedSourcePath = path.join(sourceDir, entry.name);
+            const nestedDestinationPath = path.join(destinationDir, entry.name);
+            await mkdir(nestedDestinationPath, { recursive: true });
+            await copyDistFiles(nestedSourcePath, nestedDestinationPath);
+            continue;
+        }
+
         if (!entry.isFile() || !entry.name.endsWith('.js')) {
             continue;
         }
