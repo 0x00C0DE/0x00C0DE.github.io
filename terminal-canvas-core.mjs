@@ -45,6 +45,7 @@ const DEFAULT_VISITOR_STATS = Object.freeze({
 const CURSOR_BLINK_INTERVAL_MS = 540;
 const BACKGROUND_STEP_MS = 120;
 const MEDIA_PLACEHOLDER_ASPECT_RATIO = 16 / 9;
+const MOBILE_INPUT_PROXY_ID = 'terminal-mobile-input';
 
 const PALETTES = Object.freeze({
     default: {
@@ -191,6 +192,7 @@ const app = {
     screenOverlayLayer: null,
     scratchCanvas: null,
     scrollTop: 0,
+    textInputProxy: null,
     viewer: null,
     viewportHeight: 0,
     viewportWidth: 0
@@ -202,6 +204,19 @@ function clamp(value, minimum, maximum) {
 
 function round(value) {
     return Math.round(value);
+}
+
+function isVirtualKeyboardDevice() {
+    const maxTouchPoints = Number.isFinite(navigator.maxTouchPoints) ? navigator.maxTouchPoints : 0;
+    if (maxTouchPoints > 0) {
+        return true;
+    }
+
+    try {
+        return Boolean(window.matchMedia?.('(pointer: coarse)').matches);
+    } catch {
+        return false;
+    }
 }
 
 function buildFont(fontSize, weight = '400') {
@@ -260,6 +275,123 @@ function ensureMeasureContext() {
         app.measureCtx = app.measureCanvas.getContext('2d');
     }
     return app.measureCtx;
+}
+
+function ensureTextInputProxy() {
+    if (app.textInputProxy?.isConnected) {
+        return app.textInputProxy;
+    }
+
+    const existing = document.getElementById(MOBILE_INPUT_PROXY_ID);
+    if (existing instanceof HTMLTextAreaElement) {
+        app.textInputProxy = existing;
+        return existing;
+    }
+
+    const input = document.createElement('textarea');
+    input.id = MOBILE_INPUT_PROXY_ID;
+    input.setAttribute('aria-label', 'Terminal input');
+    input.setAttribute('autocapitalize', 'off');
+    input.setAttribute('autocomplete', 'off');
+    input.setAttribute('autocorrect', 'off');
+    input.setAttribute('enterkeyhint', 'send');
+    input.setAttribute('inputmode', 'text');
+    input.spellcheck = false;
+    input.rows = 1;
+    input.style.position = 'fixed';
+    input.style.left = '0';
+    input.style.bottom = '0';
+    input.style.width = '1px';
+    input.style.height = '1px';
+    input.style.padding = '0';
+    input.style.border = '0';
+    input.style.opacity = '0.01';
+    input.style.background = 'transparent';
+    input.style.color = 'transparent';
+    input.style.caretColor = 'transparent';
+    input.style.pointerEvents = 'none';
+    input.style.resize = 'none';
+    input.style.overflow = 'hidden';
+    input.addEventListener('focus', handleTextInputProxyFocus);
+    input.addEventListener('beforeinput', handleTextInputProxyBeforeInput);
+    input.addEventListener('input', handleTextInputProxyInput);
+    (document.body || document.documentElement).append(input);
+    app.textInputProxy = input;
+    syncTextInputProxyValue();
+    return input;
+}
+
+function syncTextInputProxyValue() {
+    const input = ensureTextInputProxy();
+    const nextValue = String(app.inputValue || '');
+    if (input.value !== nextValue) {
+        input.value = nextValue;
+    }
+
+    if (document.activeElement === input && typeof input.setSelectionRange === 'function') {
+        const caret = input.value.length;
+        input.setSelectionRange(caret, caret);
+    }
+}
+
+function focusTextInputProxy() {
+    const input = ensureTextInputProxy();
+    syncTextInputProxyValue();
+    try {
+        input.focus({ preventScroll: true });
+    } catch {
+        input.focus();
+    }
+    if (typeof input.setSelectionRange === 'function') {
+        const caret = input.value.length;
+        input.setSelectionRange(caret, caret);
+    }
+}
+
+function handleTextInputProxyFocus() {
+    syncTextInputProxyValue();
+}
+
+function submitTextInputProxyCommand() {
+    const command = String(app.inputValue || '');
+    app.inputValue = '';
+    syncTextInputProxyValue();
+    executeCommand(command);
+    markLayoutDirty();
+    scrollToBottom();
+}
+
+function handleTextInputProxyBeforeInput(event) {
+    if (app.viewer) {
+        return;
+    }
+
+    if (event.inputType === 'insertLineBreak') {
+        event.preventDefault();
+        submitTextInputProxyCommand();
+    }
+}
+
+function handleTextInputProxyInput(event) {
+    if (app.viewer) {
+        return;
+    }
+
+    const input = event.currentTarget;
+    if (!(input instanceof HTMLTextAreaElement)) {
+        return;
+    }
+
+    const normalizedValue = String(input.value || '').replace(/\r/g, '');
+    if (normalizedValue.includes('\n')) {
+        app.inputValue = normalizedValue.replace(/\n/g, ' ').trimEnd();
+        submitTextInputProxyCommand();
+        return;
+    }
+
+    app.inputValue = normalizedValue;
+    markLayoutDirty();
+    scrollToBottom();
 }
 
 function measureTextWidth(text, font) {
@@ -2423,6 +2555,7 @@ export async function executeCommand(commandLine) {
 
     appendOutput(output);
     app.inputValue = '';
+    syncTextInputProxyValue();
     scrollToBottom();
 }
 
@@ -2432,6 +2565,7 @@ export function setupTerminal() {
     app.inputValue = '';
     app.interactiveRegions = [];
     app.scrollTop = 0;
+    syncTextInputProxyValue();
     markLayoutDirty();
 }
 
@@ -2635,6 +2769,9 @@ function hitTest(clientX, clientY) {
 function onPointerDown(event) {
     const region = hitTest(event.clientX, event.clientY);
     if (!region) {
+        if (event.pointerType === 'touch' || (event.pointerType !== 'mouse' && isVirtualKeyboardDevice())) {
+            focusTextInputProxy();
+        }
         return;
     }
 
@@ -2783,6 +2920,17 @@ function onPointerUp(event) {
     }
 }
 
+function onCanvasClick(event) {
+    if (!isVirtualKeyboardDevice() || app.viewer) {
+        return;
+    }
+
+    const region = hitTest(event.clientX, event.clientY);
+    if (!region) {
+        focusTextInputProxy();
+    }
+}
+
 function onPointerCancel(event) {
     if (!app.pointerDrag || app.pointerDrag.pointerId !== event.pointerId) {
         return;
@@ -2812,6 +2960,7 @@ function navigateHistory(delta) {
     }
     app.historyIndex = clamp((Number.isInteger(app.historyIndex) ? app.historyIndex : app.commandHistory.length) + delta, 0, app.commandHistory.length);
     app.inputValue = app.historyIndex >= app.commandHistory.length ? '' : app.commandHistory[app.historyIndex];
+    syncTextInputProxyValue();
 }
 
 function autocompleteInput() {
@@ -2819,6 +2968,7 @@ function autocompleteInput() {
     const matches = [...getCommandHandlers().keys()].filter(name => name.startsWith(partial));
     if (matches.length === 1) {
         app.inputValue = matches[0];
+        syncTextInputProxyValue();
     }
 }
 
@@ -2831,6 +2981,7 @@ function onPaste(event) {
         return;
     }
     app.inputValue += pasted.replace(/\r\n/g, '\n').replace(/\n/g, ' ');
+    syncTextInputProxyValue();
     markLayoutDirty();
     scrollToBottom();
     event.preventDefault();
@@ -2847,14 +2998,13 @@ function onKeyDown(event) {
 
     switch (event.key) {
     case 'Enter': {
-        const command = app.inputValue;
-        app.inputValue = '';
-        executeCommand(command);
+        submitTextInputProxyCommand();
         event.preventDefault();
         return;
     }
     case 'Backspace':
         app.inputValue = app.inputValue.slice(0, -1);
+        syncTextInputProxyValue();
         markLayoutDirty();
         scrollToBottom();
         event.preventDefault();
@@ -2898,6 +3048,7 @@ function onKeyDown(event) {
 
     if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
         app.inputValue += event.key;
+        syncTextInputProxyValue();
         markLayoutDirty();
         scrollToBottom();
         event.preventDefault();
@@ -2910,14 +3061,21 @@ function bindEvents() {
     window.addEventListener('paste', onPaste);
     app.canvas.addEventListener('wheel', onWheel, { passive: false });
     app.canvas.addEventListener('pointerdown', onPointerDown);
+    app.canvas.addEventListener('click', onCanvasClick);
     app.canvas.addEventListener('pointermove', onPointerMove);
     app.canvas.addEventListener('pointerup', onPointerUp);
     app.canvas.addEventListener('pointercancel', onPointerCancel);
+    ensureTextInputProxy();
 }
 
 export function refreshTerminalInputPrompt() {
+    syncTextInputProxyValue();
     markLayoutDirty();
     scrollToBottom();
+}
+
+export function refreshTerminalVisitorStats() {
+    markLayoutDirty();
 }
 
 export function syncTerminalSessionAwareLines() {
