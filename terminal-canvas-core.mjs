@@ -1842,9 +1842,10 @@ function layoutStandaloneMedia(block, metrics) {
         ? getButtonLayout('[delete media]', metrics.buttonFont)
         : null;
     const buttonGap = deleteButton ? 8 : 0;
+    const deleteOffset = deleteButton ? deleteButton.height + buttonGap : 0;
 
     return {
-        height: dimensions.height + (deleteButton ? deleteButton.height + buttonGap : 0),
+        height: deleteOffset + dimensions.height,
         hitRegions: [
             ...(deleteButton ? [{
                 action: 'delete-media',
@@ -1852,19 +1853,24 @@ function layoutStandaloneMedia(block, metrics) {
                 height: deleteButton.height,
                 width: deleteButton.width,
                 x: 0,
-                y: dimensions.height + buttonGap
+                y: 0
             }] : [])
         ],
         render(ctx, originX, originY, palette) {
+            if (deleteButton) {
+                drawButton(ctx, deleteButton, originX, originY, palette);
+            }
+
+            const mediaY = originY + deleteOffset;
             ctx.fillStyle = palette.media;
             ctx.strokeStyle = palette.border;
             ctx.lineWidth = 1;
-            ctx.fillRect(originX, originY, dimensions.width, dimensions.height);
-            ctx.strokeRect(originX + 0.5, originY + 0.5, dimensions.width - 1, dimensions.height - 1);
+            ctx.fillRect(originX, mediaY, dimensions.width, dimensions.height);
+            ctx.strokeRect(originX + 0.5, mediaY + 0.5, dimensions.width - 1, dimensions.height - 1);
             const source = getMediaRenderSource(entry);
             if (entry?.ready && source) {
                 try {
-                    ctx.drawImage(source, originX, originY, dimensions.width, dimensions.height);
+                    ctx.drawImage(source, originX, mediaY, dimensions.width, dimensions.height);
                 } catch {
                     // Ignore transient media draw issues.
                 }
@@ -1872,11 +1878,7 @@ function layoutStandaloneMedia(block, metrics) {
                 ctx.font = metrics.textFont;
                 ctx.textBaseline = 'middle';
                 ctx.fillStyle = palette.text;
-                ctx.fillText(type === 'video' ? '[video loading]' : '[image loading]', originX + 12, originY + dimensions.height / 2);
-            }
-
-            if (deleteButton) {
-                drawButton(ctx, deleteButton, originX, originY + dimensions.height + buttonGap, palette);
+                ctx.fillText(type === 'video' ? '[video loading]' : '[image loading]', originX + 12, mediaY + dimensions.height / 2);
             }
         }
     };
@@ -1892,6 +1894,14 @@ function getEditorialMediaRects(block, width, metrics, headerHeight, blockTop = 
     const mediaRects = [];
     segments.forEach((segment, segmentIndex) => {
         if (segment.type === 'blog-entry-text-block') {
+            const deleteTextButton = canManageBlogEntries() && segment?.deletable
+                ? getButtonLayout('[delete text]', metrics.buttonFont)
+                : null;
+            const deleteTextGap = deleteTextButton ? Math.max(3, round(metrics.lineHeight * 0.18)) : 0;
+            if (deleteTextButton) {
+                cursorY += deleteTextButton.height + deleteTextGap;
+            }
+
             const lines = Array.isArray(segment.lines) ? segment.lines : [''];
             lines.forEach((lineText, lineIndex) => {
                 if (!lineText) {
@@ -1919,6 +1929,7 @@ function getEditorialMediaRects(block, width, metrics, headerHeight, blockTop = 
             ? getButtonLayout('[delete media]', metrics.buttonFont)
             : null;
         const deleteGap = deleteButton ? 8 : 0;
+        const deleteOffset = deleteButton ? deleteButton.height + deleteGap : 0;
         const existing = block.editorialMediaState.get(id);
         const maxX = Math.max(0, width - dimensions.width);
         const isPinned = Boolean(existing?.pinned);
@@ -1928,6 +1939,7 @@ function getEditorialMediaRects(block, width, metrics, headerHeight, blockTop = 
             block: segment,
             deleteButton,
             deleteGap,
+            deleteOffset,
             entry,
             height: dimensions.height,
             id,
@@ -1938,7 +1950,7 @@ function getEditorialMediaRects(block, width, metrics, headerHeight, blockTop = 
                 : 0,
             y: isPinned && Number.isFinite(existing?.y)
                 ? Math.max(0, existing.y)
-                : blockTop + anchorY
+                : blockTop + anchorY + deleteOffset
         };
 
         mediaRects.push(rect);
@@ -1947,7 +1959,7 @@ function getEditorialMediaRects(block, width, metrics, headerHeight, blockTop = 
             x: rect.x,
             y: rect.y
         });
-        cursorY += rect.height + (deleteButton ? deleteButton.height + deleteGap : 0) + metrics.blockGap;
+        cursorY += deleteOffset + rect.height + metrics.blockGap;
     });
 
     return mediaRects;
@@ -1962,21 +1974,23 @@ function shiftObstacles(obstacles, deltaY) {
 
 function layoutBlogEntry(block, width, metrics, editorial, context = {}) {
     const children = [];
-    let cursorY = 0;
+    const buttons = [];
     const blockTop = Number.isFinite(context.blockTop) ? context.blockTop : 0;
     const deleteEntryButton = canManageBlogEntries() && block.data?.deletable
         ? getButtonLayout('[delete post]', metrics.buttonFont)
         : null;
+    const deleteEntryGap = deleteEntryButton ? Math.max(3, round(metrics.lineHeight * 0.18)) : 0;
+    const deleteEntryOffset = deleteEntryButton ? deleteEntryButton.height + deleteEntryGap : 0;
     const flatHeader = buildTextLayout(block, block.data.text || '', width, metrics.textFont, metrics.lineHeight, {
         slotName: '__blogHeaderFlat',
         tokenizeLinks: false
     });
-    const mediaRects = editorial ? getEditorialMediaRects(block, width, metrics, flatHeader.height, blockTop) : [];
+    const mediaRects = editorial ? getEditorialMediaRects(block, width, metrics, deleteEntryOffset + flatHeader.height, blockTop) : [];
     const localObstacleRects = mediaRects.map(rect => ({
-        height: rect.height + 10,
+        height: rect.height + rect.deleteOffset + 10,
         width: rect.width + 10,
         x: rect.x - 5,
-        y: rect.y - blockTop - 5
+        y: rect.y - blockTop - rect.deleteOffset - 5
     }));
     const obstacleRects = editorial
         ? [
@@ -1986,17 +2000,46 @@ function layoutBlogEntry(block, width, metrics, editorial, context = {}) {
             ...localObstacleRects
         ]
         : localObstacleRects;
+    let cursorY = deleteEntryOffset;
     const header = editorial
         ? buildEditorialTextLayout(block, '__blogHeaderEditorial', block.data.text || '', width, metrics.textFont, metrics.lineHeight, shiftObstacles(obstacleRects, cursorY), {
             tokenizeLinks: false
         })
         : flatHeader;
 
+    if (deleteEntryButton) {
+        buttons.push({
+            action: 'delete-entry',
+            button: deleteEntryButton,
+            data: {
+                entryTimestamp: block.data.entryTimestamp,
+                line: block.data
+            },
+            x: 0,
+            y: 0
+        });
+    }
+
     children.push({ layout: header, x: 0, y: cursorY });
     cursorY += (editorial ? header.textHeight : header.height) + metrics.blockGap;
 
     (Array.isArray(block.data.blocks) ? block.data.blocks : []).forEach((segment, segmentIndex) => {
         if (segment.type === 'blog-entry-text-block') {
+            const deleteTextButton = canManageBlogEntries() && segment?.deletable
+                ? getButtonLayout('[delete text]', metrics.buttonFont)
+                : null;
+            const deleteTextGap = deleteTextButton ? Math.max(3, round(metrics.lineHeight * 0.18)) : 0;
+            if (deleteTextButton) {
+                buttons.push({
+                    action: 'delete-text-block',
+                    button: deleteTextButton,
+                    data: segment,
+                    x: 0,
+                    y: cursorY
+                });
+                cursorY += deleteTextButton.height + deleteTextGap;
+            }
+
             const lines = Array.isArray(segment.lines) ? segment.lines : [''];
             lines.forEach((lineText, lineIndex) => {
                 if (!lineText) {
@@ -2035,38 +2078,31 @@ function layoutBlogEntry(block, width, metrics, editorial, context = {}) {
 
     const contentBottom = Math.max(
         cursorY,
-        ...[0, ...mediaRects.map(rect => rect.anchorY + rect.height + (rect.deleteButton ? rect.deleteButton.height + rect.deleteGap : 0))]
+        ...[0, ...mediaRects.map(rect => rect.y - blockTop + rect.height)]
     );
-    const deleteEntryGap = deleteEntryButton ? Math.max(3, round(metrics.lineHeight * 0.18)) : 0;
-    const deleteEntryY = deleteEntryButton ? contentBottom + deleteEntryGap : 0;
-
-    if (deleteEntryButton) {
+    buttons.forEach(button => {
         hitRegions.push({
-            action: 'delete-entry',
-            data: {
-                entryTimestamp: block.data.entryTimestamp,
-                line: block.data
-            },
-            height: deleteEntryButton.height,
-            width: deleteEntryButton.width,
-            x: 0,
-            y: deleteEntryY
+            action: button.action,
+            data: button.data,
+            height: button.button.height,
+            width: button.button.width,
+            x: button.x,
+            y: button.y
         });
-    }
+    });
 
     return {
         editorialMediaRects: editorial ? mediaRects : [],
-        height: deleteEntryButton ? deleteEntryY + deleteEntryButton.height : contentBottom,
+        height: contentBottom,
         hitRegions,
         render(ctx, originX, originY, palette) {
             children.forEach(child => {
                 child.layout.render(ctx, originX + child.x, originY + child.y, palette);
             });
 
-            if (deleteEntryButton) {
-                drawButton(ctx, deleteEntryButton, originX, originY + deleteEntryY, palette);
-            }
-
+            buttons.forEach(button => {
+                drawButton(ctx, button.button, originX + button.x, originY + button.y, palette);
+            });
         }
     };
 }
@@ -2515,10 +2551,10 @@ function relayoutScene() {
     app.inputLayout = pass.inputLayout;
     app.inputTop = pass.inputTop;
     const editorialBottom = pass.editorialRects.reduce((maximum, rect) => (
-        Math.max(maximum, rect.y + rect.height + (rect.deleteButton ? rect.deleteButton.height + rect.deleteGap : 0))
+        Math.max(maximum, rect.y + rect.height)
     ), 0);
-    const blockDeleteRegions = pass.regions.filter(region => region.action === 'delete-entry');
-    const baseRegions = pass.regions.filter(region => region.action !== 'delete-entry');
+    const overlayDeleteRegions = pass.regions.filter(region => region.action === 'delete-entry' || region.action === 'delete-text-block');
+    const baseRegions = pass.regions.filter(region => region.action !== 'delete-entry' && region.action !== 'delete-text-block');
     const editorialDragRegions = pass.editorialRects.map(rect => ({
         action: 'drag-media',
         data: {
@@ -2538,7 +2574,7 @@ function relayoutScene() {
             height: rect.deleteButton.height,
             width: rect.deleteButton.width,
             x: metrics.paddingX + rect.x,
-            y: rect.y + rect.height + rect.deleteGap
+            y: rect.y - rect.deleteOffset
         }));
     const scrollbarLayout = getScrollbarLayout(metrics);
     const scrollbarRegions = scrollbarLayout ? [
@@ -2570,8 +2606,8 @@ function relayoutScene() {
     app.interactiveRegions = [
         ...baseRegions,
         ...editorialDragRegions,
-        ...blockDeleteRegions,
         ...editorialDeleteRegions,
+        ...overlayDeleteRegions,
         ...scrollbarRegions
     ];
 
@@ -2756,12 +2792,17 @@ function drawTerminalScene(timestamp) {
     });
     app.inputLayout.render(ctx, metrics.paddingX, app.inputTop, palette);
     app.editorialMediaRects.forEach(rect => {
-        const rectBottom = rect.y + rect.height + (rect.deleteButton ? rect.deleteButton.height + rect.deleteGap : 0);
-        if (rectBottom < app.scrollTop - 64 || rect.y > app.scrollTop + app.viewportHeight + 64) {
+        const rectTop = rect.y - rect.deleteOffset;
+        const rectBottom = rect.y + rect.height;
+        if (rectBottom < app.scrollTop - 64 || rectTop > app.scrollTop + app.viewportHeight + 64) {
             return;
         }
 
         const rectX = metrics.paddingX + rect.x;
+        if (rect.deleteButton) {
+            drawButton(ctx, rect.deleteButton, rectX, rectTop, palette);
+        }
+
         ctx.fillStyle = palette.media;
         ctx.strokeStyle = palette.border;
         ctx.lineWidth = 1;
@@ -2779,10 +2820,6 @@ function drawTerminalScene(timestamp) {
             ctx.textBaseline = 'middle';
             ctx.fillStyle = palette.text;
             ctx.fillText(rect.type === 'video' ? '[video]' : '[image]', rectX + 12, rect.y + rect.height / 2);
-        }
-
-        if (rect.deleteButton) {
-            drawButton(ctx, rect.deleteButton, rectX, rect.y + rect.height + rect.deleteGap, palette);
         }
     });
     ctx.restore();
@@ -3074,6 +3111,40 @@ function removeBlogEntryFromScene(entryTimestamp) {
     ));
 }
 
+function findAdjacentSceneMediaKey(blocks, startIndex, direction) {
+    const step = direction < 0 ? -1 : 1;
+    for (let index = startIndex + step; index >= 0 && index < blocks.length; index += step) {
+        const block = blocks[index];
+        if (block?.type === 'inline-image' || block?.type === 'inline-video') {
+            return String(block.imageKey || '').trim();
+        }
+    }
+
+    return '';
+}
+
+function refreshBlogEntrySegmentMetadata(entryData) {
+    if (!entryData || !Array.isArray(entryData.blocks)) {
+        return;
+    }
+
+    const hasMedia = entryData.blocks.some(block => block?.type === 'inline-image' || block?.type === 'inline-video');
+    let textBlockIndex = 0;
+    entryData.blocks.forEach((block, blockIndex) => {
+        if (block?.type !== 'blog-entry-text-block') {
+            return;
+        }
+
+        const lines = Array.isArray(block.lines) ? block.lines : [];
+        block.deletable = hasMedia && lines.some(line => String(line || '').trim());
+        block.entryTextBlockIndex = textBlockIndex;
+        block.entryTimestamp = entryData.entryTimestamp || '';
+        block.previousImageKey = findAdjacentSceneMediaKey(entryData.blocks, blockIndex, -1);
+        block.nextImageKey = findAdjacentSceneMediaKey(entryData.blocks, blockIndex, 1);
+        textBlockIndex += 1;
+    });
+}
+
 function removeBlogMediaFromBlockData(target, imageKey) {
     if (!target || typeof target !== 'object') {
         return false;
@@ -3084,6 +3155,7 @@ function removeBlogMediaFromBlockData(target, imageKey) {
         const changed = nextBlocks.length !== target.blocks.length;
         if (changed) {
             target.blocks = nextBlocks;
+            refreshBlogEntrySegmentMetadata(target);
         }
         return changed;
     }
@@ -3114,6 +3186,72 @@ function removeBlogMediaFromScene(imageKey) {
     return removed;
 }
 
+function removeBlogTextBlockFromScene(target) {
+    let removed = false;
+    const normalizedEntryTimestamp = String(target?.entryTimestamp || '').trim();
+    const normalizedTextKey = String(target?.textKey || '').trim();
+    const normalizedTargetIndex = Number.isInteger(target?.entryTextBlockIndex)
+        ? target.entryTextBlockIndex
+        : Number.parseInt(target?.entryTextBlockIndex, 10);
+    const normalizedPreviousImageKey = String(target?.previousImageKey || '').trim();
+    const normalizedNextImageKey = String(target?.nextImageKey || '').trim();
+
+    app.blocks = app.blocks.filter(block => {
+        if (
+            removed
+            || !block?.data
+            || typeof block.data !== 'object'
+            || block.data.type !== 'blog-entry'
+            || String(block.data.entryTimestamp || '').trim() !== normalizedEntryTimestamp
+        ) {
+            return true;
+        }
+
+        refreshBlogEntrySegmentMetadata(block.data);
+        let textBlockIndex = 0;
+        const nextBlocks = [];
+
+        for (const segment of block.data.blocks) {
+            if (segment?.type !== 'blog-entry-text-block') {
+                nextBlocks.push(segment);
+                continue;
+            }
+
+            const matchesIndex = Number.isInteger(normalizedTargetIndex) && normalizedTargetIndex >= 0
+                ? textBlockIndex === normalizedTargetIndex
+                : true;
+            const matchesKey = normalizedTextKey
+                ? String(segment.textKey || '').trim() === normalizedTextKey
+                : true;
+            const matchesPreviousImage = normalizedPreviousImageKey
+                ? String(segment.previousImageKey || '').trim() === normalizedPreviousImageKey
+                : true;
+            const matchesNextImage = normalizedNextImageKey
+                ? String(segment.nextImageKey || '').trim() === normalizedNextImageKey
+                : true;
+            const shouldRemove = !removed && matchesIndex && matchesKey && matchesPreviousImage && matchesNextImage;
+
+            textBlockIndex += 1;
+            if (shouldRemove) {
+                removed = true;
+                continue;
+            }
+
+            nextBlocks.push(segment);
+        }
+
+        if (!removed) {
+            return true;
+        }
+
+        block.data.blocks = nextBlocks;
+        refreshBlogEntrySegmentMetadata(block.data);
+        return nextBlocks.length > 0;
+    });
+
+    return removed;
+}
+
 async function handleDeleteEntry(target) {
     if (!target?.entryTimestamp || typeof window.deleteBlogEntryByTimestamp !== 'function') {
         return;
@@ -3129,6 +3267,32 @@ async function handleDeleteEntry(target) {
     }
 
     appendOutput([`post: ${result?.error || 'unable to delete post right now'}`]);
+    scrollToBottom();
+}
+
+async function handleDeleteTextBlock(target) {
+    if (!target || typeof window.deleteBlogTextBlockByContext !== 'function') {
+        return;
+    }
+
+    const result = await window.deleteBlogTextBlockByContext(
+        target.entryTextBlockIndex ?? null,
+        '',
+        target.entryTimestamp || '',
+        target.textKey || '',
+        target.previousImageKey || '',
+        target.nextImageKey || ''
+    );
+
+    if (result?.ok) {
+        removeBlogTextBlockFromScene(target);
+        appendOutput(['post: deleted text block']);
+        appendDeleteCommitResult(result, 'post: ');
+        scrollToBottom();
+        return;
+    }
+
+    appendOutput([`post: ${result?.error || 'unable to delete text right now'}`]);
     scrollToBottom();
 }
 
@@ -3444,6 +3608,12 @@ function onPointerUp(event) {
         handleDeleteEntry(drag.region.data).catch(error => {
             console.error('delete entry failed', error);
             appendOutput(['post: unable to delete post right now']);
+        });
+        break;
+    case 'delete-text-block':
+        handleDeleteTextBlock(drag.region.data).catch(error => {
+            console.error('delete text block failed', error);
+            appendOutput(['post: unable to delete text right now']);
         });
         break;
     case 'delete-media':

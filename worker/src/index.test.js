@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import blogWorker, { B2QuotaGuard, BlogUploadSession, R2QuotaGuard, VisitorCounter, appendBlogEntry, createBlogImageKey, removeBlogEntry, removeImageBlock } from './index.js';
+import blogWorker, { B2QuotaGuard, BlogUploadSession, R2QuotaGuard, VisitorCounter, appendBlogEntry, createBlogImageKey, createBlogTextBlockKey, removeBlogEntry, removeImageBlock, removeTextBlock } from './index.js';
 
 class FakeStorage {
     constructor() {
@@ -637,6 +637,41 @@ test('removeBlogEntry removes the targeted entry and returns its blocks for casc
     assert.match(removal.content, /\[2026-04-03T12:00:00.000Z\]/);
     assert.equal(removal.removedEntry?.timestampLine, '[2026-04-03T11:00:00.000Z]');
     assert.equal(removal.removedEntry?.blocks.filter(block => block.type === 'image').length, 2);
+});
+
+test('removeTextBlock removes the targeted text segment inside a multi media entry', () => {
+    const imageA = 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBA==';
+    const imageB = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZ1sAAAAASUVORK5CYII=';
+    const currentContent = [
+        '[2026-04-03T01:33:28.178Z]',
+        'aaa',
+        '[image-base64]',
+        imageA,
+        '[/image-base64]',
+        'bbb',
+        '[image-base64]',
+        imageB,
+        '[/image-base64]',
+        'ccc',
+        ''
+    ].join('\n');
+
+    const removal = removeTextBlock(currentContent, {
+        targetEntryTimestamp: '[2026-04-03T01:33:28.178Z]',
+        targetTextBlockIndex: 1,
+        targetTextKey: createBlogTextBlockKey(['bbb']),
+        targetPreviousImageKey: createBlogImageKey(imageA),
+        targetNextImageKey: createBlogImageKey(imageB)
+    });
+
+    assert.equal(removal.removed, true);
+    assert.equal(removal.removedBlock?.type, 'text');
+    assert.deepEqual(removal.removedBlock?.lines, ['bbb']);
+    assert.match(removal.content, /\[2026-04-03T01:33:28.178Z\]\naaa/);
+    assert.match(removal.content, /data:image\/gif;base64,R0lGODlhAQABAIAAAAUEBA==/);
+    assert.match(removal.content, /data:image\/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8\/x8AAwMCAO\+jZ1sAAAAASUVORK5CYII=/);
+    assert.match(removal.content, /\nccc\n$/);
+    assert.doesNotMatch(removal.content, /\nbbb\n/);
 });
 
 test('R2QuotaGuard uses Cloudflare billing usage and R2 metrics to block reads when monthly storage is near threshold', async t => {
@@ -3316,6 +3351,106 @@ test('delete entry endpoint removes one post and cascades hosted gif cleanup acr
         fileId: 'b2-file-id-456',
         fileName: 'blog-gifs/b2-post.gif'
     }]);
+});
+
+test('delete-text endpoint removes the targeted text segment without deleting the whole entry', async t => {
+    const originalFetch = globalThis.fetch;
+    let githubUpdateBody = null;
+    const imageA = 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBA==';
+    const imageB = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZ1sAAAAASUVORK5CYII=';
+    const currentContent = [
+        '0x00C0DE Blog',
+        '=============',
+        '',
+        '[2026-04-03T01:33:28.178Z]',
+        'aaa',
+        '[image-base64]',
+        imageA,
+        '[/image-base64]',
+        'bbb',
+        '[image-base64]',
+        imageB,
+        '[/image-base64]',
+        'ccc',
+        ''
+    ].join('\n');
+
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+    });
+
+    globalThis.fetch = async (url, options = {}) => {
+        const urlString = String(url);
+        const method = options.method || 'GET';
+
+        if (urlString === 'https://api.github.com/repos/owner/repo/contents/blog.txt?ref=main') {
+            if (method === 'PUT') {
+                githubUpdateBody = JSON.parse(options.body);
+                return new Response(JSON.stringify({
+                    commit: {
+                        sha: 'deletetext123'
+                    }
+                }), {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json; charset=utf-8'
+                    }
+                });
+            }
+
+            return new Response(JSON.stringify({
+                sha: 'oldsha-text',
+                content: Buffer.from(currentContent, 'utf8').toString('base64')
+            }), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                }
+            });
+        }
+
+        if (urlString.startsWith('https://0x00c0de.github.io/blog.txt?')) {
+            return new Response(currentContent, {
+                status: 200,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8'
+                }
+            });
+        }
+
+        throw new Error(`unexpected fetch: ${method} ${urlString}`);
+    };
+
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/delete-text', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            password: 'delete-me',
+            entryTimestamp: '[2026-04-03T01:33:28.178Z]',
+            entryTextBlockIndex: 1,
+            textKey: createBlogTextBlockKey(['bbb']),
+            previousImageKey: createBlogImageKey(imageA),
+            nextImageKey: createBlogImageKey(imageB)
+        })
+    }), {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        GITHUB_OWNER: 'owner',
+        GITHUB_REPO: 'repo',
+        GITHUB_PAT: 'token',
+        GITHUB_BRANCH: 'main',
+        BLOG_IMAGE_DELETE_PASSWORD: 'delete-me',
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
+    });
+
+    assert.equal(response.status, 200);
+    const updatedBlogContent = Buffer.from(githubUpdateBody.content, 'base64').toString('utf8');
+    assert.match(updatedBlogContent, /\naaa\n/);
+    assert.match(updatedBlogContent, /\nccc\n$/);
+    assert.doesNotMatch(updatedBlogContent, /\nbbb\n/);
+    assert.match(updatedBlogContent, /data:image\/gif;base64,R0lGODlhAQABAIAAAAUEBA==/);
+    assert.match(updatedBlogContent, /data:image\/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8\/x8AAwMCAO\+jZ1sAAAAASUVORK5CYII=/);
 });
 
 test('append endpoint blocks writes while the live site is still deploying the previous repo state', async t => {

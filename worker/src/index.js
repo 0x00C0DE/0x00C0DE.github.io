@@ -37,6 +37,10 @@ export default {
             return handleDeleteImage(request, env);
         }
 
+        if (request.method === 'POST' && url.pathname === '/api/blog/delete-text') {
+            return handleDeleteText(request, env);
+        }
+
         if (request.method === 'POST' && url.pathname === '/api/blog/delete-entry') {
             return handleDeleteEntry(request, env);
         }
@@ -1593,6 +1597,79 @@ async function handleDeleteImage(request, env) {
     }
 }
 
+async function handleDeleteText(request, env) {
+    try {
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rateCheck = await enforceRateLimit(ip, env);
+        if (!rateCheck.allowed) {
+            return jsonResponse({ error: 'rate limit exceeded' }, 429, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        if (!env.BLOG_IMAGE_DELETE_PASSWORD) {
+            return jsonResponse({ error: 'delete password is not configured' }, 500, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        const body = await request.json().catch(() => null);
+        const password = typeof body?.password === 'string' ? body.password : '';
+        const entryTimestamp = normalizeBlogEntryTimestamp(body?.entryTimestamp);
+        const entryTextBlockIndex = Number.isInteger(body?.entryTextBlockIndex)
+            ? body.entryTextBlockIndex
+            : Number.parseInt(body?.entryTextBlockIndex, 10);
+        const textKey = typeof body?.textKey === 'string' ? body.textKey.trim() : '';
+        const previousImageKey = typeof body?.previousImageKey === 'string' ? body.previousImageKey.trim() : '';
+        const nextImageKey = typeof body?.nextImageKey === 'string' ? body.nextImageKey.trim() : '';
+
+        if (!timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD)) {
+            return jsonResponse({ error: 'invalid password' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        if (
+            !entryTimestamp
+            || (
+                (!Number.isInteger(entryTextBlockIndex) || entryTextBlockIndex < 0)
+                && !textKey
+            )
+        ) {
+            return jsonResponse({ error: 'entryTimestamp and entryTextBlockIndex or textKey are required' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        const githubFile = await fetchGithubFile(env);
+        const deploymentStatus = await ensurePublishedBlogIsCurrent(env, githubFile.content);
+        if (!deploymentStatus.ok) {
+            return jsonResponse({ error: deploymentStatus.error }, 409, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        const removal = removeTextBlock(githubFile.content, {
+            targetEntryTimestamp: entryTimestamp,
+            targetTextBlockIndex: Number.isInteger(entryTextBlockIndex) && entryTextBlockIndex >= 0
+                ? entryTextBlockIndex
+                : null,
+            targetTextKey: textKey,
+            targetPreviousImageKey: previousImageKey,
+            targetNextImageKey: nextImageKey
+        });
+        if (!removal.removed) {
+            return jsonResponse({ error: 'text block not found in blog.txt' }, 404, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
+        const commit = await updateGithubFile(
+            env,
+            removal.content,
+            githubFile.sha,
+            'Delete blog text block via terminal site'
+        );
+
+        return jsonResponse({
+            ok: true,
+            commitSha: commit.sha,
+            commitUrl: `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/commit/${commit.sha}`
+        }, 200, env.ALLOWED_ORIGIN, rateCheck.headers);
+    } catch (error) {
+        console.error('delete text failed', error);
+        return jsonResponse({ error: 'failed to delete blog text block' }, 500, env.ALLOWED_ORIGIN);
+    }
+}
+
 async function handleDeleteEntry(request, env) {
     try {
         const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
@@ -1907,19 +1984,31 @@ function toComparableImageValue(value) {
     return normalizedValue || '';
 }
 
-export function createBlogImageKey(value) {
-    const comparableValue = toComparableImageValue(value);
-    if (!comparableValue) {
+function createBlogStableBlockKey(value) {
+    const normalizedValue = String(value || '').trim();
+    if (!normalizedValue) {
         return '';
     }
 
     let hash = 2166136261;
-    for (let index = 0; index < comparableValue.length; index += 1) {
-        hash ^= comparableValue.charCodeAt(index);
+    for (let index = 0; index < normalizedValue.length; index += 1) {
+        hash ^= normalizedValue.charCodeAt(index);
         hash = Math.imul(hash, 16777619);
     }
 
-    return `${comparableValue.length}:${(hash >>> 0).toString(16)}`;
+    return `${normalizedValue.length}:${(hash >>> 0).toString(16)}`;
+}
+
+export function createBlogImageKey(value) {
+    const comparableValue = toComparableImageValue(value);
+    return createBlogStableBlockKey(comparableValue);
+}
+
+export function createBlogTextBlockKey(lines) {
+    const normalizedLines = Array.isArray(lines)
+        ? lines.map(line => String(line ?? ''))
+        : String(lines || '').replace(/\r\n/g, '\n').split('\n');
+    return createBlogStableBlockKey(normalizedLines.join('\n'));
 }
 
 function decodeBase64ToBytes(value) {
@@ -3371,6 +3460,43 @@ export function removeBlogEntry(currentContent, {
     };
 }
 
+export function removeTextBlock(currentContent, {
+    targetEntryTimestamp = '',
+    targetTextBlockIndex = null,
+    targetTextKey = '',
+    targetPreviousImageKey = '',
+    targetNextImageKey = ''
+} = {}) {
+    const blogDocument = parseBlogDocument(currentContent);
+    const target = findTextBlockTarget(blogDocument.entries, {
+        targetEntryTimestamp,
+        targetTextBlockIndex,
+        targetTextKey,
+        targetPreviousImageKey,
+        targetNextImageKey
+    });
+
+    if (!target) {
+        return {
+            removed: false,
+            content: currentContent,
+            removedBlock: null
+        };
+    }
+
+    const entry = blogDocument.entries[target.entryIndex];
+    const [removedBlock] = entry.blocks.splice(target.blockIndex, 1);
+    if (entry.blocks.length === 0) {
+        blogDocument.entries.splice(target.entryIndex, 1);
+    }
+
+    return {
+        removed: true,
+        content: serializeBlogDocument(blogDocument),
+        removedBlock: removedBlock || null
+    };
+}
+
 export function removeImageBlock(currentContent, {
     targetImageBlockIndex = null,
     targetImageKey = '',
@@ -3406,6 +3532,45 @@ export function removeImageBlock(currentContent, {
         removed: true,
         content: serializeBlogDocument(blogDocument),
         removedBlock: removedBlock || null
+    };
+}
+
+function findTextBlockTarget(entries, {
+    targetEntryTimestamp,
+    targetTextBlockIndex,
+    targetTextKey,
+    targetPreviousImageKey,
+    targetNextImageKey
+}) {
+    const normalizedTargetEntryTimestamp = normalizeBlogEntryTimestamp(targetEntryTimestamp);
+    const normalizedTargetTextBlockIndex = Number.isInteger(targetTextBlockIndex)
+        ? targetTextBlockIndex
+        : Number.parseInt(targetTextBlockIndex, 10);
+    const normalizedTargetTextKey = String(targetTextKey || '').trim();
+    const normalizedTargetPreviousImageKey = String(targetPreviousImageKey || '').trim();
+    const normalizedTargetNextImageKey = String(targetNextImageKey || '').trim();
+    if (!normalizedTargetEntryTimestamp) {
+        return null;
+    }
+
+    const entryIndex = entries.findIndex(entry => entry.timestampLine === normalizedTargetEntryTimestamp);
+    if (entryIndex < 0) {
+        return null;
+    }
+
+    const match = findTextBlockInEntry(entries[entryIndex], {
+        targetTextBlockIndex: normalizedTargetTextBlockIndex,
+        targetTextKey: normalizedTargetTextKey,
+        targetPreviousImageKey: normalizedTargetPreviousImageKey,
+        targetNextImageKey: normalizedTargetNextImageKey
+    });
+    if (!match) {
+        return null;
+    }
+
+    return {
+        entryIndex,
+        blockIndex: match.blockIndex
     };
 }
 
@@ -3735,6 +3900,133 @@ function serializeBlogDocument(blogDocument) {
     }
 
     return lines.length > 0 ? `${lines.join('\n')}\n` : '';
+}
+
+function findTextBlockInEntry(entry, {
+    targetTextBlockIndex,
+    targetTextKey,
+    targetPreviousImageKey,
+    targetNextImageKey
+}) {
+    const textBlocks = [];
+    let previousImageKey = '';
+
+    for (let blockIndex = 0; blockIndex < entry.blocks.length; blockIndex += 1) {
+        const block = entry.blocks[blockIndex];
+        if (block.type === 'image') {
+            previousImageKey = createBlogImageKey(createStoredImageComparisonValue(block));
+            continue;
+        }
+
+        if (block.type !== 'text') {
+            continue;
+        }
+
+        textBlocks.push({
+            blockIndex,
+            nextImageKey: findNextImageKeyInEntry(entry.blocks, blockIndex),
+            previousImageKey,
+            textIndex: textBlocks.length,
+            textKey: createBlogTextBlockKey(block.lines)
+        });
+    }
+
+    if (targetTextKey) {
+        return selectExactTextBlockMatch(textBlocks.filter(block => block.textKey === targetTextKey), {
+            targetTextBlockIndex,
+            targetPreviousImageKey,
+            targetNextImageKey
+        });
+    }
+
+    if (Number.isInteger(targetTextBlockIndex) && targetTextBlockIndex >= 0) {
+        return selectExactTextBlockMatch(textBlocks.filter(block => block.textIndex === targetTextBlockIndex), {
+            targetTextBlockIndex,
+            targetPreviousImageKey,
+            targetNextImageKey
+        });
+    }
+
+    return selectContextualTextBlockMatch(textBlocks, {
+        targetTextBlockIndex,
+        targetPreviousImageKey,
+        targetNextImageKey
+    });
+}
+
+function findNextImageKeyInEntry(entryBlocks, startBlockIndex) {
+    for (let blockIndex = startBlockIndex + 1; blockIndex < entryBlocks.length; blockIndex += 1) {
+        const block = entryBlocks[blockIndex];
+        if (block.type === 'image') {
+            return createBlogImageKey(createStoredImageComparisonValue(block));
+        }
+    }
+
+    return '';
+}
+
+function selectExactTextBlockMatch(textBlocks, {
+    targetTextBlockIndex,
+    targetPreviousImageKey,
+    targetNextImageKey
+}) {
+    if (textBlocks.length === 0) {
+        return null;
+    }
+
+    let candidates = textBlocks;
+
+    if (targetPreviousImageKey) {
+        candidates = candidates.filter(block => block.previousImageKey === targetPreviousImageKey);
+        if (candidates.length === 0) {
+            return null;
+        }
+    }
+
+    if (targetNextImageKey) {
+        candidates = candidates.filter(block => block.nextImageKey === targetNextImageKey);
+        if (candidates.length === 0) {
+            return null;
+        }
+    }
+
+    if (Number.isInteger(targetTextBlockIndex) && targetTextBlockIndex >= 0) {
+        return candidates.find(block => block.textIndex === targetTextBlockIndex) || null;
+    }
+
+    return candidates.length === 1 ? candidates[0] : null;
+}
+
+function selectContextualTextBlockMatch(textBlocks, {
+    targetTextBlockIndex,
+    targetPreviousImageKey,
+    targetNextImageKey
+}) {
+    let candidates = textBlocks;
+
+    if (targetPreviousImageKey) {
+        candidates = candidates.filter(block => block.previousImageKey === targetPreviousImageKey);
+        if (candidates.length === 0) {
+            return null;
+        }
+    }
+
+    if (targetNextImageKey) {
+        candidates = candidates.filter(block => block.nextImageKey === targetNextImageKey);
+        if (candidates.length === 0) {
+            return null;
+        }
+    }
+
+    if (Number.isInteger(targetTextBlockIndex) && targetTextBlockIndex >= 0) {
+        return candidates.find(block => block.textIndex === targetTextBlockIndex) || null;
+    }
+
+    if (targetPreviousImageKey || targetNextImageKey) {
+        return candidates[0] || null;
+    }
+
+    return candidates.length === 1 ? candidates[0] : null;
 }
 
 function findImageBlockTarget(entries, {

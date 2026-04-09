@@ -93,6 +93,7 @@ const ASTROLOGY_FORTUNE_SOURCES = [
 const BLOG_POST_API_URL = window.BLOG_POST_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/append';
 const BLOG_STAGE_IMAGE_API_URL = window.BLOG_STAGE_IMAGE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/upload-chunk';
 const BLOG_DELETE_IMAGE_API_URL = window.BLOG_DELETE_IMAGE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/delete-image';
+const BLOG_DELETE_TEXT_API_URL = window.BLOG_DELETE_TEXT_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/delete-text';
 const BLOG_DELETE_ENTRY_API_URL = window.BLOG_DELETE_ENTRY_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/delete-entry';
 const TERMINAL_SU_API_URL = window.TERMINAL_SU_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/terminal/su';
 const VISITOR_COUNT_API_URL = window.VISITOR_COUNT_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors';
@@ -551,6 +552,7 @@ function parseBlogTextFile(lines) {
     let previousTextLine = '';
     const flushCurrentEntry = () => {
         if (currentEntry) {
+            finalizeParsedBlogEntry(currentEntry);
             output.push(currentEntry);
             currentEntry = null;
         }
@@ -719,6 +721,48 @@ function findNextBlogTextLine(lines, startIndex) {
 
         if (String(line || '').trim()) {
             return String(line);
+        }
+    }
+
+    return '';
+}
+
+function finalizeParsedBlogEntry(entry) {
+    if (!entry || !Array.isArray(entry.blocks)) {
+        return;
+    }
+
+    const hasMedia = entry.blocks.some(block => block?.type === 'inline-image' || block?.type === 'inline-video');
+    let textBlockIndex = 0;
+
+    entry.blocks.forEach((block, blockIndex) => {
+        if (block?.type !== 'blog-entry-text-block') {
+            return;
+        }
+
+        const lines = Array.isArray(block.lines) ? block.lines : [];
+        const previousImageKey = findAdjacentBlogMediaKey(entry.blocks, blockIndex, -1);
+        const nextImageKey = findAdjacentBlogMediaKey(entry.blocks, blockIndex, 1);
+        const hasVisibleText = lines.some(line => String(line || '').trim());
+
+        Object.assign(block, {
+            deletable: hasMedia && hasVisibleText,
+            entryTextBlockIndex: textBlockIndex,
+            entryTimestamp: entry.entryTimestamp || '',
+            nextImageKey,
+            previousImageKey,
+            textKey: createBlogTextBlockKey(lines)
+        });
+        textBlockIndex += 1;
+    });
+}
+
+function findAdjacentBlogMediaKey(blocks, startIndex, direction) {
+    const step = direction < 0 ? -1 : 1;
+    for (let index = startIndex + step; index >= 0 && index < blocks.length; index += step) {
+        const block = blocks[index];
+        if (block?.type === 'inline-image' || block?.type === 'inline-video') {
+            return String(block.imageKey || '').trim();
         }
     }
 
@@ -1525,6 +1569,69 @@ async function deleteBlogEntryByTimestamp(entryTimestamp, password) {
     };
 }
 
+async function deleteBlogTextBlockByContext(
+    entryTextBlockIndex,
+    password,
+    entryTimestamp = '',
+    textKey = '',
+    previousImageKey = '',
+    nextImageKey = ''
+) {
+    const resolvedPassword = typeof password === 'string' && password
+        ? password
+        : (canCurrentUserManageBlogEntries() ? getGodlikePassword() : '');
+    const normalizedEntryTimestamp = isBlogEntryTimestampLine(entryTimestamp) ? entryTimestamp.trim() : '';
+    const normalizedEntryTextBlockIndex = Number.isInteger(entryTextBlockIndex)
+        ? entryTextBlockIndex
+        : Number.parseInt(entryTextBlockIndex, 10);
+    const normalizedTextKey = typeof textKey === 'string' ? textKey.trim() : '';
+    const normalizedPreviousImageKey = typeof previousImageKey === 'string' ? previousImageKey.trim() : '';
+    const normalizedNextImageKey = typeof nextImageKey === 'string' ? nextImageKey.trim() : '';
+
+    if (
+        !normalizedEntryTimestamp
+        || (
+            (!Number.isInteger(normalizedEntryTextBlockIndex) || normalizedEntryTextBlockIndex < 0)
+            && !normalizedTextKey
+        )
+    ) {
+        return {
+            ok: false,
+            error: 'invalid text block reference'
+        };
+    }
+
+    const response = await fetch(BLOG_DELETE_TEXT_API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            entryTimestamp: normalizedEntryTimestamp,
+            entryTextBlockIndex: Number.isInteger(normalizedEntryTextBlockIndex) && normalizedEntryTextBlockIndex >= 0
+                ? normalizedEntryTextBlockIndex
+                : null,
+            textKey: normalizedTextKey,
+            previousImageKey: normalizedPreviousImageKey,
+            nextImageKey: normalizedNextImageKey,
+            password: resolvedPassword
+        })
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        return {
+            ok: false,
+            error: payload.error || 'unable to delete text right now'
+        };
+    }
+
+    return {
+        ok: true,
+        commitUrl: payload.commitUrl || ''
+    };
+}
+
 function getDataUrlMimeType(dataUrl) {
     const match = BLOG_IMAGE_DATA_URL_PATTERN.exec(dataUrl || '');
     return match ? match[1].toLowerCase() : '';
@@ -1549,8 +1656,8 @@ function normalizeBlogImageDataUrl(dataUrl) {
     return `data:${mimeType};base64,${base64Payload}`;
 }
 
-function createBlogImageKey(dataUrl) {
-    const normalizedValue = normalizeBlogImageDataUrl(dataUrl) || String(dataUrl || '').trim();
+function createBlogStableBlockKey(value) {
+    const normalizedValue = String(value || '').trim();
     if (!normalizedValue) {
         return '';
     }
@@ -1562,6 +1669,18 @@ function createBlogImageKey(dataUrl) {
     }
 
     return `${normalizedValue.length}:${(hash >>> 0).toString(16)}`;
+}
+
+function createBlogImageKey(dataUrl) {
+    const normalizedValue = normalizeBlogImageDataUrl(dataUrl) || String(dataUrl || '').trim();
+    return createBlogStableBlockKey(normalizedValue);
+}
+
+function createBlogTextBlockKey(lines) {
+    const normalizedLines = Array.isArray(lines)
+        ? lines.map(line => String(line ?? ''))
+        : String(lines || '').replace(/\r\n/g, '\n').split('\n');
+    return createBlogStableBlockKey(normalizedLines.join('\n'));
 }
 
 function isBlogEntryTimestampLine(line) {
@@ -2916,6 +3035,7 @@ window.isSafeBlogImageDataUrl = isSafeBlogImageDataUrl;
 window.isSafeBlogImageSource = isSafeBlogImageSource;
 window.deleteBlogEntryByTimestamp = deleteBlogEntryByTimestamp;
 window.deleteBlogImageByBlockIndex = deleteBlogImageByBlockIndex;
+window.deleteBlogTextBlockByContext = deleteBlogTextBlockByContext;
 window.ensureTerminalSessionReady = ensureTerminalSessionReady;
 window.getTerminalPromptSnapshot = getTerminalPromptSnapshot;
 window.getTerminalSessionState = () => terminalSessionState;
