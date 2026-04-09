@@ -52,6 +52,10 @@ const SCROLL_GLIDE_MIN_VELOCITY = 26;
 const SCROLL_WHEEL_IMMEDIATE_RATIO = 0.42;
 const SCROLL_WHEEL_VELOCITY_FACTOR = 3.15;
 const SCROLL_DRAG_VELOCITY_BLEND = 0.68;
+const VIEWER_MAX_ZOOM = 12;
+const VIEWER_PAN_STEP = 48;
+const VIEWER_POINTER_MOVE_THRESHOLD = 4;
+const VIEWER_ZOOM_STEP = 1.2;
 
 const PALETTES = Object.freeze({
     default: {
@@ -203,6 +207,7 @@ const app = {
     suppressNextCanvasClick: false,
     textInputProxy: null,
     viewer: null,
+    viewerGesture: null,
     viewportHeight: 0,
     viewportWidth: 0
 };
@@ -510,6 +515,275 @@ function drawButton(ctx, button, x, y, palette) {
     ctx.textBaseline = 'top';
     ctx.fillStyle = palette.accent;
     ctx.fillText(button.text, x + button.textOffsetX, y + button.textOffsetY);
+}
+
+function wrapTextToWidth(text, maxWidth, font) {
+    const trimmed = typeof text === 'string' ? text.trim() : '';
+    if (!trimmed) {
+        return [];
+    }
+
+    const safeWidth = Math.max(80, maxWidth);
+    const words = trimmed.split(/\s+/);
+    const lines = [];
+    let currentLine = '';
+
+    words.forEach(word => {
+        const nextLine = currentLine ? `${currentLine} ${word}` : word;
+        if (!currentLine || measureTextWidth(nextLine, font) <= safeWidth) {
+            currentLine = nextLine;
+            return;
+        }
+        lines.push(currentLine);
+        currentLine = word;
+    });
+
+    if (currentLine) {
+        lines.push(currentLine);
+    }
+
+    return lines;
+}
+
+function getViewerDefaultHint() {
+    return 'drag to pan, scroll or pinch to zoom, use fit to reset, close to exit';
+}
+
+function createViewer(base = {}) {
+    const viewer = base && typeof base === 'object' ? { ...base } : {};
+    return {
+        ...viewer,
+        hint: viewer.hint || getViewerDefaultHint(),
+        maxZoom: Number.isFinite(viewer.maxZoom) ? Math.max(1, viewer.maxZoom) : VIEWER_MAX_ZOOM,
+        panX: Number.isFinite(viewer.panX) ? viewer.panX : 0,
+        panY: Number.isFinite(viewer.panY) ? viewer.panY : 0,
+        zoom: Number.isFinite(viewer.zoom) && viewer.zoom > 0 ? viewer.zoom : 1
+    };
+}
+
+function getCanvasPoint(clientX, clientY) {
+    const rect = app.canvas.getBoundingClientRect();
+    return {
+        x: clientX - rect.left,
+        y: clientY - rect.top
+    };
+}
+
+function isPointInsideRect(x, y, rect) {
+    return Boolean(rect)
+        && x >= rect.x
+        && x <= rect.x + rect.width
+        && y >= rect.y
+        && y <= rect.y + rect.height;
+}
+
+function getViewerLayout(metrics, viewer = app.viewer) {
+    const x = metrics.paddingX;
+    const y = metrics.paddingY;
+    const width = metrics.contentWidth;
+    const height = app.viewportHeight - metrics.paddingY * 2;
+    const innerPadding = 14;
+    const titleY = y + 12;
+    const closeButton = getButtonLayout('[close]', metrics.buttonFont);
+    const titleHeight = extractFontSizePx(metrics.titleFont, 24);
+    const headerBottom = titleY + Math.max(titleHeight, closeButton.height);
+    const hintLines = wrapTextToWidth(viewer?.hint || '', width - innerPadding * 2, metrics.textFont);
+    const controlsY = headerBottom + 10 + (hintLines.length ? hintLines.length * metrics.lineHeight + 10 : 0);
+    const controls = [
+        { action: 'viewer-zoom-out', button: getButtonLayout('[zoom -]', metrics.buttonFont) },
+        { action: 'viewer-fit', button: getButtonLayout('[fit]', metrics.buttonFont) },
+        { action: 'viewer-zoom-in', button: getButtonLayout('[zoom +]', metrics.buttonFont) }
+    ];
+    let controlX = x + innerPadding;
+    controls.forEach(control => {
+        control.x = controlX;
+        control.y = controlsY;
+        controlX += control.button.width + 8;
+    });
+
+    const controlsHeight = controls.reduce((maxHeight, control) => Math.max(maxHeight, control.button.height), 0);
+    const contentTop = controlsY + controlsHeight + 12;
+    return {
+        closeButton: {
+            action: 'viewer-close',
+            button: closeButton,
+            x: x + width - innerPadding - closeButton.width,
+            y: titleY
+        },
+        contentRect: {
+            height: Math.max(48, y + height - contentTop - innerPadding),
+            width: Math.max(40, width - innerPadding * 2),
+            x: x + innerPadding,
+            y: contentTop
+        },
+        controls,
+        height,
+        hintLines,
+        hintX: x + 12,
+        hintY: headerBottom + 10,
+        titleX: x + 12,
+        titleY,
+        width,
+        x,
+        y
+    };
+}
+
+function measureViewerContent(viewer, metrics, layout = getViewerLayout(metrics, viewer)) {
+    if (viewer?.type === 'image') {
+        const entry = getMediaEntry(viewer.src, 'image', { mimeType: viewer.mimeType });
+        const source = getMediaRenderSource(entry);
+        const aspectRatio = entry?.aspectRatio && entry.aspectRatio > 0 ? entry.aspectRatio : MEDIA_PLACEHOLDER_ASPECT_RATIO;
+        const baseWidth = Number.isFinite(entry?.intrinsicWidth) && entry.intrinsicWidth > 0
+            ? entry.intrinsicWidth
+            : Number.isFinite(source?.videoWidth) && source.videoWidth > 0
+                ? source.videoWidth
+                : Number.isFinite(source?.naturalWidth) && source.naturalWidth > 0
+                    ? source.naturalWidth
+                    : layout.contentRect.width;
+        const baseHeight = Number.isFinite(entry?.intrinsicHeight) && entry.intrinsicHeight > 0
+            ? entry.intrinsicHeight
+            : Number.isFinite(source?.videoHeight) && source.videoHeight > 0
+                ? source.videoHeight
+                : Number.isFinite(source?.naturalHeight) && source.naturalHeight > 0
+                    ? source.naturalHeight
+                    : Math.max(1, round(baseWidth / aspectRatio));
+
+        return {
+            baseHeight: Math.max(1, baseHeight),
+            baseWidth: Math.max(1, baseWidth),
+            entry,
+            ready: Boolean(entry?.ready && source),
+            source,
+            type: 'image'
+        };
+    }
+
+    const lines = Array.isArray(viewer?.lines) ? viewer.lines : [];
+    const maxColumns = lines.reduce((maxLength, line) => Math.max(maxLength, String(line || '').length), 0);
+    const columnCount = Number.isFinite(viewer?.width) && viewer.width > 0 ? viewer.width : Math.max(1, maxColumns);
+    const rowCount = Number.isFinite(viewer?.height) && viewer.height > 0 ? viewer.height : Math.max(1, lines.length);
+    const charWidth = Math.max(1, measureTextWidth('M', metrics.textFont));
+
+    return {
+        baseHeight: Math.max(metrics.lineHeight, rowCount * metrics.lineHeight),
+        baseWidth: Math.max(charWidth, columnCount * charWidth),
+        charWidth,
+        lineHeight: metrics.lineHeight,
+        lines,
+        type: 'ascii'
+    };
+}
+
+function getViewerFitScale(layout, content) {
+    const safeWidth = Math.max(1, content?.baseWidth || 1);
+    const safeHeight = Math.max(1, content?.baseHeight || 1);
+    return Math.max(0.05, Math.min(layout.contentRect.width / safeWidth, layout.contentRect.height / safeHeight));
+}
+
+function clampViewerPanAxis(pan, viewportSize, scaledSize) {
+    if (!Number.isFinite(scaledSize) || scaledSize <= 0) {
+        return 0;
+    }
+    if (scaledSize <= viewportSize) {
+        return (viewportSize - scaledSize) / 2;
+    }
+    return clamp(Number.isFinite(pan) ? pan : 0, viewportSize - scaledSize, 0);
+}
+
+function constrainViewerPan(viewer, layout, content, scale) {
+    viewer.panX = clampViewerPanAxis(viewer.panX, layout.contentRect.width, content.baseWidth * scale);
+    viewer.panY = clampViewerPanAxis(viewer.panY, layout.contentRect.height, content.baseHeight * scale);
+}
+
+function getViewerTransform(viewer, metrics = resolveMetrics()) {
+    const layout = getViewerLayout(metrics, viewer);
+    const content = measureViewerContent(viewer, metrics, layout);
+    viewer.zoom = clamp(
+        Number.isFinite(viewer.zoom) && viewer.zoom > 0 ? viewer.zoom : 1,
+        1,
+        Number.isFinite(viewer.maxZoom) ? viewer.maxZoom : VIEWER_MAX_ZOOM
+    );
+    const fitScale = getViewerFitScale(layout, content);
+    const scale = fitScale * viewer.zoom;
+    constrainViewerPan(viewer, layout, content, scale);
+
+    return {
+        content,
+        drawX: layout.contentRect.x + viewer.panX,
+        drawY: layout.contentRect.y + viewer.panY,
+        fitScale,
+        layout,
+        scale,
+        scaledHeight: content.baseHeight * scale,
+        scaledWidth: content.baseWidth * scale
+    };
+}
+
+function focusViewerContentPoint(viewer, nextZoom, contentX, contentY, anchorClientX = null, anchorClientY = null) {
+    if (!viewer) {
+        return;
+    }
+
+    const metrics = resolveMetrics();
+    const targetZoom = clamp(
+        Number.isFinite(nextZoom) && nextZoom > 0 ? nextZoom : 1,
+        1,
+        Number.isFinite(viewer.maxZoom) ? viewer.maxZoom : VIEWER_MAX_ZOOM
+    );
+    const viewportPoint = Number.isFinite(anchorClientX) && Number.isFinite(anchorClientY)
+        ? getCanvasPoint(anchorClientX, anchorClientY)
+        : null;
+    const layout = getViewerLayout(metrics, viewer);
+    const targetX = viewportPoint ? viewportPoint.x : layout.contentRect.x + layout.contentRect.width / 2;
+    const targetY = viewportPoint ? viewportPoint.y : layout.contentRect.y + layout.contentRect.height / 2;
+
+    viewer.zoom = targetZoom;
+    const nextLayout = getViewerLayout(metrics, viewer);
+    const content = measureViewerContent(viewer, metrics, nextLayout);
+    const fitScale = getViewerFitScale(nextLayout, content);
+    const scale = fitScale * viewer.zoom;
+    viewer.panX = targetX - nextLayout.contentRect.x - contentX * scale;
+    viewer.panY = targetY - nextLayout.contentRect.y - contentY * scale;
+    constrainViewerPan(viewer, nextLayout, content, scale);
+}
+
+function setViewerZoom(viewer, nextZoom, anchorClientX = null, anchorClientY = null) {
+    if (!viewer) {
+        return;
+    }
+
+    const transform = getViewerTransform(viewer, resolveMetrics());
+    const viewportPoint = Number.isFinite(anchorClientX) && Number.isFinite(anchorClientY)
+        ? getCanvasPoint(anchorClientX, anchorClientY)
+        : {
+            x: transform.layout.contentRect.x + transform.layout.contentRect.width / 2,
+            y: transform.layout.contentRect.y + transform.layout.contentRect.height / 2
+        };
+    const contentX = (viewportPoint.x - transform.drawX) / transform.scale;
+    const contentY = (viewportPoint.y - transform.drawY) / transform.scale;
+    focusViewerContentPoint(viewer, nextZoom, contentX, contentY, anchorClientX, anchorClientY);
+}
+
+function nudgeViewerPan(viewer, deltaX, deltaY) {
+    if (!viewer) {
+        return;
+    }
+
+    viewer.panX += deltaX;
+    viewer.panY += deltaY;
+    getViewerTransform(viewer, resolveMetrics());
+}
+
+function resetViewerView(viewer) {
+    if (!viewer) {
+        return;
+    }
+
+    viewer.zoom = 1;
+    viewer.panX = 0;
+    viewer.panY = 0;
+    getViewerTransform(viewer, resolveMetrics());
 }
 
 function fitFontToWidth(text, font, width, minimumPx = 16, weight = '700') {
@@ -2836,60 +3110,84 @@ function drawViewerScene(timestamp) {
         return;
     }
 
-    const x = metrics.paddingX;
-    const y = metrics.paddingY;
-    const width = metrics.contentWidth;
-    const height = app.viewportHeight - metrics.paddingY * 2;
+    const layout = getViewerLayout(metrics, app.viewer);
+    const transform = getViewerTransform(app.viewer, metrics);
+    const { x, y, width, height } = layout;
     ctx.fillStyle = palette.block;
     ctx.strokeStyle = palette.border;
     ctx.lineWidth = 1;
     ctx.fillRect(x, y, width, height);
     ctx.strokeRect(x + 0.5, y + 0.5, width - 1, height - 1);
-
-    const closeText = '[close]';
-    const closeWidth = measureTextWidth(closeText, metrics.commandFont);
     ctx.font = metrics.titleFont;
     ctx.textBaseline = 'top';
     ctx.fillStyle = palette.title;
-    ctx.fillText(app.viewer.title || 'viewer', x + 12, y + 12);
-    ctx.font = metrics.commandFont;
-    ctx.fillStyle = palette.accent;
-    ctx.fillText(closeText, x + width - closeWidth - 14, y + 16);
-    app.interactiveRegions = [{
-        action: 'viewer-close',
-        data: null,
-        height: metrics.lineHeight,
-        width: closeWidth,
-        x: x + width - closeWidth - 14,
-        y: y + 16
-    }];
+    ctx.fillText(app.viewer.title || 'viewer', layout.titleX, layout.titleY);
+    drawButton(ctx, layout.closeButton.button, layout.closeButton.x, layout.closeButton.y, palette);
+    layout.controls.forEach(control => {
+        drawButton(ctx, control.button, control.x, control.y, palette);
+    });
 
-    if (app.viewer.hint) {
-        ctx.fillStyle = palette.text;
-        ctx.fillText(app.viewer.hint, x + 12, y + metrics.lineHeight + 22);
-    }
+    app.interactiveRegions = [
+        {
+            action: layout.closeButton.action,
+            data: null,
+            fixed: true,
+            height: layout.closeButton.button.height,
+            width: layout.closeButton.button.width,
+            x: layout.closeButton.x,
+            y: layout.closeButton.y
+        },
+        ...layout.controls.map(control => ({
+            action: control.action,
+            data: null,
+            fixed: true,
+            height: control.button.height,
+            width: control.button.width,
+            x: control.x,
+            y: control.y
+        }))
+    ];
 
-    if (app.viewer.type === 'ascii' || app.viewer.type === 'movie') {
+    if (layout.hintLines.length > 0) {
         ctx.fillStyle = palette.text;
         ctx.font = metrics.textFont;
         ctx.textBaseline = 'top';
-        const lines = Array.isArray(app.viewer.lines) ? app.viewer.lines : [];
-        lines.forEach((line, index) => {
-            ctx.fillText(line, x + 14, y + metrics.viewerTop + index * metrics.lineHeight);
+        layout.hintLines.forEach((line, index) => {
+            ctx.fillText(line, layout.hintX, layout.hintY + index * metrics.lineHeight);
         });
+    }
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(layout.contentRect.x, layout.contentRect.y, layout.contentRect.width, layout.contentRect.height);
+    ctx.clip();
+
+    if (app.viewer.type === 'ascii' || app.viewer.type === 'video') {
+        ctx.fillStyle = palette.text;
+        ctx.font = metrics.textFont;
+        ctx.textBaseline = 'top';
+        ctx.translate(transform.drawX, transform.drawY);
+        ctx.scale(transform.scale, transform.scale);
+        const lines = Array.isArray(transform.content.lines) ? transform.content.lines : [];
+        if (lines.length === 0) {
+            ctx.fillText(app.viewer.type === 'video' ? '[camera loading]' : '[ascii loading]', 0, 0);
+        } else {
+            lines.forEach((line, index) => {
+                ctx.fillText(line, 0, index * metrics.lineHeight);
+            });
+        }
     } else if (app.viewer.type === 'image') {
-        const entry = getMediaEntry(app.viewer.src, 'image', { mimeType: app.viewer.mimeType });
-        const source = getMediaRenderSource(entry);
-        if (entry?.ready && source) {
-            const dimensions = getMediaDimensions(entry, width - 28);
-            ctx.drawImage(source, x + 14, y + metrics.viewerTop, dimensions.width, dimensions.height);
+        if (transform.content.ready && transform.content.source) {
+            ctx.drawImage(transform.content.source, transform.drawX, transform.drawY, transform.scaledWidth, transform.scaledHeight);
         } else {
             ctx.fillStyle = palette.text;
             ctx.font = metrics.textFont;
             ctx.textBaseline = 'top';
-            ctx.fillText('[image loading]', x + 14, y + metrics.viewerTop);
+            ctx.fillText('[image loading]', layout.contentRect.x + 12, layout.contentRect.y + 12);
         }
     }
+
+    ctx.restore();
 
     drawScreenOverlay(ctx, palette);
 }
@@ -2898,7 +3196,7 @@ function frame(timestamp) {
     app.frameId = window.requestAnimationFrame(frame);
     advanceScrollGlide(timestamp);
     updateAnimatedMediaEntries(timestamp);
-    if (app.viewer?.type === 'movie') {
+    if (app.viewer?.type === 'video') {
         updateMovieFrame();
     }
     if (app.viewer) {
@@ -2927,6 +3225,8 @@ function getCommandHandlers() {
         ['instagram', window.instagram_command],
         ['linkedin', window.linkedin_command],
         ['ls', window.ls_command],
+        ['video', window.video_command],
+        ['mypic', window.mypic_command],
         ['movie', window.movie_command],
         ['picture', window.picture_command],
         ['pretext', window.pretext_command],
@@ -2999,7 +3299,11 @@ export async function executeCommand(commandLine) {
 }
 
 export function setupTerminal() {
+    if (app.viewer?.type === 'video' && typeof app.viewer.stop === 'function') {
+        app.viewer.stop();
+    }
     app.viewer = null;
+    app.viewerGesture = null;
     app.blocks = [];
     app.inputValue = '';
     app.interactiveRegions = [];
@@ -3011,7 +3315,7 @@ export function setupTerminal() {
 
 function updateMovieFrame() {
     const viewer = app.viewer;
-    if (!viewer || viewer.type !== 'movie' || !viewer.ctx || !viewer.video) {
+    if (!viewer || viewer.type !== 'video' || !viewer.ctx || !viewer.video) {
         return;
     }
     if (viewer.video.readyState < viewer.video.HAVE_ENOUGH_DATA) {
@@ -3023,7 +3327,7 @@ function updateMovieFrame() {
     }
 }
 
-export async function showMovie(args = []) {
+export async function showVideo(args = []) {
     ensureCanvas();
     const width = Number.isFinite(Number(args?.[0])) ? Math.max(24, Math.floor(Number(args[0]))) : 160;
     const height = Number.isFinite(Number(args?.[1])) ? Math.max(16, Math.floor(Number(args[1]))) : 80;
@@ -3037,16 +3341,15 @@ export async function showMovie(args = []) {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
     video.srcObject = stream;
     await video.play().catch(() => {});
-    app.viewer = {
+    app.viewer = createViewer({
         ctx,
         height,
-        hint: 'press Escape to close',
         lines: [],
-        title: 'movie',
-        type: 'movie',
+        title: 'video',
+        type: 'video',
         video,
         width
-    };
+    });
     app.viewer.stop = () => {
         stream.getTracks().forEach(track => track.stop());
     };
@@ -3054,37 +3357,213 @@ export async function showMovie(args = []) {
     app.scrollTop = 0;
 }
 
+export async function showMovie(args = []) {
+    return showVideo(args);
+}
+
 export function showAsciiStill(asciiLines, options = {}) {
-    app.viewer = {
-        hint: options.hint || 'press Escape to close',
+    app.viewer = createViewer({
+        ...options,
         lines: Array.isArray(asciiLines) ? asciiLines : [],
         title: options.title || 'ascii viewer',
         type: 'ascii'
-    };
+    });
     stopScrollGlide();
     app.scrollTop = 0;
 }
 
 export function showImageStill(imageUrl, options = {}) {
-    app.viewer = {
-        hint: options.hint || 'press Escape to close',
+    app.viewer = createViewer({
+        ...options,
         mimeType: options.mimeType || '',
         src: imageUrl,
         title: options.title || 'image viewer',
         type: 'image'
-    };
+    });
     stopScrollGlide();
     app.scrollTop = 0;
     markLayoutDirty();
 }
 
 function closeViewer() {
-    if (app.viewer?.type === 'movie' && typeof app.viewer.stop === 'function') {
+    if (app.viewer?.type === 'video' && typeof app.viewer.stop === 'function') {
         app.viewer.stop();
     }
     app.viewer = null;
+    app.viewerGesture = null;
     markLayoutDirty();
     scrollToBottom();
+}
+
+function ensureViewerGestureState() {
+    if (!app.viewerGesture) {
+        app.viewerGesture = {
+            mode: '',
+            moved: false,
+            originPanX: 0,
+            originPanY: 0,
+            panPointerId: null,
+            pointers: new Map(),
+            startClientX: 0,
+            startClientY: 0,
+            startDistance: 0,
+            startMidX: 0,
+            startMidY: 0,
+            startZoom: 1
+        };
+    }
+    return app.viewerGesture;
+}
+
+function beginViewerPanGesture(viewer, gesture, pointerId) {
+    const point = gesture?.pointers?.get(pointerId);
+    if (!viewer || !gesture || !point) {
+        return;
+    }
+
+    gesture.mode = 'pan';
+    gesture.panPointerId = pointerId;
+    gesture.startClientX = point.clientX;
+    gesture.startClientY = point.clientY;
+    gesture.originPanX = Number.isFinite(viewer.panX) ? viewer.panX : 0;
+    gesture.originPanY = Number.isFinite(viewer.panY) ? viewer.panY : 0;
+}
+
+function beginViewerPinchGesture(viewer, gesture) {
+    if (!viewer || !gesture || gesture.pointers.size < 2) {
+        return;
+    }
+
+    const [first, second] = [...gesture.pointers.values()];
+    gesture.mode = 'pinch';
+    gesture.startDistance = Math.max(1, Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY));
+    gesture.startZoom = Number.isFinite(viewer.zoom) && viewer.zoom > 0 ? viewer.zoom : 1;
+    gesture.startMidX = (first.clientX + second.clientX) / 2;
+    gesture.startMidY = (first.clientY + second.clientY) / 2;
+    const transform = getViewerTransform(viewer, resolveMetrics());
+    const midPoint = getCanvasPoint(gesture.startMidX, gesture.startMidY);
+    gesture.anchorContentX = (midPoint.x - transform.drawX) / transform.scale;
+    gesture.anchorContentY = (midPoint.y - transform.drawY) / transform.scale;
+}
+
+function handleViewerContentPointerDown(event) {
+    const viewer = app.viewer;
+    if (!viewer) {
+        return false;
+    }
+
+    const metrics = resolveMetrics();
+    const layout = getViewerLayout(metrics, viewer);
+    const point = getCanvasPoint(event.clientX, event.clientY);
+    if (!isPointInsideRect(point.x, point.y, layout.contentRect)) {
+        return false;
+    }
+
+    const gesture = ensureViewerGestureState();
+    gesture.pointers.set(event.pointerId, {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        pointerId: event.pointerId
+    });
+    if (gesture.pointers.size >= 2) {
+        beginViewerPinchGesture(viewer, gesture);
+    } else {
+        gesture.moved = false;
+        beginViewerPanGesture(viewer, gesture, event.pointerId);
+    }
+
+    if (typeof app.canvas.setPointerCapture === 'function') {
+        app.canvas.setPointerCapture(event.pointerId);
+    }
+    event.preventDefault();
+    return true;
+}
+
+function handleViewerContentPointerMove(event) {
+    const gesture = app.viewerGesture;
+    const viewer = app.viewer;
+    if (!gesture?.pointers?.has(event.pointerId) || !viewer) {
+        return false;
+    }
+
+    const nextPoint = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        pointerId: event.pointerId
+    };
+    gesture.pointers.set(event.pointerId, nextPoint);
+
+    if (gesture.pointers.size >= 2) {
+        if (gesture.mode !== 'pinch') {
+            beginViewerPinchGesture(viewer, gesture);
+        }
+
+        const [first, second] = [...gesture.pointers.values()];
+        const distance = Math.max(1, Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY));
+        const midClientX = (first.clientX + second.clientX) / 2;
+        const midClientY = (first.clientY + second.clientY) / 2;
+        if (
+            Math.abs(distance - gesture.startDistance) > VIEWER_POINTER_MOVE_THRESHOLD
+            || Math.hypot(midClientX - gesture.startMidX, midClientY - gesture.startMidY) > VIEWER_POINTER_MOVE_THRESHOLD
+        ) {
+            gesture.moved = true;
+        }
+        focusViewerContentPoint(
+            viewer,
+            gesture.startZoom * (distance / Math.max(1, gesture.startDistance)),
+            gesture.anchorContentX,
+            gesture.anchorContentY,
+            midClientX,
+            midClientY
+        );
+        event.preventDefault();
+        return true;
+    }
+
+    if (gesture.mode !== 'pan' || gesture.panPointerId !== event.pointerId) {
+        beginViewerPanGesture(viewer, gesture, event.pointerId);
+    }
+
+    const deltaX = event.clientX - gesture.startClientX;
+    const deltaY = event.clientY - gesture.startClientY;
+    if (!gesture.moved && Math.hypot(deltaX, deltaY) > VIEWER_POINTER_MOVE_THRESHOLD) {
+        gesture.moved = true;
+    }
+    viewer.panX = gesture.originPanX + deltaX;
+    viewer.panY = gesture.originPanY + deltaY;
+    getViewerTransform(viewer, resolveMetrics());
+    event.preventDefault();
+    return true;
+}
+
+function finishViewerContentPointer(event) {
+    const gesture = app.viewerGesture;
+    if (!gesture?.pointers?.has(event.pointerId)) {
+        return false;
+    }
+
+    const moved = Boolean(gesture.moved);
+    gesture.pointers.delete(event.pointerId);
+    if (typeof app.canvas.hasPointerCapture === 'function' && app.canvas.hasPointerCapture(event.pointerId)) {
+        app.canvas.releasePointerCapture(event.pointerId);
+    }
+
+    if (gesture.pointers.size >= 2 && app.viewer) {
+        beginViewerPinchGesture(app.viewer, gesture);
+    } else if (gesture.pointers.size === 1 && app.viewer) {
+        const [remainingPointer] = [...gesture.pointers.values()];
+        gesture.moved = moved;
+        beginViewerPanGesture(app.viewer, gesture, remainingPointer.pointerId);
+    } else {
+        app.viewerGesture = null;
+    }
+
+    if (moved) {
+        app.suppressNextCanvasClick = true;
+        event.preventDefault();
+    }
+
+    return true;
 }
 
 function appendDeleteCommitResult(result, prefix) {
@@ -3361,6 +3840,15 @@ function shouldStartTouchScroll(event, region) {
 
 function onPointerDown(event) {
     const region = hitTest(event.clientX, event.clientY);
+    if (app.viewer) {
+        if (!region && handleViewerContentPointerDown(event)) {
+            return;
+        }
+        if (!region) {
+            return;
+        }
+    }
+
     if (shouldStartTouchScroll(event, region)) {
         stopScrollGlide();
         app.pointerDrag = {
@@ -3474,6 +3962,10 @@ function onPointerDown(event) {
 }
 
 function onPointerMove(event) {
+    if (handleViewerContentPointerMove(event)) {
+        return;
+    }
+
     if (!app.pointerDrag || app.pointerDrag.pointerId !== event.pointerId) {
         return;
     }
@@ -3538,6 +4030,13 @@ function onPointerMove(event) {
     }
 
     if (!app.pointerDrag.mediaId) {
+        if (app.pointerDrag.region) {
+            const deltaX = event.clientX - app.pointerDrag.startClientX;
+            const deltaY = event.clientY - app.pointerDrag.startClientY;
+            if (!app.pointerDrag.moved && Math.hypot(deltaX, deltaY) > VIEWER_POINTER_MOVE_THRESHOLD) {
+                app.pointerDrag.moved = true;
+            }
+        }
         return;
     }
 
@@ -3563,6 +4062,10 @@ function onPointerMove(event) {
 }
 
 function onPointerUp(event) {
+    if (finishViewerContentPointer(event)) {
+        return;
+    }
+
     if (!app.pointerDrag || app.pointerDrag.pointerId !== event.pointerId) {
         return;
     }
@@ -3625,6 +4128,15 @@ function onPointerUp(event) {
     case 'link':
         activateLink(drag.region.data);
         break;
+    case 'viewer-zoom-out':
+        setViewerZoom(app.viewer, (app.viewer?.zoom || 1) / VIEWER_ZOOM_STEP);
+        break;
+    case 'viewer-fit':
+        resetViewerView(app.viewer);
+        break;
+    case 'viewer-zoom-in':
+        setViewerZoom(app.viewer, (app.viewer?.zoom || 1) * VIEWER_ZOOM_STEP);
+        break;
     case 'viewer-close':
         closeViewer();
         break;
@@ -3650,6 +4162,10 @@ function onCanvasClick(event) {
 }
 
 function onPointerCancel(event) {
+    if (finishViewerContentPointer(event)) {
+        return;
+    }
+
     if (!app.pointerDrag || app.pointerDrag.pointerId !== event.pointerId) {
         return;
     }
@@ -3663,6 +4179,12 @@ function onPointerCancel(event) {
 
 function onWheel(event) {
     if (app.viewer) {
+        const deltaY = normalizeWheelDelta(event);
+        if (Math.abs(deltaY) > 0.01) {
+            const zoomExponent = clamp(-deltaY / 140, -4, 4);
+            setViewerZoom(app.viewer, (app.viewer.zoom || 1) * (VIEWER_ZOOM_STEP ** zoomExponent), event.clientX, event.clientY);
+        }
+        event.preventDefault();
         return;
     }
     if (event.ctrlKey) {
@@ -3719,6 +4241,46 @@ function onKeyDown(event) {
         if (event.key === 'Escape') {
             closeViewer();
             event.preventDefault();
+            return;
+        }
+
+        if (event.key === '+' || event.key === '=') {
+            setViewerZoom(app.viewer, (app.viewer.zoom || 1) * VIEWER_ZOOM_STEP);
+            event.preventDefault();
+            return;
+        }
+
+        if (event.key === '-' || event.key === '_') {
+            setViewerZoom(app.viewer, (app.viewer.zoom || 1) / VIEWER_ZOOM_STEP);
+            event.preventDefault();
+            return;
+        }
+
+        if (event.key === '0') {
+            resetViewerView(app.viewer);
+            event.preventDefault();
+            return;
+        }
+
+        switch (event.key) {
+        case 'ArrowUp':
+            nudgeViewerPan(app.viewer, 0, VIEWER_PAN_STEP);
+            event.preventDefault();
+            return;
+        case 'ArrowDown':
+            nudgeViewerPan(app.viewer, 0, -VIEWER_PAN_STEP);
+            event.preventDefault();
+            return;
+        case 'ArrowLeft':
+            nudgeViewerPan(app.viewer, VIEWER_PAN_STEP, 0);
+            event.preventDefault();
+            return;
+        case 'ArrowRight':
+            nudgeViewerPan(app.viewer, -VIEWER_PAN_STEP, 0);
+            event.preventDefault();
+            return;
+        default:
+            break;
         }
         return;
     }

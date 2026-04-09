@@ -819,8 +819,8 @@ function help_command() {
         ['history', 'Show command history'],
         ['linkedin', 'Open LinkedIn in a new tab'],
         ['ls', 'List directory contents'],
-        ['movie [w h]', 'Display your live camera footage as ASCII art at size w x h (press any key to stop)'],
-        ['picture [w h]', 'Display 0x00C0DE\'s picture as ASCII art at size w x h'],
+        ['video [w h]', 'Display your live camera footage as ASCII art at size w x h'],
+        ['mypic [w h]', 'Display 0x00C0DE\'s picture as ASCII art at size w x h'],
         ['pretext [lab] [text]', 'Show terminal Pretext status or open the layout lab'],
         ['post <text>', 'Append a blog entry through the backend API (may take a short time to appear)'],
         ['post --image [text]', `Append a blog entry with a selected image or mp4 (${BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL})`],
@@ -2183,11 +2183,18 @@ function ls_command() {
     return [TEXT_FILES.join('  ')];
 }
 
-async function movie_command(args) {
-    return showMovie(args);
+async function video_command(args) {
+    if (typeof window.showVideo === 'function') {
+        return window.showVideo(args);
+    }
+    return window.showMovie(args);
 }
 
-async function picture_command(args) {
+async function movie_command(args) {
+    return video_command(args);
+}
+
+async function mypic_command(args) {
     const width = args[0] ? parseInt(args[0], 10) : 100;
     const height = args[1] ? parseInt(args[1], 10) : 90;
     const img = new Image();
@@ -2195,6 +2202,10 @@ async function picture_command(args) {
     img.setAttribute('crossOrigin', 'anonymous');
     await img.decode();
     return renderImageToAscii(img, width, height);
+}
+
+async function picture_command(args) {
+    return mypic_command(args);
 }
 
 function pretext_command(args) {
@@ -2713,7 +2724,6 @@ async function userpic_command(args) {
         const asciiLines = await renderImageToAscii(image, width, height);
         showAsciiStill(asciiLines, {
             title: 'userpic',
-            hint: 'drag to pan, pinch to zoom, save to download the ascii image',
             download: {
                 filename: buildAsciiDownloadFilename(file),
                 label: 'save'
