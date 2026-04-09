@@ -67,32 +67,33 @@ Credit to Cheng Lou for the original [Pretext](https://github.com/chenglou/prete
 │  ┌──────────────┐      ┌──────────────┐      ┌──────────────────────┐        │
 │  │  index.html  │─────→│   term.js    │─────→│ terminal-canvas-core │        │
 │  │ projects.html│      │ (boot bridge)│      │   .mjs (canvas REPL) │        │
-│  └──────────────┘      └──────────────┘      └──────────┬───────────┘        │
-│                                                         │                    │
-│                                ┌────────────────────────▼──────────────────┐  │
-│                                │ commands.js (shell verbs / blog parsing) │  │
-│                                └────────────────────────┬──────────────────┘  │
-│                                                         │                    │
-│                     ┌───────────────┐      ┌────────────▼────────────┐       │
-│                     │ pictures.js   │      │ terminal-pretext-core   │       │
-│                     │ ASCII / video │      │ prepare/layout adapter   │       │
-│                     └───────────────┘      └────────────┬────────────┘       │
-│                                                         │                    │
-│                                ┌────────────────────────▼──────────────────┐  │
-│                                │ pretext-browser.mjs / vendor/pretext     │  │
-│                                │ Cheng Lou's text measurement + layout     │  │
-│                                └────────────────────────┬──────────────────┘  │
-│                                                         │                    │
-│                    ┌──────────────────┐   ┌─────────────▼────────────┐       │
-│                    │ banner-wave-core │   │ terminal-visuals-core    │       │
-│                    │ banner glyph     │   │ elevated rain helpers    │       │
-│                    │ segmentation     │   └──────────────────────────┘       │
-│                    └──────────────────┘                                      │
-│                                                         │                    │
-│                              ┌──────────────────────────▼─────────────────┐  │
-│                              │ visible <canvas id="terminal-canvas">      │  │
-│                              │ hidden  <canvas id="canvas"> scratch       │  │
-│                              └────────────────────────────────────────────┘  │
+│  └──────────────┘      └──────────────┘      └───────┬─────────┬────────┘    │
+│                                                      │         │             │
+│                                ┌─────────────────────▼──────┐  │             │
+│                                │ commands.js (shell verbs / │  │             │
+│                                │ blog parsing / auth)       │  │             │
+│                                └──────────────┬─────────────┘  │             │
+│                                               │                │             │
+│                     ┌───────────────┐      ┌──▼────────────────▼───┐        │
+│                     │ pictures.js   │      │ terminal-pretext-core │        │
+│                     │ ASCII / video │      │ prepare/layout adapter│        │
+│                     └───────────────┘      └────────────┬──────────┘        │
+│                                                         │                   │
+│                                ┌────────────────────────▼──────────────────┐ │
+│                                │ pretext-browser.mjs / vendor/pretext     │ │
+│                                │ Cheng Lou's text measurement + layout     │ │
+│                                └────────────────────────┬──────────────────┘ │
+│                                                         │                   │
+│                    ┌──────────────────┐   ┌─────────────▼────────────┐      │
+│                    │ banner-wave-core │   │ terminal-visuals-core    │      │
+│                    │ banner glyph     │   │ elevated rain helpers    │      │
+│                    │ segmentation     │   └──────────────────────────┘      │
+│                    └──────────────────┘                                     │
+│                                                         │                   │
+│                              ┌──────────────────────────▼─────────────────┐ │
+│                              │ visible <canvas id="terminal-canvas">      │ │
+│                              │ hidden  <canvas id="canvas"> scratch       │ │
+│                              └────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────────────────────┘
           │ fetch()                                         │ fetch()/POST
           ▼                                                 ▼
@@ -175,7 +176,7 @@ Next `cat blog.txt` reflects the new entry live
 ├── terminal-session-core.mjs         # Pure session state for guest/root/godlike prompt behavior
 ├── terminal-visuals-core.mjs         # Pure helpers for elevated animated glyph rain
 ├── terminal-pretext-core.mjs         # Link-aware tokenization plus Pretext prepare/layout helpers
-├── terminal-pretext-runtime.mjs      # Compatibility shim retained for older loader expectations
+├── terminal-pretext-runtime.mjs      # Legacy no-op shim retained for older compatibility expectations
 ├── pretext-lab.html                  # Standalone layout lab for Pretext experiments
 ├── pretext-lab.mjs                   # Browser controller for the lab
 ├── pretext-lab-core.mjs              # Shared lab state and query serialization helpers
@@ -307,9 +308,9 @@ Responsibilities:
 ### `terminal-pretext-runtime.mjs` — Compatibility Shim
 
 Responsibilities:
-- Preserves the older browser-facing Pretext loader surface expected by existing code
-- Avoids participating in the live DOM render path
-- Acts as a thin compatibility layer while the real renderer lives in `terminal-canvas-core.mjs`
+- Preserves the older browser-facing Pretext hook names for legacy/manual callers
+- Stays out of the live canvas boot path
+- Returns inert values while the real renderer lives in `terminal-canvas-core.mjs`
 
 ### `pictures.js` — ASCII / Glyph Renderer
 

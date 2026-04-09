@@ -407,30 +407,8 @@ function getSafeTerminalHref(href) {
     return '#';
 }
 
-let terminalPretextReadyPromise = null;
-const TERMINAL_PRETEXT_RUNTIME_MODULE_URL = './terminal-pretext-runtime.mjs?v=20260404a';
 let blogUploadCoreReadyPromise = null;
 const BLOG_UPLOAD_CORE_MODULE_URL = './blog-upload-core.mjs?v=20260404c';
-
-function ensureTerminalPretextReady() {
-    if (terminalPretextReadyPromise) {
-        return terminalPretextReadyPromise;
-    }
-
-    terminalPretextReadyPromise = import(TERMINAL_PRETEXT_RUNTIME_MODULE_URL)
-        .then(module => {
-            window.renderTerminalEditorialTextWithPretext = module.renderTerminalEditorialTextWithPretext;
-            window.renderTerminalTextWithPretext = module.renderTerminalTextWithPretext;
-            window.rerenderTerminalPretextContainer = module.rerenderTerminalPretextContainer;
-            return module;
-        })
-        .catch(error => {
-            console.error('terminal pretext failed to load', error);
-            return null;
-        });
-
-    return terminalPretextReadyPromise;
-}
 
 function ensureBlogUploadCoreReady() {
     if (blogUploadCoreReadyPromise) {
@@ -2839,7 +2817,6 @@ window.isSafeBlogImageDataUrl = isSafeBlogImageDataUrl;
 window.isSafeBlogImageSource = isSafeBlogImageSource;
 window.deleteBlogEntryByTimestamp = deleteBlogEntryByTimestamp;
 window.deleteBlogImageByBlockIndex = deleteBlogImageByBlockIndex;
-window.ensureTerminalPretextReady = ensureTerminalPretextReady;
 window.ensureTerminalSessionReady = ensureTerminalSessionReady;
 window.getTerminalPromptSnapshot = getTerminalPromptSnapshot;
 window.getTerminalSessionState = () => terminalSessionState;

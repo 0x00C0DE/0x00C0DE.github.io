@@ -119,6 +119,30 @@ test('advancing a rain column mutates characters but keeps the same safe glyph s
     assert.match(updated.stream, /^[Z9?\n]+$/);
 });
 
+test('advancing a rain column reports the exact rows that changed', () => {
+    const [column] = createBinaryRainColumns({
+        columnCount: 1,
+        glyphs: 'Z9?',
+        height: 500,
+        rng: createDeterministicRandom([0.12, 0.44, 0.66, 0.88, 0.23, 0.57]),
+        width: 700
+    });
+
+    const updated = advanceBinaryRainColumn(column, {
+        glyphs: 'Z9?',
+        rng: createDeterministicRandom([0.81, 0.02, 0.94, 0.35, 0.61, 0.17])
+    });
+    const changedIndexes = updated.cells.reduce((indexes, glyph, index) => {
+        if (glyph !== column.cells[index]) {
+            indexes.push(index);
+        }
+        return indexes;
+    }, []);
+
+    assert.deepEqual(updated.mutatedIndexes, changedIndexes);
+    assert.deepEqual([...new Set(updated.mutatedIndexes)], updated.mutatedIndexes);
+});
+
 test('default rain glyph pool can include letters, digits, and special characters', () => {
     const [column] = createBinaryRainColumns({
         columnCount: 1,
