@@ -211,3 +211,70 @@ test('mobile visitor widget redraws live stats instead of staying at zeros after
     });
     assert.deepEqual(rendered.rows, ['0000456', '0000023', '0000004']);
 });
+
+test('mobile scrollbar thumb drag scrolls the terminal content', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const page = await createMobilePage(t);
+    await stubVisitorApis(page);
+
+    await page.goto(server.origin, { waitUntil: 'load' });
+    await page.waitForFunction(() => typeof window.executeCommand === 'function');
+    await page.waitForFunction(() => Boolean(window.__terminalCanvasTestHooks));
+    await page.waitForTimeout(2500);
+    await page.evaluate(async () => {
+        for (let index = 0; index < 6; index += 1) {
+            await window.executeCommand('help');
+        }
+    });
+
+    const before = await page.evaluate(() => ({
+        scrollbar: window.__terminalCanvasTestHooks.getScrollbarLayout(),
+        state: window.__terminalCanvasTestHooks.getState()
+    }));
+    assert.ok(before.scrollbar, 'expected the mobile terminal to render a scrollbar');
+    assert.ok(before.state.scrollTop > 0, 'expected the terminal to be scrollable before dragging the thumb');
+
+    const startPoint = {
+        x: before.scrollbar.hitX + before.scrollbar.hitWidth / 2,
+        y: before.scrollbar.thumbY + before.scrollbar.thumbHeight / 2
+    };
+    const endPoint = {
+        x: startPoint.x,
+        y: before.scrollbar.trackY + 24
+    };
+    await page.dispatchEvent('#terminal-canvas', 'pointerdown', {
+        bubbles: true,
+        clientX: startPoint.x,
+        clientY: startPoint.y,
+        isPrimary: true,
+        pointerId: 1,
+        pointerType: 'touch'
+    });
+    await page.dispatchEvent('#terminal-canvas', 'pointermove', {
+        bubbles: true,
+        clientX: endPoint.x,
+        clientY: endPoint.y,
+        isPrimary: true,
+        pointerId: 1,
+        pointerType: 'touch'
+    });
+    await page.dispatchEvent('#terminal-canvas', 'pointerup', {
+        bubbles: true,
+        clientX: endPoint.x,
+        clientY: endPoint.y,
+        isPrimary: true,
+        pointerId: 1,
+        pointerType: 'touch'
+    });
+    await page.waitForTimeout(150);
+
+    const after = await page.evaluate(() => window.__terminalCanvasTestHooks.getState());
+    assert.ok(
+        after.scrollTop < before.state.scrollTop - 50,
+        `expected mobile scrollbar drag to reduce scrollTop, before=${before.state.scrollTop} after=${after.scrollTop}`
+    );
+});
