@@ -46,6 +46,12 @@ const CURSOR_BLINK_INTERVAL_MS = 540;
 const BACKGROUND_STEP_MS = 120;
 const MEDIA_PLACEHOLDER_ASPECT_RATIO = 16 / 9;
 const MOBILE_INPUT_PROXY_ID = 'terminal-mobile-input';
+const SCROLL_GLIDE_DECAY_RATE = 5.4;
+const SCROLL_GLIDE_MAX_VELOCITY = 4200;
+const SCROLL_GLIDE_MIN_VELOCITY = 26;
+const SCROLL_WHEEL_IMMEDIATE_RATIO = 0.42;
+const SCROLL_WHEEL_VELOCITY_FACTOR = 3.15;
+const SCROLL_DRAG_VELOCITY_BLEND = 0.68;
 
 const PALETTES = Object.freeze({
     default: {
@@ -191,7 +197,9 @@ const app = {
     pointerDrag: null,
     screenOverlayLayer: null,
     scratchCanvas: null,
+    scrollGlideLastTimestamp: 0,
     scrollTop: 0,
+    scrollVelocity: 0,
     suppressNextCanvasClick: false,
     textInputProxy: null,
     viewer: null,
@@ -205,6 +213,30 @@ function clamp(value, minimum, maximum) {
 
 function round(value) {
     return Math.round(value);
+}
+
+function getMaxScrollTop() {
+    return Math.max(0, app.contentHeight - app.viewportHeight);
+}
+
+function clampScrollVelocity(value) {
+    return clamp(value, -SCROLL_GLIDE_MAX_VELOCITY, SCROLL_GLIDE_MAX_VELOCITY);
+}
+
+function stopScrollGlide() {
+    app.scrollVelocity = 0;
+    app.scrollGlideLastTimestamp = 0;
+}
+
+function setScrollTopValue(value) {
+    app.scrollTop = clamp(value, 0, getMaxScrollTop());
+    return app.scrollTop;
+}
+
+function applyScrollDelta(delta) {
+    const previous = app.scrollTop;
+    setScrollTopValue(previous + delta);
+    return app.scrollTop - previous;
 }
 
 function isVirtualKeyboardDevice() {
@@ -2394,11 +2426,15 @@ function resizeCanvas() {
 }
 
 function clampScroll() {
-    app.scrollTop = clamp(app.scrollTop, 0, Math.max(0, app.contentHeight - app.viewportHeight));
+    setScrollTopValue(app.scrollTop);
+    if ((app.scrollTop <= 0 && app.scrollVelocity < 0) || (app.scrollTop >= getMaxScrollTop() && app.scrollVelocity > 0)) {
+        stopScrollGlide();
+    }
 }
 
 function applyScrollToBottom() {
-    app.scrollTop = Math.max(0, app.contentHeight - app.viewportHeight);
+    stopScrollGlide();
+    app.scrollTop = getMaxScrollTop();
 }
 
 function ensureLayoutCurrent() {
@@ -2624,11 +2660,68 @@ function setScrollTopFromScrollbarPointer(clientY, thumbPointerOffset = 0) {
         return;
     }
 
+    stopScrollGlide();
     const rect = app.canvas.getBoundingClientRect();
     const pointerY = clientY - rect.top;
     const thumbTop = clamp(pointerY - thumbPointerOffset, layout.trackY, layout.trackY + layout.maxTravel);
     const ratio = layout.maxTravel <= 0 ? 0 : (thumbTop - layout.trackY) / layout.maxTravel;
     app.scrollTop = clamp(layout.maxScrollTop * ratio, 0, layout.maxScrollTop);
+}
+
+function seedScrollGlideVelocity(nextVelocity) {
+    app.scrollVelocity = clampScrollVelocity(nextVelocity);
+    app.scrollGlideLastTimestamp = 0;
+}
+
+function normalizeWheelDelta(event) {
+    const rawDelta = Number.isFinite(event?.deltaY) ? event.deltaY : 0;
+    if (!rawDelta) {
+        return 0;
+    }
+
+    if (event?.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+        const metrics = resolveMetrics();
+        return rawDelta * metrics.lineHeight;
+    }
+    if (event?.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+        return rawDelta * Math.max(1, app.viewportHeight);
+    }
+    return rawDelta;
+}
+
+function advanceScrollGlide(timestamp) {
+    if (app.viewer || app.pointerDrag?.contentScrollDrag || app.pointerDrag?.scrollbarDrag) {
+        app.scrollGlideLastTimestamp = timestamp;
+        return;
+    }
+
+    if (!Number.isFinite(app.scrollVelocity) || Math.abs(app.scrollVelocity) < SCROLL_GLIDE_MIN_VELOCITY) {
+        stopScrollGlide();
+        return;
+    }
+
+    if (!Number.isFinite(app.scrollGlideLastTimestamp) || app.scrollGlideLastTimestamp <= 0) {
+        app.scrollGlideLastTimestamp = timestamp;
+        return;
+    }
+
+    const deltaSeconds = clamp((timestamp - app.scrollGlideLastTimestamp) / 1000, 0, 0.05);
+    app.scrollGlideLastTimestamp = timestamp;
+    if (deltaSeconds <= 0) {
+        return;
+    }
+
+    const intendedDelta = app.scrollVelocity * deltaSeconds;
+    const appliedDelta = applyScrollDelta(intendedDelta);
+    app.scrollVelocity *= Math.exp(-SCROLL_GLIDE_DECAY_RATE * deltaSeconds);
+    if (Math.abs(appliedDelta - intendedDelta) > 0.5) {
+        stopScrollGlide();
+        return;
+    }
+
+    if (Math.abs(app.scrollVelocity) < SCROLL_GLIDE_MIN_VELOCITY) {
+        stopScrollGlide();
+    }
 }
 
 function drawScrollbar(ctx, palette, metrics) {
@@ -2766,6 +2859,7 @@ function drawViewerScene(timestamp) {
 
 function frame(timestamp) {
     app.frameId = window.requestAnimationFrame(frame);
+    advanceScrollGlide(timestamp);
     updateAnimatedMediaEntries(timestamp);
     if (app.viewer?.type === 'movie') {
         updateMovieFrame();
@@ -2872,6 +2966,7 @@ export function setupTerminal() {
     app.blocks = [];
     app.inputValue = '';
     app.interactiveRegions = [];
+    stopScrollGlide();
     app.scrollTop = 0;
     syncTextInputProxyValue();
     markLayoutDirty();
@@ -2918,6 +3013,7 @@ export async function showMovie(args = []) {
     app.viewer.stop = () => {
         stream.getTracks().forEach(track => track.stop());
     };
+    stopScrollGlide();
     app.scrollTop = 0;
 }
 
@@ -2928,6 +3024,7 @@ export function showAsciiStill(asciiLines, options = {}) {
         title: options.title || 'ascii viewer',
         type: 'ascii'
     };
+    stopScrollGlide();
     app.scrollTop = 0;
 }
 
@@ -2939,6 +3036,7 @@ export function showImageStill(imageUrl, options = {}) {
         title: options.title || 'image viewer',
         type: 'image'
     };
+    stopScrollGlide();
     app.scrollTop = 0;
     markLayoutDirty();
 }
@@ -3100,12 +3198,16 @@ function shouldStartTouchScroll(event, region) {
 function onPointerDown(event) {
     const region = hitTest(event.clientX, event.clientY);
     if (shouldStartTouchScroll(event, region)) {
+        stopScrollGlide();
         app.pointerDrag = {
             contentScrollDrag: true,
             focusOnRelease: !region,
+            lastMoveTimestamp: performance.now(),
+            lastScrollTop: app.scrollTop,
             moved: false,
             originScrollTop: app.scrollTop,
             pointerId: event.pointerId,
+            releaseVelocity: 0,
             region,
             startClientX: event.clientX,
             startClientY: event.clientY
@@ -3125,6 +3227,7 @@ function onPointerDown(event) {
     }
 
     if (region.action === 'scrollbar-thumb' || region.action === 'scrollbar-track') {
+        stopScrollGlide();
         const layout = getScrollbarLayout(resolveMetrics());
         if (!layout) {
             return;
@@ -3152,6 +3255,7 @@ function onPointerDown(event) {
     }
 
     if (region.action === 'drag-media') {
+        stopScrollGlide();
         const block = app.blocks.find(item => item.id === region.data?.blockId);
         const mediaState = block?.editorialMediaState?.get(region.data?.mediaId);
         if (!mediaState) {
@@ -3174,6 +3278,7 @@ function onPointerDown(event) {
     }
 
     if (region.action === 'drag-widget') {
+        stopScrollGlide();
         const block = app.blocks.find(item => item.id === region.data?.blockId);
         const widgetState = block?.widgetState;
         if (!widgetState) {
@@ -3194,6 +3299,7 @@ function onPointerDown(event) {
         return;
     }
 
+    stopScrollGlide();
     app.pointerDrag = {
         moved: false,
         pointerId: event.pointerId,
@@ -3216,12 +3322,23 @@ function onPointerMove(event) {
                 return;
             }
             app.pointerDrag.moved = true;
+            app.pointerDrag.lastMoveTimestamp = performance.now();
+            app.pointerDrag.lastScrollTop = app.scrollTop;
         }
-        app.scrollTop = clamp(
+        const nextScrollTop = clamp(
             app.pointerDrag.originScrollTop - deltaY,
             0,
-            Math.max(0, app.contentHeight - app.viewportHeight)
+            getMaxScrollTop()
         );
+        const now = performance.now();
+        const elapsedMs = Math.max(1, now - app.pointerDrag.lastMoveTimestamp);
+        const deltaScroll = nextScrollTop - app.pointerDrag.lastScrollTop;
+        const instantaneousVelocity = deltaScroll / (elapsedMs / 1000);
+        app.pointerDrag.releaseVelocity = app.pointerDrag.releaseVelocity * (1 - SCROLL_DRAG_VELOCITY_BLEND)
+            + instantaneousVelocity * SCROLL_DRAG_VELOCITY_BLEND;
+        app.pointerDrag.lastMoveTimestamp = now;
+        app.pointerDrag.lastScrollTop = nextScrollTop;
+        app.scrollTop = nextScrollTop;
         event.preventDefault();
         return;
     }
@@ -3294,6 +3411,9 @@ function onPointerUp(event) {
 
     if (drag.contentScrollDrag) {
         if (drag.moved) {
+            if (Math.abs(drag.releaseVelocity) >= SCROLL_GLIDE_MIN_VELOCITY) {
+                seedScrollGlideVelocity(drag.releaseVelocity);
+            }
             app.suppressNextCanvasClick = true;
             event.preventDefault();
             return;
@@ -3368,6 +3488,7 @@ function onPointerCancel(event) {
         app.canvas.releasePointerCapture(event.pointerId);
     }
     app.pointerDrag = null;
+    stopScrollGlide();
 }
 
 function onWheel(event) {
@@ -3377,7 +3498,15 @@ function onWheel(event) {
     if (event.ctrlKey) {
         return;
     }
-    app.scrollTop += event.deltaY;
+    const deltaY = normalizeWheelDelta(event);
+    const immediateDelta = deltaY * SCROLL_WHEEL_IMMEDIATE_RATIO;
+    applyScrollDelta(immediateDelta);
+    const glideDelta = deltaY - immediateDelta;
+    if (Math.abs(glideDelta) > 0.5) {
+        seedScrollGlideVelocity(app.scrollVelocity + glideDelta * SCROLL_WHEEL_VELOCITY_FACTOR);
+    } else if (Math.abs(app.scrollVelocity) < SCROLL_GLIDE_MIN_VELOCITY) {
+        stopScrollGlide();
+    }
     clampScroll();
     event.preventDefault();
 }
@@ -3453,16 +3582,19 @@ function onKeyDown(event) {
         event.preventDefault();
         return;
     case 'PageUp':
+        stopScrollGlide();
         app.scrollTop -= app.viewportHeight * 0.85;
         clampScroll();
         event.preventDefault();
         return;
     case 'PageDown':
+        stopScrollGlide();
         app.scrollTop += app.viewportHeight * 0.85;
         clampScroll();
         event.preventDefault();
         return;
     case 'Home':
+        stopScrollGlide();
         app.scrollTop = 0;
         event.preventDefault();
         return;
@@ -3630,6 +3762,7 @@ function syncLocalTestHooks() {
             };
         },
         setScrollTop(value) {
+            stopScrollGlide();
             app.scrollTop = Math.max(0, Number.isFinite(value) ? value : 0);
             clampScroll();
             return app.scrollTop;
