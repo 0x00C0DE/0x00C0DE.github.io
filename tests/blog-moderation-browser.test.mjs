@@ -77,11 +77,20 @@ async function createStaticServer(rootDirectory) {
     };
 }
 
-async function setupModerationPage(page, origin) {
+async function setupModerationPage(page, origin, options = {}) {
+    if (typeof options.blogContent === 'string') {
+        await page.route(`${origin}/blog.txt`, route => route.fulfill({
+            body: options.blogContent,
+            contentType: 'text/plain; charset=utf-8',
+            status: 200
+        }));
+    }
+
     await page.addInitScript(() => {
         window.__bannerGlyphDraws = [];
         window.__labelDraws = [];
         window.__mediaDraws = [];
+        window.__textDraws = [];
         window.__widgetDraws = [];
         const proto = CanvasRenderingContext2D.prototype;
         const originalFillText = proto.fillText;
@@ -90,8 +99,18 @@ async function setupModerationPage(page, origin) {
             const matrix = typeof this.getTransform === 'function' ? this.getTransform() : { e: 0, f: 0 };
             const fontMatch = String(this.font || '').match(/(\d+(?:\.\d+)?)px/);
             const fontSize = fontMatch ? Number(fontMatch[1]) : 0;
-            if (text === '[delete post]' || text === '[delete media]') {
+            if (text === '[delete post]' || text === '[delete media]' || text === '[delete text]') {
                 window.__labelDraws.push({
+                    font: this.font,
+                    text,
+                    tx: matrix.e,
+                    ty: matrix.f,
+                    x,
+                    y
+                });
+            }
+            if (text === 'aaa' || text === 'bbb' || text === 'ccc') {
+                window.__textDraws.push({
                     font: this.font,
                     text,
                     tx: matrix.e,
@@ -165,7 +184,8 @@ async function setupModerationPage(page, origin) {
     await page.evaluate(async () => {
         window.__deleteCalls = {
             entry: [],
-            media: []
+            media: [],
+            text: []
         };
         window.deleteBlogEntryByTimestamp = async (...args) => {
             window.__deleteCalls.entry.push(args);
@@ -175,12 +195,16 @@ async function setupModerationPage(page, origin) {
             window.__deleteCalls.media.push(args);
             return { ok: true };
         };
+        window.deleteBlogTextBlockByContext = async (...args) => {
+            window.__deleteCalls.text.push(args);
+            return { ok: true };
+        };
         await window.executeCommand('su godlike');
     });
     await page.waitForTimeout(1500);
 }
 
-async function getLatestRenderedLabel(page, text) {
+async function getRenderedLabels(page, text) {
     await page.evaluate(() => {
         window.__labelDraws = [];
     });
@@ -188,11 +212,30 @@ async function getLatestRenderedLabel(page, text) {
 
     return page.evaluate(target => {
         const labels = Array.isArray(window.__labelDraws) ? window.__labelDraws : [];
-        return labels.filter(item => item.text === target).at(-1) || null;
+        const seen = new Set();
+        return labels.filter(item => item.text === target).filter(item => {
+            const key = [
+                Math.round(item.tx || 0),
+                Math.round(item.ty || 0),
+                Math.round(item.x || 0),
+                Math.round(item.y || 0),
+                item.text
+            ].join(':');
+            if (seen.has(key)) {
+                return false;
+            }
+            seen.add(key);
+            return true;
+        });
     }, text);
 }
 
-async function getLatestRenderedMedia(page) {
+async function getLatestRenderedLabel(page, text) {
+    const labels = await getRenderedLabels(page, text);
+    return labels.at(-1) || null;
+}
+
+async function getRenderedMedia(page) {
     await page.evaluate(() => {
         window.__mediaDraws = [];
     });
@@ -200,13 +243,75 @@ async function getLatestRenderedMedia(page) {
 
     return page.evaluate(() => {
         const media = Array.isArray(window.__mediaDraws) ? window.__mediaDraws : [];
-        return media.at(-1) || null;
+        const seen = new Set();
+        return media.filter(item => {
+            const key = [
+                Math.round(item.tx || 0),
+                Math.round(item.ty || 0),
+                Math.round(item.x || 0),
+                Math.round(item.y || 0),
+                Math.round(item.width || 0),
+                Math.round(item.height || 0)
+            ].join(':');
+            if (seen.has(key)) {
+                return false;
+            }
+            seen.add(key);
+            return true;
+        });
     });
+}
+
+async function getRenderedTextDraws(page, text) {
+    await page.evaluate(() => {
+        window.__textDraws = [];
+    });
+    await page.waitForTimeout(120);
+
+    return page.evaluate(target => {
+        const draws = Array.isArray(window.__textDraws) ? window.__textDraws : [];
+        const seen = new Set();
+        return draws.filter(item => item.text === target).filter(item => {
+            const key = [
+                Math.round(item.tx || 0),
+                Math.round(item.ty || 0),
+                Math.round(item.x || 0),
+                Math.round(item.y || 0),
+                item.text
+            ].join(':');
+            if (seen.has(key)) {
+                return false;
+            }
+            seen.add(key);
+            return true;
+        });
+    }, text);
+}
+
+async function getLatestRenderedMedia(page) {
+    const media = await getRenderedMedia(page);
+    return media.at(-1) || null;
 }
 
 async function clickRenderedDeleteLabel(page, text) {
     const label = await getLatestRenderedLabel(page, text);
     assert.ok(label, `expected ${text} to be rendered`);
+
+    const width = await page.evaluate(({ text: labelText, font }) => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.font = font;
+        return ctx.measureText(labelText).width;
+    }, label);
+
+    await page.mouse.click(label.x + label.tx + width / 2, label.y + label.ty + 8);
+    await page.waitForTimeout(200);
+}
+
+async function clickRenderedDeleteLabelAt(page, text, index = -1) {
+    const labels = await getRenderedLabels(page, text);
+    const label = index < 0 ? labels.at(index) : labels[index];
+    assert.ok(label, `expected ${text} at index ${index} to be rendered`);
 
     const width = await page.evaluate(({ text: labelText, font }) => {
         const canvas = document.createElement('canvas');
@@ -424,6 +529,64 @@ test('godlike delete controls respond when clicking inside the rendered button p
     await mediaPage.close();
 });
 
+test('godlike multi media posts render text delete controls above each text segment', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const browser = await chromium.launch({
+        executablePath: CHROME_PATH,
+        headless: true
+    });
+    t.after(async () => {
+        await browser.close();
+    });
+
+    const page = await browser.newPage({
+        viewport: { height: 822, width: 679 }
+    });
+    t.after(async () => {
+        await page.close();
+    });
+
+    const blogContent = [
+        '[2026-04-03T01:33:28.178Z]',
+        'aaa',
+        '[image-base64]',
+        'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBA==',
+        '[/image-base64]',
+        'bbb',
+        '[image-base64]',
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZ1sAAAAASUVORK5CYII=',
+        '[/image-base64]',
+        'ccc',
+        ''
+    ].join('\n');
+
+    await setupModerationPage(page, server.origin, { blogContent });
+
+    const textDeleteLabels = await getRenderedLabels(page, '[delete text]');
+    assert.equal(textDeleteLabels.length, 3, 'expected one text delete control per text segment');
+
+    const aaaDraw = (await getRenderedTextDraws(page, 'aaa')).at(-1);
+    const bbbDraw = (await getRenderedTextDraws(page, 'bbb')).at(-1);
+    const cccDraw = (await getRenderedTextDraws(page, 'ccc')).at(-1);
+    assert.ok(aaaDraw && bbbDraw && cccDraw, 'expected the text segments to render');
+
+    assert.ok(textDeleteLabels[0].y + textDeleteLabels[0].ty < aaaDraw.y + aaaDraw.ty, 'expected the first text delete button above aaa');
+    assert.ok(textDeleteLabels[1].y + textDeleteLabels[1].ty < bbbDraw.y + bbbDraw.ty, 'expected the second text delete button above bbb');
+    assert.ok(textDeleteLabels[2].y + textDeleteLabels[2].ty < cccDraw.y + cccDraw.ty, 'expected the third text delete button above ccc');
+
+    await clickRenderedDeleteLabelAt(page, '[delete text]', 1);
+    const deleteCalls = await page.evaluate(() => window.__deleteCalls);
+    assert.equal(deleteCalls.text.length, 1, 'expected the text delete handler to fire');
+    assert.equal(deleteCalls.text[0][0], 1, 'expected the middle text block index to be passed through');
+
+    const remainingTextDeleteLabels = await getRenderedLabels(page, '[delete text]');
+    assert.equal(remainingTextDeleteLabels.length, 2, 'expected removing one text block to leave the other text delete controls intact');
+});
+
 test('godlike post delete stays clickable after dragging media across it', { timeout: 120000 }, async t => {
     const server = await createStaticServer(REPO_ROOT);
     t.after(async () => {
@@ -445,11 +608,23 @@ test('godlike post delete stays clickable after dragging media across it', { tim
         await page.close();
     });
 
-    await setupModerationPage(page, server.origin);
+    const repoBlogText = await readFile(path.join(REPO_ROOT, 'blog.txt'), 'utf8');
+    const imageMatch = /\[image-base64]\r?\n([\s\S]*?)\r?\n\[\/image-base64]/.exec(repoBlogText);
+    assert.ok(imageMatch, 'expected a large embedded blog image fixture');
+    const blogContent = [
+        '[2026-04-03T01:33:28.178Z]',
+        'drag target',
+        '[image-base64]',
+        imageMatch[1].trim(),
+        '[/image-base64]',
+        ''
+    ].join('\n');
 
-    const media = await getLatestRenderedMedia(page);
+    await setupModerationPage(page, server.origin, { blogContent });
+
+    const media = (await getRenderedMedia(page))[0] || null;
     assert.ok(media, 'expected a rendered blog media item');
-    const initialLabel = await getLatestRenderedLabel(page, '[delete post]');
+    const initialLabel = (await getRenderedLabels(page, '[delete post]'))[0] || null;
     assert.ok(initialLabel, 'expected a rendered post delete label');
 
     const targetX = initialLabel.x + initialLabel.tx + 52;
@@ -460,7 +635,7 @@ test('godlike post delete stays clickable after dragging media across it', { tim
     await page.mouse.up();
     await page.waitForTimeout(300);
 
-    await clickRenderedDeleteLabel(page, '[delete post]');
+    await clickRenderedDeleteLabelAt(page, '[delete post]', 0);
     const deleteCalls = await page.evaluate(() => window.__deleteCalls);
     assert.equal(deleteCalls.entry.length, 1, 'expected the overlapped post delete handler to fire');
 });
