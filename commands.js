@@ -412,7 +412,7 @@ function getSafeTerminalHref(href) {
 }
 
 let blogUploadCoreReadyPromise = null;
-const BLOG_UPLOAD_CORE_MODULE_URL = './blog-upload-core.mjs?v=20260408a';
+const BLOG_UPLOAD_CORE_MODULE_URL = './blog-upload-core.mjs?v=20260408b';
 
 function ensureBlogUploadCoreReady() {
     if (blogUploadCoreReadyPromise) {
@@ -1865,8 +1865,8 @@ async function selectPostMediaAttachments(requiredCount = 1) {
         ? requiredCount
         : 1;
     const uploadCore = await ensureBlogUploadCoreReady();
-    const selection = uploadCore?.collectExactPostMediaFiles
-        ? await uploadCore.collectExactPostMediaFiles(
+    const selection = uploadCore?.collectIncrementalPostMediaFiles
+        ? await uploadCore.collectIncrementalPostMediaFiles(
             pickerOptions => selectUserImageFiles({
                 accept: pickerOptions.accept,
                 exactCount: pickerOptions.exactCount,
@@ -1878,11 +1878,30 @@ async function selectPostMediaAttachments(requiredCount = 1) {
             }
         )
         : await (async () => {
-            const selectedFiles = await selectUserImageFiles({
-                accept: BLOG_POST_FILE_ACCEPT,
-                exactCount: normalizedCount,
-                multiple: normalizedCount > 1
-            });
+            const selectedFiles = [];
+
+            while (selectedFiles.length < normalizedCount) {
+                const remainingCount = normalizedCount - selectedFiles.length;
+                const files = await selectUserImageFiles({
+                    accept: BLOG_POST_FILE_ACCEPT,
+                    exactCount: remainingCount,
+                    multiple: remainingCount > 1
+                });
+
+                if (files.length === 0) {
+                    break;
+                }
+
+                if (files.length > remainingCount) {
+                    return {
+                        ok: false,
+                        files: [...selectedFiles, ...files],
+                        error: `post: upload cancelled; expected ${remainingCount} more media item${remainingCount === 1 ? '' : 's'} but received ${files.length}`
+                    };
+                }
+
+                selectedFiles.push(...files);
+            }
 
             return {
                 ok: selectedFiles.length === normalizedCount,

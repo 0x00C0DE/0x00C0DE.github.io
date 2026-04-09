@@ -12,7 +12,7 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 const CHROME_PATH = 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
 const SAMPLE_MEDIA_PATHS = [
     'E:/Downloads/spongebob1.jpg',
-    'E:/Downloads/50cent1.gif',
+    'E:/Downloads/patrick2.jpg',
     'E:/Downloads/plankton1.jpg'
 ];
 
@@ -139,10 +139,38 @@ async function startPostCommand(page, command) {
     }, command);
 }
 
-async function installShowOpenFilePickerMock(page, selectedFiles, options = {}) {
+function getMediaMimeType(filePath) {
+    const extension = path.extname(filePath).toLowerCase();
+    switch (extension) {
+    case '.jpg':
+    case '.jpeg':
+        return 'image/jpeg';
+    case '.png':
+        return 'image/png';
+    case '.gif':
+        return 'image/gif';
+    case '.webp':
+        return 'image/webp';
+    case '.mp4':
+        return 'video/mp4';
+    default:
+        return 'application/octet-stream';
+    }
+}
+
+async function loadActualPickerFixtures(filePaths = SAMPLE_MEDIA_PATHS) {
+    return Promise.all(filePaths.map(async filePath => ({
+        bytes: Array.from(await readFile(filePath)),
+        name: path.basename(filePath),
+        type: getMediaMimeType(filePath)
+    })));
+}
+
+async function installShowOpenFilePickerMock(page, selectedFileBatches, options = {}) {
     const delayMs = Number.isFinite(options.delayMs) ? Math.max(0, Math.floor(options.delayMs)) : 0;
-    await page.evaluate(({ delayMs: responseDelayMs, selectedFiles: fixtures }) => {
+    await page.evaluate(({ delayMs: responseDelayMs, selectedFileBatches: fixtureBatches }) => {
         window.__showOpenFilePickerCalls = [];
+        let pickerCallIndex = 0;
         window.showOpenFilePicker = async options => {
             window.__showOpenFilePickerCalls.push({
                 excludeAcceptAllOption: Boolean(options?.excludeAcceptAllOption),
@@ -159,7 +187,10 @@ async function installShowOpenFilePickerMock(page, selectedFiles, options = {}) 
                 await new Promise(resolve => window.setTimeout(resolve, responseDelayMs));
             }
 
-            return fixtures.map(fixture => ({
+            const batch = fixtureBatches[Math.min(pickerCallIndex, fixtureBatches.length - 1)] || [];
+            pickerCallIndex += 1;
+
+            return batch.map(fixture => ({
                 kind: 'file',
                 name: fixture.name,
                 async getFile() {
@@ -179,11 +210,7 @@ async function installShowOpenFilePickerMock(page, selectedFiles, options = {}) 
         };
     }, {
         delayMs,
-        selectedFiles: selectedFiles.map(file => ({
-            bytes: Array.from(new TextEncoder().encode(file.contents)),
-            name: file.name,
-            type: file.type
-        }))
+        selectedFileBatches
     });
 }
 
@@ -217,23 +244,8 @@ test('post uses showOpenFilePicker for multiple [image] placeholders and uploads
     });
 
     await prepareUploadPage(page, server.origin);
-    await installShowOpenFilePickerMock(page, [
-        {
-            contents: 'fake-jpeg-1',
-            name: 'spongebob1.jpg',
-            type: 'image/jpeg'
-        },
-        {
-            contents: 'fake-gif-2',
-            name: '50cent1.gif',
-            type: 'image/gif'
-        },
-        {
-            contents: 'fake-jpeg-3',
-            name: 'plankton1.jpg',
-            type: 'image/jpeg'
-        }
-    ]);
+    const sampleFixtures = await loadActualPickerFixtures();
+    await installShowOpenFilePickerMock(page, [sampleFixtures]);
 
     await startPostCommand(page, createMediaPostCommand(3));
 
@@ -254,11 +266,67 @@ test('post uses showOpenFilePicker for multiple [image] placeholders and uploads
     assert.equal(imageBlocks.length, 3);
     assert.deepEqual(
         imageBlocks.map(block => block.fileName),
-        ['spongebob1.jpg', '50cent1.gif', 'plankton1.jpg']
+        ['spongebob1.jpg', 'patrick2.jpg', 'plankton1.jpg']
     );
     assert.match(imageBlocks[0].imageDataUrl || '', /^data:image\/jpeg;base64,/);
-    assert.match(imageBlocks[1].imageDataUrl || '', /^data:image\/gif;base64,/);
+    assert.match(imageBlocks[1].imageDataUrl || '', /^data:image\/jpeg;base64,/);
     assert.match(imageBlocks[2].imageDataUrl || '', /^data:image\/jpeg;base64,/);
+});
+
+test('post keeps reopening showOpenFilePicker until spongebob1, patrick2, and plankton1 are all attached when each selection returns one file', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const browser = await chromium.launch({
+        executablePath: CHROME_PATH,
+        headless: true
+    });
+    t.after(async () => {
+        await browser.close();
+    });
+
+    const page = await browser.newPage();
+    t.after(async () => {
+        await page.close();
+    });
+
+    let appendPayload = null;
+    await page.route('https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/append', async route => {
+        appendPayload = JSON.parse(route.request().postData() || '{}');
+        await route.fulfill({
+            body: JSON.stringify({ commitUrl: 'https://example.com/commit' }),
+            contentType: 'application/json',
+            status: 200
+        });
+    });
+
+    await prepareUploadPage(page, server.origin);
+    const sampleFixtures = await loadActualPickerFixtures();
+    await installShowOpenFilePickerMock(page, sampleFixtures.map(file => [file]));
+
+    await startPostCommand(page, createMediaPostCommand(3));
+    await page.waitForFunction(() => window.__postCommandDone === true);
+
+    const postCommandError = await page.evaluate(() => window.__postCommandError);
+    assert.equal(postCommandError, null);
+    const pickerCalls = await page.evaluate(() => window.__showOpenFilePickerCalls || []);
+    assert.equal(pickerCalls.length, 3);
+    assert.deepEqual(
+        pickerCalls.map(call => call.multiple),
+        [true, true, false]
+    );
+
+    const terminalText = await page.evaluate(() => document.body.innerText);
+    assert.doesNotMatch(terminalText, /upload cancelled/);
+    assert.ok(appendPayload && Array.isArray(appendPayload.contentBlocks));
+    assert.deepEqual(
+        appendPayload.contentBlocks
+            .filter(block => block.type === 'image')
+            .map(block => block.fileName),
+        ['spongebob1.jpg', 'patrick2.jpg', 'plankton1.jpg']
+    );
 });
 
 test('post waits for a delayed showOpenFilePicker resolution instead of treating focus return as an empty selection', { timeout: 120000 }, async t => {
@@ -291,23 +359,8 @@ test('post waits for a delayed showOpenFilePicker resolution instead of treating
     });
 
     await prepareUploadPage(page, server.origin);
-    await installShowOpenFilePickerMock(page, [
-        {
-            contents: 'fake-jpeg-1',
-            name: 'first.jpg',
-            type: 'image/jpeg'
-        },
-        {
-            contents: 'fake-gif-2',
-            name: 'second.gif',
-            type: 'image/gif'
-        },
-        {
-            contents: 'fake-jpeg-3',
-            name: 'third.jpg',
-            type: 'image/jpeg'
-        }
-    ], {
+    const sampleFixtures = await loadActualPickerFixtures();
+    await installShowOpenFilePickerMock(page, [sampleFixtures], {
         delayMs: 650
     });
 
