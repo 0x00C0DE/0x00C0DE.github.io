@@ -278,3 +278,70 @@ test('mobile scrollbar thumb drag scrolls the terminal content', { timeout: 1200
         `expected mobile scrollbar drag to reduce scrollTop, before=${before.state.scrollTop} after=${after.scrollTop}`
     );
 });
+
+test('mobile touch drag across the terminal body scrolls without needing the scrollbar', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const page = await createMobilePage(t);
+    await stubVisitorApis(page);
+
+    await page.goto(server.origin, { waitUntil: 'load' });
+    await page.waitForFunction(() => typeof window.executeCommand === 'function');
+    await page.waitForFunction(() => Boolean(window.__terminalCanvasTestHooks));
+    await page.waitForTimeout(2500);
+    await page.evaluate(async () => {
+        for (let index = 0; index < 6; index += 1) {
+            await window.executeCommand('help');
+        }
+    });
+
+    const before = await page.evaluate(() => ({
+        scrollbar: window.__terminalCanvasTestHooks.getScrollbarLayout(),
+        state: window.__terminalCanvasTestHooks.getState()
+    }));
+    assert.ok(before.scrollbar, 'expected the mobile terminal to render a scrollbar');
+    assert.ok(before.state.scrollTop > 0, 'expected the terminal to be scrollable before touch-dragging the canvas');
+
+    const startPoint = {
+        x: Math.max(48, before.scrollbar.hitX / 2),
+        y: Math.round(before.state.viewportHeight * 0.45)
+    };
+    const endPoint = {
+        x: startPoint.x,
+        y: Math.min(before.state.viewportHeight - 80, startPoint.y + 170)
+    };
+    await page.dispatchEvent('#terminal-canvas', 'pointerdown', {
+        bubbles: true,
+        clientX: startPoint.x,
+        clientY: startPoint.y,
+        isPrimary: true,
+        pointerId: 2,
+        pointerType: 'touch'
+    });
+    await page.dispatchEvent('#terminal-canvas', 'pointermove', {
+        bubbles: true,
+        clientX: endPoint.x,
+        clientY: endPoint.y,
+        isPrimary: true,
+        pointerId: 2,
+        pointerType: 'touch'
+    });
+    await page.dispatchEvent('#terminal-canvas', 'pointerup', {
+        bubbles: true,
+        clientX: endPoint.x,
+        clientY: endPoint.y,
+        isPrimary: true,
+        pointerId: 2,
+        pointerType: 'touch'
+    });
+    await page.waitForTimeout(150);
+
+    const after = await page.evaluate(() => window.__terminalCanvasTestHooks.getState());
+    assert.ok(
+        after.scrollTop < before.state.scrollTop - 50,
+        `expected touch-dragging the terminal body to reduce scrollTop, before=${before.state.scrollTop} after=${after.scrollTop}`
+    );
+});
