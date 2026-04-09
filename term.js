@@ -1,5 +1,5 @@
 let terminalCanvasCore = null;
-const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=20260409b')
+const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=20260409c')
     .then(core => {
         terminalCanvasCore = core;
         return core;
@@ -21,5 +21,6 @@ window.syncTerminalSessionAwareLines = () => withTerminalCanvasCore(core => core
 window.syncTerminalVisualEffects = () => withTerminalCanvasCore(core => core.syncTerminalVisualEffects());
 window.showAsciiStill = (asciiLines, options) => withTerminalCanvasCore(core => core.showAsciiStill(asciiLines, options));
 window.showImageStill = (imageUrl, options) => withTerminalCanvasCore(core => core.showImageStill(imageUrl, options));
-window.showMovie = args => withTerminalCanvasCore(core => core.showMovie(args));
+window.showVideo = args => withTerminalCanvasCore(core => core.showVideo(args));
+window.showMovie = args => withTerminalCanvasCore(core => core.showVideo(args));
 window.bootTerminalSite = defaultCommand => withTerminalCanvasCore(core => core.bootTerminalSite(defaultCommand));

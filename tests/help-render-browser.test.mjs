@@ -478,6 +478,26 @@ function getWidgetOuterRect(rendered) {
     return widgetRect;
 }
 
+test('help lists video and mypic instead of the old movie and picture command names', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const page = await createPage(t);
+    await stubVisitorApis(page);
+    await bootTerminal(page, server.origin);
+
+    const commands = await page.evaluate(() => window.help_command()
+        .filter(entry => entry && typeof entry === 'object' && entry.type === 'help-entry')
+        .map(entry => entry.command));
+
+    assert.ok(commands.includes('video [w h]'));
+    assert.ok(commands.includes('mypic [w h]'));
+    assert.ok(!commands.includes('movie [w h]'));
+    assert.ok(!commands.includes('picture [w h]'));
+});
+
 test('desktop help commands stay on the terminal text color instead of bright white', { timeout: 120000 }, async t => {
     const server = await createStaticServer(REPO_ROOT);
     t.after(async () => {

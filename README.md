@@ -260,8 +260,8 @@ The terminal command map routes each shell verb to its handler, with most comman
 | `instagram` | Opens Instagram in a new tab |
 | `linkedin` | Opens LinkedIn in a new tab |
 | `ls` | Lists the available terminal-readable `.txt` files |
-| `movie [w h]` | Activates webcam to live ASCII/glyph output |
-| `picture [w h]` | Renders a built-in ASCII portrait |
+| `video [w h]` | Activates webcam to live ASCII/glyph output in the zoomable viewer |
+| `mypic [w h]` | Renders a built-in ASCII portrait |
 | `post <text>` | Appends a text-only blog entry through the Worker |
 | `post --image [text]` | Appends one selected `png/jpg/jpeg/webp/gif/mp4` media file |
 | `post ... [image] ...` | Reopens the chooser once per `[image]` placeholder and inserts the exact-count selected `png/jpg/jpeg/webp/gif/mp4` media files inline |
@@ -276,7 +276,7 @@ The terminal command map routes each shell verb to its handler, with most comman
 | `whoami` | Prints the current simulated terminal username |
 | `youtube` | Opens YouTube in a new tab |
 
-Commands that require async I/O (`cat`, `post`, `fortune`, `movie`, `userpic`, `qr-totp`, `visitors`) return Promises and can be aborted mid-execution.
+Commands that require async I/O (`cat`, `post`, `fortune`, `video`, `userpic`, `qr-totp`, `visitors`) return Promises and can be aborted mid-execution.
 
 For blog rendering, `cat blog.txt` groups entries into structured text/media blocks, understands inline base64 image blocks, compact reversible GIF blocks, and hosted media URL blocks for GIF and MP4 assets. When the active user is `root`, it reflows the banner, visitor widget, timestamps, and blog entries through a draggable editorial layout that treats media as terminal-wide obstacles; delete controls remain hidden unless the active user is `godlike`.
 
@@ -521,8 +521,8 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
   post <your message>        Append to blog.txt
   post --image [caption]     Append one selected png/jpg/jpeg/webp/gif/mp4 file
   post hello [image] goodbye Reopen chooser per [image] and insert exact-count png/jpg/jpeg/webp/gif/mp4 file(s) inline (up to 10)
-  picture                    ASCII portrait
-  movie                      Live webcam to ASCII art
+  mypic                      ASCII portrait
+  video                      Live webcam to ASCII art
   userpic                    Uploaded/captured image to ASCII art
   clear                      Clear terminal output
   visitors                   Show the live visitor widget
