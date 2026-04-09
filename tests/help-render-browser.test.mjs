@@ -120,44 +120,148 @@ async function stubVisitorApis(page, stats = { onSite: 4, uniqueVisitors: 23, vi
 async function installHelpDrawCapture(page) {
     await page.addInitScript(() => {
         window.__helpDraws = [];
+        window.__mediaDraws = [];
+        window.__strokeRects = [];
         const proto = CanvasRenderingContext2D.prototype;
         const originalFillText = proto.fillText;
+        const originalDrawImage = proto.drawImage;
+        const originalStrokeRect = proto.strokeRect;
         proto.fillText = function(text, x, y, maxWidth) {
             const matrix = typeof this.getTransform === 'function' ? this.getTransform() : { e: 0, f: 0 };
             window.__helpDraws.push({
                 fillStyle: String(this.fillStyle),
                 font: String(this.font),
                 text: String(text),
+                width: this.measureText(String(text)).width,
                 x: x + matrix.e,
                 y: y + matrix.f
             });
             return originalFillText.call(this, text, x, y, maxWidth);
         };
+        proto.drawImage = function(image, ...args) {
+            const matrix = typeof this.getTransform === 'function' ? this.getTransform() : { e: 0, f: 0 };
+            const sourceKind = image instanceof HTMLVideoElement
+                ? 'video'
+                : image instanceof HTMLImageElement
+                    ? 'image'
+                    : image instanceof HTMLCanvasElement
+                        ? 'canvas'
+                        : typeof image;
+            if ((sourceKind === 'image' || sourceKind === 'video') && args.length >= 4) {
+                window.__mediaDraws.push({
+                    height: Number(args[3]) || 0,
+                    sourceKind,
+                    width: Number(args[2]) || 0,
+                    x: Number(args[0]) + matrix.e,
+                    y: Number(args[1]) + matrix.f
+                });
+            }
+            return originalDrawImage.call(this, image, ...args);
+        };
+        proto.strokeRect = function(x, y, width, height) {
+            const matrix = typeof this.getTransform === 'function' ? this.getTransform() : { e: 0, f: 0 };
+            window.__strokeRects.push({
+                height: Number(height) || 0,
+                strokeStyle: String(this.strokeStyle),
+                width: Number(width) || 0,
+                x: Number(x) + matrix.e,
+                y: Number(y) + matrix.f
+            });
+            return originalStrokeRect.call(this, x, y, width, height);
+        };
     });
 }
 
-async function renderHelp(page, origin, options = {}) {
+function dedupeByKey(entries, keyForEntry) {
+    const deduped = new Map();
+    (Array.isArray(entries) ? entries : []).forEach(entry => {
+        const key = keyForEntry(entry);
+        if (!deduped.has(key)) {
+            deduped.set(key, entry);
+        }
+    });
+    return [...deduped.values()];
+}
+
+function normalizeCapturedScene(raw, commands = []) {
+    return {
+        commands,
+        draws: dedupeByKey(raw?.draws, draw => [
+            draw.text,
+            Math.round(draw.x * 10) / 10,
+            Math.round(draw.y * 10) / 10,
+            draw.fillStyle,
+            draw.font
+        ].join('|')).sort((left, right) => left.y - right.y || left.x - right.x),
+        mediaDraws: dedupeByKey(raw?.mediaDraws, draw => [
+            Math.round(draw.x * 10) / 10,
+            Math.round(draw.y * 10) / 10,
+            Math.round(draw.width * 10) / 10,
+            Math.round(draw.height * 10) / 10,
+            draw.sourceKind
+        ].join('|')).sort((left, right) => left.y - right.y || left.x - right.x),
+        strokeRects: dedupeByKey(raw?.strokeRects, rect => [
+            Math.round(rect.x * 10) / 10,
+            Math.round(rect.y * 10) / 10,
+            Math.round(rect.width * 10) / 10,
+            Math.round(rect.height * 10) / 10,
+            rect.strokeStyle
+        ].join('|')).sort((left, right) => left.y - right.y || left.x - right.x)
+    };
+}
+
+async function bootTerminal(page, origin) {
     await page.goto(origin, { waitUntil: 'load' });
     await page.waitForFunction(() => typeof window.executeCommand === 'function');
     await page.waitForTimeout(2500);
-    await page.evaluate(async ({ preCommands, user }) => {
-        if (user === 'root') {
+}
+
+async function setTerminalUser(page, user = 'guest') {
+    await page.evaluate(async selectedUser => {
+        if (selectedUser === 'root') {
             await window.executeCommand('su');
-        } else if (user === 'guest' || user === 'godlike') {
+            return;
+        }
+        if (selectedUser === 'guest' || selectedUser === 'godlike') {
             window.setTerminalSessionState({
                 shell: 'default',
-                user
+                user: selectedUser
             });
         }
-        for (const command of Array.isArray(preCommands) ? preCommands : []) {
+    }, user);
+}
+
+async function runTerminalCommands(page, commands = []) {
+    await page.evaluate(async commandList => {
+        for (const command of Array.isArray(commandList) ? commandList : []) {
             await window.executeCommand(command);
         }
+    }, commands);
+}
+
+async function resetCanvasCaptures(page) {
+    await page.evaluate(() => {
         window.__helpDraws.length = 0;
-        await window.executeCommand('help');
-    }, {
-        preCommands: options.preCommands || [],
-        user: options.user || 'guest'
+        window.__mediaDraws.length = 0;
+        window.__strokeRects.length = 0;
     });
+}
+
+async function readCapturedScene(page, commands = []) {
+    const raw = await page.evaluate(() => ({
+        draws: Array.isArray(window.__helpDraws) ? window.__helpDraws.slice() : [],
+        mediaDraws: Array.isArray(window.__mediaDraws) ? window.__mediaDraws.slice() : [],
+        strokeRects: Array.isArray(window.__strokeRects) ? window.__strokeRects.slice() : []
+    }));
+    return normalizeCapturedScene(raw, commands);
+}
+
+async function renderHelp(page, origin, options = {}) {
+    await bootTerminal(page, origin);
+    await setTerminalUser(page, options.user || 'guest');
+    await runTerminalCommands(page, options.preCommands || []);
+    await resetCanvasCaptures(page);
+    await runTerminalCommands(page, ['help']);
     await page.waitForFunction(() => {
         const entries = window.help_command()
             .filter(entry => entry && typeof entry === 'object' && entry.type === 'help-entry')
@@ -166,27 +270,10 @@ async function renderHelp(page, origin, options = {}) {
     }, { timeout: 10000 });
     await page.waitForTimeout(150);
 
-    return page.evaluate(() => {
-        const entries = window.help_command()
-            .filter(entry => entry && typeof entry === 'object' && entry.type === 'help-entry')
-            .map(entry => entry.command);
-        const deduped = new Map();
-        (Array.isArray(window.__helpDraws) ? window.__helpDraws : []).forEach(draw => {
-            const key = [
-                draw.text,
-                Math.round(draw.x * 10) / 10,
-                Math.round(draw.y * 10) / 10,
-                draw.fillStyle
-            ].join('|');
-            if (!deduped.has(key)) {
-                deduped.set(key, draw);
-            }
-        });
-        return {
-            commands: entries,
-            draws: [...deduped.values()].sort((left, right) => left.y - right.y || left.x - right.x)
-        };
-    });
+    const commands = await page.evaluate(() => window.help_command()
+        .filter(entry => entry && typeof entry === 'object' && entry.type === 'help-entry')
+        .map(entry => entry.command));
+    return readCapturedScene(page, commands);
 }
 
 function getHelpRow(rendered, commandText) {
@@ -217,12 +304,103 @@ function getHelpRow(rendered, commandText) {
     };
 }
 
+function rectsOverlap(left, right) {
+    return (
+        left.x < right.x + right.width
+        && left.x + left.width > right.x
+        && left.y < right.y + right.height
+        && left.y + left.height > right.y
+    );
+}
+
+function getVisibleMediaRects(rendered) {
+    return (Array.isArray(rendered.mediaDraws) ? rendered.mediaDraws : [])
+        .filter(draw => draw.width >= 100 && draw.height >= 100);
+}
+
+async function getFirstVisibleMediaRect(page) {
+    return page.evaluate(() => {
+        const deduped = new Map();
+        (Array.isArray(window.__mediaDraws) ? window.__mediaDraws : []).forEach(draw => {
+            if (!(draw.width >= 100 && draw.height >= 100)) {
+                return;
+            }
+            const key = [
+                Math.round(draw.x * 10) / 10,
+                Math.round(draw.y * 10) / 10,
+                Math.round(draw.width * 10) / 10,
+                Math.round(draw.height * 10) / 10,
+                draw.sourceKind
+            ].join('|');
+            if (!deduped.has(key)) {
+                deduped.set(key, draw);
+            }
+        });
+        const visible = [...deduped.values()].sort((left, right) => left.y - right.y || left.x - right.x);
+        return visible[0] || null;
+    });
+}
+
+async function dispatchPointerEvent(page, type, point, options = {}) {
+    await page.dispatchEvent('#terminal-canvas', type, {
+        bubbles: true,
+        clientX: point.x,
+        clientY: point.y,
+        isPrimary: true,
+        pointerId: options.pointerId || 1,
+        pointerType: options.pointerType || 'mouse'
+    });
+}
+
+async function dragFirstVisibleMedia(page, target, options = {}) {
+    await page.waitForFunction(() => (
+        Array.isArray(window.__mediaDraws)
+        && window.__mediaDraws.some(draw => draw.width >= 100 && draw.height >= 100)
+    ), { timeout: 10000 });
+    const rect = await getFirstVisibleMediaRect(page);
+    assert.ok(rect, 'expected at least one visible media rect to drag');
+
+    const start = {
+        x: rect.x + rect.width / 2,
+        y: rect.y + rect.height / 2
+    };
+    const end = {
+        x: target.x + rect.width / 2,
+        y: target.y + rect.height / 2
+    };
+    await dispatchPointerEvent(page, 'pointerdown', start, options);
+    await dispatchPointerEvent(page, 'pointermove', end, options);
+    await dispatchPointerEvent(page, 'pointerup', end, options);
+    await page.waitForTimeout(250);
+}
+
+async function scrollTerminalToTop(page) {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+        await page.dispatchEvent('#terminal-canvas', 'wheel', {
+            bubbles: true,
+            cancelable: true,
+            deltaY: -10000
+        });
+        await page.waitForTimeout(120);
+    }
+}
+
+async function waitForTestHooks(page) {
+    await page.waitForFunction(() => Boolean(window.__terminalCanvasTestHooks));
+}
+
+async function captureSettledScene(page, commands = []) {
+    await resetCanvasCaptures(page);
+    await page.waitForTimeout(200);
+    return readCapturedScene(page, commands);
+}
+
 function roundLineY(y) {
     return Math.round(y * 2) / 2;
 }
 
 function getFontSizePx(font) {
-    const match = /^(\d+(?:\.\d+)?)px\b/i.exec(String(font || ''));
+    const match = /(\d+(?:\.\d+)?)px\b/i.exec(String(font || ''));
     return match ? Number(match[1]) : NaN;
 }
 
@@ -259,6 +437,45 @@ function getEntryDescriptionLines(rendered, commandText) {
         commandDraw: currentCommandDraw,
         lineStarts: [...lineStarts.values()].sort((left, right) => left.y - right.y)
     };
+}
+
+function getHelpRowGeometry(rendered, commandText) {
+    const row = getHelpRow(rendered, commandText);
+    return {
+        commandX: row.commandDraw.x,
+        commandY: row.commandDraw.y,
+        descriptionOffsetX: row.descriptionDraw.x - row.commandDraw.x,
+        separatorOffsetX: row.separatorDraw.x - row.commandDraw.x
+    };
+}
+
+function getBannerTitleBounds(rendered) {
+    const titleGlyphs = rendered.draws.filter(draw => (
+        draw.fillStyle === '#ff6b78'
+        && getFontSizePx(draw.font) >= 40
+        && /^[0xCDE]$/.test(draw.text)
+    ));
+    assert.ok(titleGlyphs.length > 0, 'expected banner glyph draws');
+    const minX = Math.min(...titleGlyphs.map(draw => draw.x));
+    const minY = Math.min(...titleGlyphs.map(draw => draw.y));
+    const maxX = Math.max(...titleGlyphs.map(draw => draw.x + draw.width));
+    const maxY = Math.max(...titleGlyphs.map(draw => draw.y + getFontSizePx(draw.font)));
+    return {
+        height: maxY - minY,
+        width: maxX - minX,
+        x: minX,
+        y: minY
+    };
+}
+
+function getWidgetOuterRect(rendered) {
+    const widgetRect = rendered.strokeRects.find(rect => (
+        rect.strokeStyle === 'rgba(255, 143, 153, 0.65)'
+        && rect.width >= 200
+        && rect.height >= 80
+    ));
+    assert.ok(widgetRect, 'expected the visitor widget border');
+    return widgetRect;
 }
 
 test('desktop help commands stay on the terminal text color instead of bright white', { timeout: 120000 }, async t => {
@@ -301,30 +518,54 @@ test('root desktop help keeps the same tabular command and description columns a
     assert.ok(Math.abs(rootRow.descriptionDraw.x - guestRow.descriptionDraw.x) <= 1);
 });
 
-test('root desktop help stays tabular even after cat blog.txt adds editorial media obstacles', { timeout: 120000 }, async t => {
+test('root desktop help keeps the same row geometry while dragged media still pushes it around', { timeout: 120000 }, async t => {
     const server = await createStaticServer(REPO_ROOT);
     t.after(async () => {
         await server.close();
     });
 
-    const guestPage = await createPage(t);
-    await installHelpDrawCapture(guestPage);
-    await stubVisitorApis(guestPage);
-    const guestRendered = await renderHelp(guestPage, server.origin, { user: 'guest' });
+    const baselinePage = await createPage(t);
+    await installHelpDrawCapture(baselinePage);
+    await stubVisitorApis(baselinePage);
+    const baselineRendered = await renderHelp(baselinePage, server.origin, { user: 'root' });
+    const baselinePosition = await baselinePage.evaluate(() => window.__terminalCanvasTestHooks.getHelpBlock('userpic [w h]'));
 
-    const rootPage = await createPage(t);
-    await installHelpDrawCapture(rootPage);
-    await stubVisitorApis(rootPage);
-    const rootRendered = await renderHelp(rootPage, server.origin, {
-        preCommands: ['cat blog.txt'],
-        user: 'root'
+    const page = await createPage(t);
+    await installHelpDrawCapture(page);
+    await stubVisitorApis(page);
+    await bootTerminal(page, server.origin);
+    await waitForTestHooks(page);
+    await setTerminalUser(page, 'root');
+    await runTerminalCommands(page, ['clear', 'cat blog.txt', 'help']);
+    const obstaclePosition = await page.evaluate(() => {
+        const hooks = window.__terminalCanvasTestHooks;
+        const helpBlock = hooks.getHelpBlock('userpic [w h]');
+        hooks.pinFirstEditorialMedia({
+            x: 0,
+            y: Math.max(0, helpBlock.top - 16)
+        });
+        const updatedHelpBlock = hooks.getHelpBlock('userpic [w h]');
+        hooks.setScrollTop(Math.max(0, updatedHelpBlock.top - 140));
+        return {
+            after: updatedHelpBlock,
+            before: helpBlock
+        };
     });
-    const guestRow = getHelpRow(guestRendered, 'help');
-    const rootRow = getHelpRow(rootRendered, 'help');
+    const commands = await page.evaluate(() => window.help_command()
+        .filter(entry => entry && typeof entry === 'object' && entry.type === 'help-entry')
+        .map(entry => entry.command));
+    await resetCanvasCaptures(page);
+    await page.waitForFunction(() => Array.isArray(window.__helpDraws) && window.__helpDraws.some(draw => draw?.text === 'userpic [w h]'));
+    const obstacleRendered = await readCapturedScene(page, commands);
+    const baselineRow = getHelpRowGeometry(baselineRendered, 'userpic [w h]');
+    const obstacleRow = getHelpRowGeometry(obstacleRendered, 'userpic [w h]');
 
-    assert.ok(Math.abs(rootRow.commandDraw.x - guestRow.commandDraw.x) <= 1);
-    assert.ok(Math.abs(rootRow.separatorDraw.x - guestRow.separatorDraw.x) <= 1);
-    assert.ok(Math.abs(rootRow.descriptionDraw.x - guestRow.descriptionDraw.x) <= 1);
+    assert.ok(Math.abs(obstacleRow.separatorOffsetX - baselineRow.separatorOffsetX) <= 1);
+    assert.ok(Math.abs(obstacleRow.descriptionOffsetX - baselineRow.descriptionOffsetX) <= 1);
+    assert.ok(
+        Math.abs(obstaclePosition.after.top - obstaclePosition.before.top) > 20,
+        `expected pinned media to move the root help row, before=${JSON.stringify(obstaclePosition.before)} after=${JSON.stringify(obstaclePosition.after)} baseline=${JSON.stringify(baselinePosition)}`
+    );
 });
 
 test('mobile help keeps wrapped descriptions aligned under the description column', { timeout: 120000 }, async t => {
@@ -373,29 +614,167 @@ test('root mobile help keeps the same wrapped description column as guest and go
     assert.ok(Math.abs(rootEntry.lineStarts[0].x - godlikeEntry.lineStarts[0].x) <= 1);
 });
 
-test('root mobile help stays column-aligned after cat blog.txt adds editorial media obstacles', { timeout: 120000 }, async t => {
+test('root mobile help keeps the same row geometry while dragged media still pushes it around', { timeout: 120000 }, async t => {
     const server = await createStaticServer(REPO_ROOT);
     t.after(async () => {
         await server.close();
     });
 
-    const guestPage = await createPage(t, { mobile: true });
-    await installHelpDrawCapture(guestPage);
-    await stubVisitorApis(guestPage);
-    const guestRendered = await renderHelp(guestPage, server.origin, { user: 'guest' });
+    const baselinePage = await createPage(t, { mobile: true });
+    await installHelpDrawCapture(baselinePage);
+    await stubVisitorApis(baselinePage);
+    const baselineRendered = await renderHelp(baselinePage, server.origin, { user: 'root' });
+    const baselinePosition = await baselinePage.evaluate(() => window.__terminalCanvasTestHooks.getHelpBlock('userpic [w h]'));
 
-    const rootPage = await createPage(t, { mobile: true });
-    await installHelpDrawCapture(rootPage);
-    await stubVisitorApis(rootPage);
-    const rootRendered = await renderHelp(rootPage, server.origin, {
-        preCommands: ['cat blog.txt'],
-        user: 'root'
+    const page = await createPage(t, { mobile: true });
+    await installHelpDrawCapture(page);
+    await stubVisitorApis(page);
+    await bootTerminal(page, server.origin);
+    await waitForTestHooks(page);
+    await setTerminalUser(page, 'root');
+    await runTerminalCommands(page, ['clear', 'cat blog.txt', 'help']);
+    const obstaclePosition = await page.evaluate(() => {
+        const hooks = window.__terminalCanvasTestHooks;
+        const helpBlock = hooks.getHelpBlock('userpic [w h]');
+        hooks.pinFirstEditorialMedia({
+            x: 0,
+            y: Math.max(0, helpBlock.top - 12)
+        });
+        const updatedHelpBlock = hooks.getHelpBlock('userpic [w h]');
+        hooks.setScrollTop(Math.max(0, updatedHelpBlock.top - 120));
+        return {
+            after: updatedHelpBlock,
+            before: helpBlock
+        };
     });
-    const guestEntry = getEntryDescriptionLines(guestRendered, 'userpic [w h]');
-    const rootEntry = getEntryDescriptionLines(rootRendered, 'userpic [w h]');
+    const commands = await page.evaluate(() => window.help_command()
+        .filter(entry => entry && typeof entry === 'object' && entry.type === 'help-entry')
+        .map(entry => entry.command));
+    await resetCanvasCaptures(page);
+    await page.waitForFunction(() => Array.isArray(window.__helpDraws) && window.__helpDraws.some(draw => draw?.text === 'userpic [w h]'));
+    const obstacleRendered = await readCapturedScene(page, commands);
+    const baselineEntry = getEntryDescriptionLines(baselineRendered, 'userpic [w h]');
+    const obstacleEntry = getEntryDescriptionLines(obstacleRendered, 'userpic [w h]');
 
-    assert.ok(Math.abs(rootEntry.commandDraw.x - guestEntry.commandDraw.x) <= 1);
-    assert.ok(Math.abs(rootEntry.lineStarts[0].x - guestEntry.lineStarts[0].x) <= 1);
+    assert.ok(
+        Math.abs((obstacleEntry.lineStarts[0].x - obstacleEntry.commandDraw.x) - (baselineEntry.lineStarts[0].x - baselineEntry.commandDraw.x)) <= 1
+    );
+    assert.ok(
+        Math.abs(obstaclePosition.after.top - obstaclePosition.before.top) > 20,
+        `expected pinned media to move the mobile root help entry, before=${JSON.stringify(obstaclePosition.before)} after=${JSON.stringify(obstaclePosition.after)} baseline=${JSON.stringify(baselinePosition)}`
+    );
+});
+
+test('root desktop banner and widget keep the same geometry while dragged media still pushes them around', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const baselinePage = await createPage(t);
+    await installHelpDrawCapture(baselinePage);
+    await stubVisitorApis(baselinePage);
+    await bootTerminal(baselinePage, server.origin);
+    await waitForTestHooks(baselinePage);
+    await setTerminalUser(baselinePage, 'root');
+    await runTerminalCommands(baselinePage, ['clear']);
+    await runTerminalCommands(baselinePage, ['banner']);
+    await baselinePage.evaluate(() => window.__terminalCanvasTestHooks.setScrollTop(0));
+    await resetCanvasCaptures(baselinePage);
+    await baselinePage.waitForFunction(() => Array.isArray(window.__helpDraws) && window.__helpDraws.some(draw => draw.fillStyle === '#ff6b78' && /^(0|x|C|D|E)$/.test(draw.text)));
+    const baselineRendered = await readCapturedScene(baselinePage);
+
+    const page = await createPage(t);
+    await installHelpDrawCapture(page);
+    await stubVisitorApis(page);
+    await bootTerminal(page, server.origin);
+    await waitForTestHooks(page);
+    await setTerminalUser(page, 'root');
+    await runTerminalCommands(page, ['clear', 'banner', 'cat blog.txt']);
+    await page.evaluate(() => {
+        const hooks = window.__terminalCanvasTestHooks;
+        const bannerBlock = hooks.getBannerBlock();
+        hooks.pinFirstEditorialMedia({
+            x: 0,
+            y: Math.max(0, bannerBlock.top)
+        });
+        hooks.setScrollTop(0);
+    });
+    await resetCanvasCaptures(page);
+    await page.waitForFunction(() => Array.isArray(window.__helpDraws) && window.__helpDraws.some(draw => draw.fillStyle === '#ff6b78' && /^(0|x|C|D|E)$/.test(draw.text)));
+    const obstacleRendered = await readCapturedScene(page);
+    const baselineBanner = getBannerTitleBounds(baselineRendered);
+    const obstacleBanner = getBannerTitleBounds(obstacleRendered);
+    const baselineWidget = getWidgetOuterRect(baselineRendered);
+    const obstacleWidget = getWidgetOuterRect(obstacleRendered);
+
+    assert.ok(Math.abs(obstacleBanner.width - baselineBanner.width) <= 2);
+    assert.ok(
+        obstacleBanner.x > baselineBanner.x + 30 || obstacleBanner.y > baselineBanner.y + 30,
+        `expected dragged media to move the banner, baseline=${JSON.stringify(baselineBanner)} obstacle=${JSON.stringify(obstacleBanner)}`
+    );
+    assert.ok(Math.abs(obstacleWidget.width - baselineWidget.width) <= 1);
+    assert.ok(Math.abs(obstacleWidget.height - baselineWidget.height) <= 1);
+    assert.ok(
+        obstacleWidget.x > baselineWidget.x + 30 || obstacleWidget.y > baselineWidget.y + 30,
+        `expected dragged media to move the widget, baseline=${JSON.stringify(baselineWidget)} obstacle=${JSON.stringify(obstacleWidget)}`
+    );
+});
+
+test('root mobile banner and widget keep the same geometry while dragged media still pushes them around', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const baselinePage = await createPage(t, { mobile: true });
+    await installHelpDrawCapture(baselinePage);
+    await stubVisitorApis(baselinePage);
+    await bootTerminal(baselinePage, server.origin);
+    await waitForTestHooks(baselinePage);
+    await setTerminalUser(baselinePage, 'root');
+    await runTerminalCommands(baselinePage, ['clear']);
+    await runTerminalCommands(baselinePage, ['banner']);
+    await baselinePage.evaluate(() => window.__terminalCanvasTestHooks.setScrollTop(0));
+    await resetCanvasCaptures(baselinePage);
+    await baselinePage.waitForFunction(() => Array.isArray(window.__helpDraws) && window.__helpDraws.some(draw => draw.fillStyle === '#ff6b78' && /^(0|x|C|D|E)$/.test(draw.text)));
+    const baselineRendered = await readCapturedScene(baselinePage);
+
+    const page = await createPage(t, { mobile: true });
+    await installHelpDrawCapture(page);
+    await stubVisitorApis(page);
+    await bootTerminal(page, server.origin);
+    await waitForTestHooks(page);
+    await setTerminalUser(page, 'root');
+    await runTerminalCommands(page, ['clear', 'banner', 'cat blog.txt']);
+    await page.evaluate(() => {
+        const hooks = window.__terminalCanvasTestHooks;
+        const bannerBlock = hooks.getBannerBlock();
+        hooks.pinFirstEditorialMedia({
+            x: 0,
+            y: Math.max(0, bannerBlock.top)
+        });
+        hooks.setScrollTop(0);
+    });
+    await resetCanvasCaptures(page);
+    await page.waitForFunction(() => Array.isArray(window.__helpDraws) && window.__helpDraws.some(draw => draw.fillStyle === '#ff6b78' && /^(0|x|C|D|E)$/.test(draw.text)));
+    const obstacleRendered = await readCapturedScene(page);
+    const baselineBanner = getBannerTitleBounds(baselineRendered);
+    const obstacleBanner = getBannerTitleBounds(obstacleRendered);
+    const baselineWidget = getWidgetOuterRect(baselineRendered);
+    const obstacleWidget = getWidgetOuterRect(obstacleRendered);
+
+    assert.ok(Math.abs(obstacleBanner.width - baselineBanner.width) <= 2);
+    assert.ok(
+        obstacleBanner.x > baselineBanner.x + 20 || obstacleBanner.y > baselineBanner.y + 20,
+        `expected dragged media to move the mobile banner, baseline=${JSON.stringify(baselineBanner)} obstacle=${JSON.stringify(obstacleBanner)}`
+    );
+    assert.ok(Math.abs(obstacleWidget.width - baselineWidget.width) <= 1);
+    assert.ok(Math.abs(obstacleWidget.height - baselineWidget.height) <= 1);
+    assert.ok(
+        obstacleWidget.x > baselineWidget.x + 20 || obstacleWidget.y > baselineWidget.y + 20,
+        `expected dragged media to move the mobile widget, baseline=${JSON.stringify(baselineWidget)} obstacle=${JSON.stringify(obstacleWidget)}`
+    );
 });
 
 test('mobile help uses a condensed layout so long command entries fit the screen without zooming out', { timeout: 120000 }, async t => {

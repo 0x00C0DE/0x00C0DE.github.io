@@ -922,6 +922,155 @@ function getLayoutPlanBounds(linePlans, lineHeight) {
     };
 }
 
+function mergeHorizontalObstacleRanges(ranges, width) {
+    const safeWidth = Math.max(0, Number.isFinite(width) ? width : 0);
+    return (Array.isArray(ranges) ? ranges : [])
+        .map(range => {
+            const start = clamp(Number.isFinite(range?.start) ? range.start : 0, 0, safeWidth);
+            const end = clamp(Number.isFinite(range?.end) ? range.end : 0, 0, safeWidth);
+            return end > start ? { end, start } : null;
+        })
+        .filter(Boolean)
+        .sort((left, right) => left.start - right.start || left.end - right.end)
+        .reduce((merged, range) => {
+            const previous = merged[merged.length - 1];
+            if (!previous || range.start > previous.end) {
+                merged.push({ ...range });
+                return merged;
+            }
+            previous.end = Math.max(previous.end, range.end);
+            return merged;
+        }, []);
+}
+
+function findRectPlacementAroundObstacles(obstacles, width, boxWidth, boxHeight) {
+    const safeWidth = Math.max(0, Number.isFinite(width) ? width : 0);
+    const safeBoxWidth = clamp(Number.isFinite(boxWidth) ? boxWidth : safeWidth, 0, safeWidth);
+    const safeBoxHeight = Math.max(1, Number.isFinite(boxHeight) ? boxHeight : 1);
+    if (safeBoxWidth <= 0) {
+        return { x: 0, y: 0 };
+    }
+
+    let offsetY = 0;
+    const obstacleList = (Array.isArray(obstacles) ? obstacles : [])
+        .filter(obstacle => Number.isFinite(obstacle?.width) && obstacle.width > 0 && Number.isFinite(obstacle?.height) && obstacle.height > 0)
+        .map(obstacle => ({
+            endX: obstacle.x + obstacle.width,
+            endY: obstacle.y + obstacle.height,
+            startX: obstacle.x,
+            startY: obstacle.y
+        }));
+    const maxIterations = Math.max(8, obstacleList.length * 4 + 8);
+
+    for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+        const overlapping = obstacleList.filter(obstacle => (
+            obstacle.startY < offsetY + safeBoxHeight
+            && obstacle.endY > offsetY
+        ));
+        const mergedRanges = mergeHorizontalObstacleRanges(
+            overlapping.map(obstacle => ({
+                end: obstacle.endX,
+                start: obstacle.startX
+            })),
+            safeWidth
+        );
+
+        let cursorX = 0;
+        for (const range of mergedRanges) {
+            if (range.start - cursorX >= safeBoxWidth) {
+                return { x: cursorX, y: offsetY };
+            }
+            cursorX = Math.max(cursorX, range.end);
+        }
+        if (safeWidth - cursorX >= safeBoxWidth) {
+            return { x: cursorX, y: offsetY };
+        }
+
+        const nextY = overlapping.reduce((minimum, obstacle) => (
+            obstacle.endY > offsetY
+                ? Math.min(minimum, obstacle.endY)
+                : minimum
+        ), Number.POSITIVE_INFINITY);
+        if (!Number.isFinite(nextY) || nextY <= offsetY) {
+            break;
+        }
+        offsetY = nextY;
+    }
+
+    return { x: 0, y: offsetY };
+}
+
+function offsetLayout(layout, offsetX = 0, offsetY = 0) {
+    const safeOffsetX = Number.isFinite(offsetX) ? offsetX : 0;
+    const safeOffsetY = Number.isFinite(offsetY) ? offsetY : 0;
+    if (!layout || (!safeOffsetX && !safeOffsetY)) {
+        return layout;
+    }
+
+    return {
+        ...layout,
+        editorialMediaRects: Array.isArray(layout.editorialMediaRects)
+            ? layout.editorialMediaRects.map(rect => ({
+                ...rect,
+                x: rect.x + safeOffsetX,
+                y: rect.y + safeOffsetY
+            }))
+            : layout.editorialMediaRects,
+        height: safeOffsetY + (Number.isFinite(layout.height) ? layout.height : 0),
+        hitRegions: (Array.isArray(layout.hitRegions) ? layout.hitRegions : []).map(region => ({
+            ...region,
+            x: (Number.isFinite(region.x) ? region.x : 0) + safeOffsetX,
+            y: (Number.isFinite(region.y) ? region.y : 0) + safeOffsetY
+        })),
+        plans: Array.isArray(layout.plans)
+            ? layout.plans.map(linePlan => ({
+                ...linePlan,
+                x: (Number.isFinite(linePlan?.x) ? linePlan.x : 0) + safeOffsetX,
+                y: (Number.isFinite(linePlan?.y) ? linePlan.y : 0) + safeOffsetY
+            }))
+            : layout.plans,
+        render(ctx, originX, originY, palette, ...rest) {
+            return layout.render(ctx, originX + safeOffsetX, originY + safeOffsetY, palette, ...rest);
+        },
+        textHeight: Number.isFinite(layout.textHeight)
+            ? safeOffsetY + layout.textHeight
+            : layout.textHeight
+    };
+}
+
+function placeLayoutAroundEditorialObstacles(layout, width, context = {}, options = {}) {
+    if (!layout || !context.editorial || !hasGlobalEditorialObstacles(context)) {
+        return layout;
+    }
+
+    const safeWidth = Math.max(0, Number.isFinite(width) ? width : 0);
+    const blockWidth = clamp(
+        Number.isFinite(options.blockWidth) ? options.blockWidth : safeWidth,
+        0,
+        safeWidth
+    );
+    const blockHeight = Math.max(
+        1,
+        Number.isFinite(options.blockHeight)
+            ? options.blockHeight
+            : (Number.isFinite(layout.height) ? layout.height : 1)
+    );
+    if (blockWidth <= 0) {
+        return layout;
+    }
+
+    const obstacles = getRelativeEditorialObstacles(context, {
+        excludeBlockId: options.excludeBlockId,
+        offsetY: Number.isFinite(options.offsetY) ? options.offsetY : 0
+    });
+    if (obstacles.length === 0) {
+        return layout;
+    }
+
+    const placement = findRectPlacementAroundObstacles(obstacles, safeWidth, blockWidth, blockHeight);
+    return offsetLayout(layout, placement.x, placement.y);
+}
+
 function hasGlobalEditorialObstacles(context = {}) {
     return Boolean(context.editorial && Array.isArray(context.globalObstacles) && context.globalObstacles.length > 0);
 }
@@ -1395,8 +1544,11 @@ function layoutBanner(block, width, metrics, context = {}) {
     const titleHeight = Math.max(metrics.lineHeight * 2, round(titleFontPx * 0.88) + round(app.viewportWidth * 0.008));
     const subtitleGlyphs = splitBannerWaveGlyphs(subtitleText);
     const subtitleHeight = subtitleText ? Math.max(metrics.lineHeight, round(subtitleFontPx * 1) + round(app.viewportWidth * 0.003)) : 0;
-
-    return {
+    const bannerWidth = Math.max(
+        measureGlyphRunWidth(titleGlyphs, titleFont, titleLetterSpacing),
+        subtitleText ? round(app.viewportWidth * 0.002) + measureGlyphRunWidth(subtitleGlyphs, subtitleFont, subtitleLetterSpacing) : 0
+    );
+    const baseLayout = {
         height: titleHeight + (subtitleText ? subtitleHeight + subtitleGap : 0),
         hitRegions: [],
         render(ctx, originX, originY, palette) {
@@ -1422,6 +1574,10 @@ function layoutBanner(block, width, metrics, context = {}) {
             }
         }
     };
+    return placeLayoutAroundEditorialObstacles(baseLayout, width, context, {
+        blockHeight: baseLayout.height,
+        blockWidth: bannerWidth
+    });
 }
 
 function layoutHelpEntry(block, width, metrics, context = {}) {
@@ -1474,7 +1630,7 @@ function layoutHelpEntry(block, width, metrics, context = {}) {
                 slotName: '__helpStackedDescription',
                 tokenizeLinks: false
             });
-            return {
+            const baseLayout = {
                 height: commandLine.height + description.height,
                 hitRegions: description.hitRegions.map(region => ({
                     ...region,
@@ -1485,6 +1641,13 @@ function layoutHelpEntry(block, width, metrics, context = {}) {
                     description.render(ctx, originX, originY + commandLine.height, palette, palette.text);
                 }
             };
+            return placeLayoutAroundEditorialObstacles(baseLayout, width, context, {
+                blockHeight: baseLayout.height,
+                blockWidth: Math.max(
+                    getLayoutPlanBounds(commandLine.plans, helpLineHeight).width,
+                    getLayoutPlanBounds(description.plans, helpLineHeight).width
+                )
+            });
         }
 
         const description = buildTextLayout(block, block.data.description || '', compactDescriptionWidth, helpFont, helpLineHeight, {
@@ -1492,7 +1655,8 @@ function layoutHelpEntry(block, width, metrics, context = {}) {
             tokenizeLinks: false
         });
         const descriptionOffsetY = actualCommandWidth > compactCommandWidth ? helpLineHeight : 0;
-        return {
+        const descriptionBounds = getLayoutPlanBounds(description.plans, helpLineHeight);
+        const baseLayout = {
             height: Math.max(helpLineHeight, descriptionOffsetY + description.height),
             hitRegions: description.hitRegions.map(region => ({
                 ...region,
@@ -1508,14 +1672,21 @@ function layoutHelpEntry(block, width, metrics, context = {}) {
                 description.render(ctx, originX + compactDescriptionX, originY + descriptionOffsetY, palette, palette.text);
             }
         };
+        return placeLayoutAroundEditorialObstacles(baseLayout, width, context, {
+            blockHeight: baseLayout.height,
+            blockWidth: Math.max(
+                actualCommandWidth + helpGap * 0.35 + separatorWidth,
+                compactDescriptionX + descriptionBounds.width
+            )
+        });
     }
 
     const description = buildTextLayout(block, block.data.description || '', descriptionWidth, helpFont, helpLineHeight, {
         slotName: '__helpDescription',
         tokenizeLinks: false
     });
-
-    return {
+    const descriptionBounds = getLayoutPlanBounds(description.plans, helpLineHeight);
+    const baseLayout = {
         height: Math.max(helpLineHeight, description.height),
         hitRegions: description.hitRegions.map(region => ({
             ...region,
@@ -1531,6 +1702,10 @@ function layoutHelpEntry(block, width, metrics, context = {}) {
             description.render(ctx, originX + commandWidth + separatorWidth + helpGap, originY, palette, palette.text);
         }
     };
+    return placeLayoutAroundEditorialObstacles(baseLayout, width, context, {
+        blockHeight: baseLayout.height,
+        blockWidth: commandWidth + separatorWidth + helpGap + descriptionBounds.width
+    });
 }
 
 function buildVisitorRowTokens(label, value) {
@@ -1564,8 +1739,7 @@ function layoutVisitorWidget(block, width, metrics, context = {}) {
         ? clamp(Number.isFinite(widgetState.x) ? widgetState.x : 0, 0, Math.max(0, width - boxWidth))
         : 0;
     const widgetPalette = PALETTES.default;
-
-    return {
+    const baseLayout = {
         height: boxHeight,
         hitRegions: context.editorial ? [{
             action: 'drag-widget',
@@ -1618,6 +1792,13 @@ function layoutVisitorWidget(block, width, metrics, context = {}) {
             ctx.shadowBlur = 0;
         }
     };
+    if (context.editorial && !widgetState.pinned) {
+        return placeLayoutAroundEditorialObstacles(baseLayout, width, context, {
+            blockHeight: boxHeight,
+            blockWidth: boxWidth
+        });
+    }
+    return baseLayout;
 }
 
 function layoutStandaloneMedia(block, metrics) {
@@ -3157,6 +3338,111 @@ export function getPromptHost() {
     return getPromptSnapshot().host;
 }
 
+function isLocalTerminalTestHost() {
+    const hostname = typeof window?.location?.hostname === 'string' ? window.location.hostname : '';
+    return hostname === '127.0.0.1' || hostname === 'localhost';
+}
+
+function describeTerminalBlock(block) {
+    if (!block || typeof block !== 'object') {
+        return null;
+    }
+
+    return {
+        bottom: Number.isFinite(block.bottom) ? block.bottom : null,
+        command: block.data?.type === 'help-entry' ? String(block.data.command || '') : null,
+        id: block.id || null,
+        title: block.data?.type === 'banner' ? String(block.data.title || '') : null,
+        top: Number.isFinite(block.top) ? block.top : null,
+        type: typeof block.data === 'object' && block.data
+            ? String(block.data.type || 'object')
+            : typeof block.data
+    };
+}
+
+function syncLocalTestHooks() {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    if (!isLocalTerminalTestHost()) {
+        delete window.__terminalCanvasTestHooks;
+        return;
+    }
+
+    window.__terminalCanvasTestHooks = {
+        ensureLayout() {
+            ensureLayoutCurrent();
+            return this.getState();
+        },
+        getBannerBlock() {
+            ensureLayoutCurrent();
+            return describeTerminalBlock(app.blocks.find(block => block.data?.type === 'banner'));
+        },
+        getHelpBlock(command) {
+            ensureLayoutCurrent();
+            return describeTerminalBlock(app.blocks.find(block => (
+                block.data?.type === 'help-entry'
+                && String(block.data.command || '') === String(command || '')
+            )));
+        },
+        getState() {
+            ensureLayoutCurrent();
+            return {
+                blocks: app.blocks.map(describeTerminalBlock).filter(Boolean),
+                contentHeight: app.contentHeight,
+                editorialMediaRects: (Array.isArray(app.editorialMediaRects) ? app.editorialMediaRects : []).map(rect => ({
+                    blockId: rect.blockId || null,
+                    height: rect.height,
+                    id: rect.id || null,
+                    width: rect.width,
+                    x: rect.x,
+                    y: rect.y
+                })),
+                scrollTop: app.scrollTop,
+                viewportHeight: app.viewportHeight
+            };
+        },
+        getVisitorWidgetBlock() {
+            ensureLayoutCurrent();
+            return describeTerminalBlock(app.blocks.find(block => block.data?.type === 'visitor-widget'));
+        },
+        pinFirstEditorialMedia(position = {}) {
+            ensureLayoutCurrent();
+            const block = app.blocks.find(item => item?.editorialMediaState instanceof Map && item.editorialMediaState.size > 0);
+            if (!block) {
+                return null;
+            }
+
+            const [mediaId, mediaState] = block.editorialMediaState.entries().next().value || [];
+            if (!mediaState) {
+                return null;
+            }
+
+            mediaState.pinned = true;
+            if (Number.isFinite(position.x)) {
+                mediaState.x = Math.max(0, position.x);
+            }
+            if (Number.isFinite(position.y)) {
+                mediaState.y = Math.max(0, position.y);
+            }
+            markLayoutDirty();
+            ensureLayoutCurrent();
+            return {
+                blockId: block.id,
+                mediaId,
+                x: mediaState.x,
+                y: mediaState.y
+            };
+        },
+        setScrollTop(value) {
+            app.scrollTop = Math.max(0, Number.isFinite(value) ? value : 0);
+            clampScroll();
+            return app.scrollTop;
+        }
+    };
+}
+
 export async function bootTerminalSite(defaultCommand) {
     ensureCanvas();
     resizeCanvas();
@@ -3169,6 +3455,7 @@ export async function bootTerminalSite(defaultCommand) {
     if (typeof window.ensureTerminalSessionReady === 'function') {
         await window.ensureTerminalSessionReady();
     }
+    syncLocalTestHooks();
     setupTerminal();
     refreshBinaryColumns();
     const params = new URLSearchParams(window.location.search);
