@@ -317,8 +317,9 @@ export class RateLimiter {
 }
 
 export class BlogUploadSession {
-    constructor(state) {
+    constructor(state, env = {}) {
         this.state = state;
+        this.env = env;
     }
 
     async fetch(request) {
@@ -346,18 +347,21 @@ export class BlogUploadSession {
                 return this.jsonErrorResponse(`chunk must be ${MAX_STAGED_IMAGE_CHUNK_LENGTH} characters or fewer`, 400);
             }
 
-            const meta = await this.state.storage.get('meta');
+            const { meta } = await this.readActiveMeta();
             if (meta && Number(meta.totalChunks) !== totalChunks) {
                 return this.jsonErrorResponse('upload chunk count mismatch', 409);
             }
 
+            const expiresAt = Date.now() + this.getSessionTtlMs();
             await this.state.storage.put({
                 meta: {
                     totalChunks,
-                    updatedAt: Date.now()
+                    updatedAt: Date.now(),
+                    expiresAt
                 },
                 [`chunk:${chunkIndex}`]: chunk
             });
+            await this.scheduleExpiry(expiresAt);
 
             return this.jsonSuccessResponse({
                 staged: true,
@@ -366,7 +370,11 @@ export class BlogUploadSession {
         }
 
         if (request.method === 'POST' && url.pathname === '/consume') {
-            const meta = await this.state.storage.get('meta');
+            const { meta, expired } = await this.readActiveMeta();
+            if (expired) {
+                return this.jsonErrorResponse('staged upload expired', 404);
+            }
+
             const totalChunks = Number(meta?.totalChunks || 0);
             if (!Number.isInteger(totalChunks) || totalChunks <= 0) {
                 return this.jsonErrorResponse('staged upload not found', 404);
@@ -387,7 +395,7 @@ export class BlogUploadSession {
                 chunks.push(chunk);
             }
 
-            await clearBlogUploadSessionStorage(this.state.storage);
+            await this.clearSession();
 
             return this.jsonSuccessResponse({
                 dataUrl: chunks.join('')
@@ -395,7 +403,11 @@ export class BlogUploadSession {
         }
 
         if (request.method === 'POST' && url.pathname === '/meta') {
-            const meta = await this.state.storage.get('meta');
+            const { meta, expired } = await this.readActiveMeta();
+            if (expired) {
+                return this.jsonErrorResponse('staged upload expired', 404);
+            }
+
             const totalChunks = Number(meta?.totalChunks || 0);
             if (!Number.isInteger(totalChunks) || totalChunks <= 0) {
                 return this.jsonErrorResponse('staged upload not found', 404);
@@ -407,7 +419,11 @@ export class BlogUploadSession {
         }
 
         if (request.method === 'POST' && url.pathname === '/chunk') {
-            const meta = await this.state.storage.get('meta');
+            const { meta, expired } = await this.readActiveMeta();
+            if (expired) {
+                return this.jsonErrorResponse('staged upload expired', 404);
+            }
+
             const totalChunks = Number(meta?.totalChunks || 0);
             if (!Number.isInteger(totalChunks) || totalChunks <= 0) {
                 return this.jsonErrorResponse('staged upload not found', 404);
@@ -432,7 +448,7 @@ export class BlogUploadSession {
         }
 
         if (request.method === 'POST' && url.pathname === '/clear') {
-            await clearBlogUploadSessionStorage(this.state.storage);
+            await this.clearSession();
             return this.jsonSuccessResponse({
                 cleared: true
             });
@@ -460,6 +476,60 @@ export class BlogUploadSession {
                 'Content-Type': 'application/json; charset=utf-8'
             }
         });
+    }
+
+    getSessionTtlMs() {
+        return normalizePositiveInteger(this.env.BLOG_UPLOAD_SESSION_TTL_MS, DEFAULT_BLOG_UPLOAD_SESSION_TTL_MS);
+    }
+
+    async readActiveMeta() {
+        const meta = await this.state.storage.get('meta');
+        if (!meta) {
+            return {
+                meta: null,
+                expired: false
+            };
+        }
+
+        if (this.isMetaExpired(meta)) {
+            await this.clearSession();
+            return {
+                meta: null,
+                expired: true
+            };
+        }
+
+        return {
+            meta,
+            expired: false
+        };
+    }
+
+    isMetaExpired(meta) {
+        const expiresAt = Number(meta?.expiresAt || 0);
+        if (Number.isFinite(expiresAt) && expiresAt > 0) {
+            return Date.now() >= expiresAt;
+        }
+
+        const updatedAt = Number(meta?.updatedAt || 0);
+        return !Number.isFinite(updatedAt) || updatedAt <= 0 || (updatedAt + this.getSessionTtlMs()) <= Date.now();
+    }
+
+    async scheduleExpiry(expiresAt) {
+        if (typeof this.state.storage?.setAlarm === 'function') {
+            await this.state.storage.setAlarm(expiresAt);
+        }
+    }
+
+    async clearSession() {
+        await clearBlogUploadSessionStorage(this.state.storage);
+        if (typeof this.state.storage?.deleteAlarm === 'function') {
+            await this.state.storage.deleteAlarm();
+        }
+    }
+
+    async alarm() {
+        await this.clearSession();
     }
 }
 
@@ -736,6 +806,10 @@ const MAX_IMAGE_DATA_URL_LENGTH = 100000000;
 const MAX_IMAGE_ATTACHMENTS = 10;
 const MAX_STAGED_IMAGE_CHUNKS = 2048;
 const MAX_STAGED_IMAGE_CHUNK_LENGTH = 98304;
+const DEFAULT_BLOG_STAGE_RATE_LIMIT_WINDOW_MS = 3600000;
+const DEFAULT_BLOG_STAGE_RATE_LIMIT_MAX = MAX_STAGED_IMAGE_CHUNKS * 2;
+const DEFAULT_BLOG_UPLOAD_SESSION_TTL_MS = 15 * 60 * 1000;
+const BLOG_MEDIA_SIGNATURE_PREFIX_BYTES = 16;
 const DEFAULT_GITHUB_CONTENTS_MAX_BASE64_BYTES = 95000000;
 const LARGE_STAGED_COMPACT_IMAGE_BYTE_LENGTH = 4000000;
 const ALLOWED_BLOG_INLINE_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
@@ -744,6 +818,13 @@ const BLOG_COMPACT_IMAGE_MIME_TYPES = new Set(['image/gif']);
 const BLOG_HOSTED_MEDIA_MIME_TYPES = new Set(['image/gif', 'video/mp4']);
 const BLOG_HOSTED_IMAGE_PROVIDERS = new Set(['r2', 'b2']);
 const BLOG_Z85_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#';
+const BLOG_Z85_CHAR_TO_VALUE = (() => {
+    const mapping = Object.create(null);
+    for (let index = 0; index < BLOG_Z85_ALPHABET.length; index += 1) {
+        mapping[BLOG_Z85_ALPHABET[index]] = index;
+    }
+    return mapping;
+})();
 const BLOG_DEPLOY_PENDING_ERROR = 'site is still deploying previous changes; wait for blog.txt to go live before posting or deleting again';
 const DEFAULT_BLOG_MEDIA_BASE_URL = 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media';
 const B2_AUTHORIZE_ACCOUNT_URL = 'https://api.backblazeb2.com/b2api/v3/b2_authorize_account';
@@ -1387,6 +1468,18 @@ async function handleVisitorLeave(request, env) {
 
 async function handleStageImageChunk(request, env) {
     try {
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rateCheck = await enforceRateLimit(ip, env, {
+            namespace: 'upload',
+            windowMsEnv: 'BLOG_STAGE_RATE_LIMIT_WINDOW_MS',
+            maxEnv: 'BLOG_STAGE_RATE_LIMIT_MAX',
+            defaultWindowMs: DEFAULT_BLOG_STAGE_RATE_LIMIT_WINDOW_MS,
+            defaultMax: DEFAULT_BLOG_STAGE_RATE_LIMIT_MAX
+        });
+        if (!rateCheck.allowed) {
+            return jsonResponse({ error: 'rate limit exceeded' }, 429, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+
         if (!env.BLOG_UPLOAD_SESSION) {
             return jsonResponse({ error: 'blog upload session binding not configured' }, 500, env.ALLOWED_ORIGIN);
         }
@@ -1410,7 +1503,7 @@ async function handleStageImageChunk(request, env) {
             })
         });
 
-        return proxyJsonResponse(response, env.ALLOWED_ORIGIN);
+        return proxyJsonResponse(response, env.ALLOWED_ORIGIN, rateCheck.headers);
     } catch (error) {
         console.error('stage image chunk failed', error);
         return jsonResponse({ error: 'unable to stage image upload right now' }, 500, env.ALLOWED_ORIGIN);
@@ -1787,13 +1880,12 @@ async function handleHostedBlogMedia(request, env) {
                 });
             }
 
-              return new Response(await object.arrayBuffer(), {
-                  status: 200,
-                  headers: {
-                      'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
-                      'Cache-Control': 'public, max-age=31536000, immutable',
-                      ...corsHeaders(env.ALLOWED_ORIGIN)
-                  }
+            return new Response(await object.arrayBuffer(), {
+                status: 200,
+                headers: hostedMediaHeaders(env.ALLOWED_ORIGIN, {
+                    'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
+                    'Cache-Control': 'public, max-age=31536000, immutable'
+                })
             });
         }
 
@@ -1809,10 +1901,9 @@ async function handleHostedBlogMedia(request, env) {
         if (!b2Decision.allowed) {
             return new Response('b2 media temporarily unavailable', {
                 status: 503,
-                headers: {
-                    'Cache-Control': 'no-store',
-                    ...corsHeaders(env.ALLOWED_ORIGIN)
-                }
+                headers: hostedMediaHeaders(env.ALLOWED_ORIGIN, {
+                    'Cache-Control': 'no-store'
+                })
             });
         }
 
@@ -1826,19 +1917,18 @@ async function handleHostedBlogMedia(request, env) {
 
         await recordB2ReadUsage(env);
 
-          return new Response(await b2Response.arrayBuffer(), {
-              status: 200,
-              headers: {
-                  'Content-Type': b2Response.headers.get('Content-Type') || 'application/octet-stream',
-                  'Cache-Control': 'public, max-age=31536000, immutable',
-                  ...corsHeaders(env.ALLOWED_ORIGIN)
-              }
+        return new Response(await b2Response.arrayBuffer(), {
+            status: 200,
+            headers: hostedMediaHeaders(env.ALLOWED_ORIGIN, {
+                'Content-Type': b2Response.headers.get('Content-Type') || 'application/octet-stream',
+                'Cache-Control': 'public, max-age=31536000, immutable'
+            })
         });
     } catch (error) {
         console.error('hosted blog media failed', error);
         return new Response('unable to load media', {
             status: 500,
-            headers: corsHeaders(env.ALLOWED_ORIGIN)
+            headers: hostedMediaHeaders(env.ALLOWED_ORIGIN)
         });
     }
 }
@@ -1877,6 +1967,12 @@ function validateImageDataUrl(value, maxLength) {
             ok: false,
             error: 'imageDataUrl must be png, jpg, jpeg, webp, gif, or mp4'
         };
+    }
+
+    const prefixBytes = decodeBase64PrefixToBytes(match[2], BLOG_MEDIA_SIGNATURE_PREFIX_BYTES);
+    const mimeValidation = validateMediaPrefixBytes(prefixBytes, mimeType, 'imageDataUrl bytes do not match the declared media type');
+    if (!mimeValidation.ok) {
+        return mimeValidation;
     }
 
     return { ok: true };
@@ -1924,6 +2020,12 @@ function validateCompactImagePayload({ mimeType, byteLength, encodedPayload, req
             ok: false,
             error: 'compact image payload contains unsupported characters'
         };
+    }
+
+    const prefixBytes = decodeZ85PrefixToBytes(normalizedEncodedPayload, normalizedByteLength, BLOG_MEDIA_SIGNATURE_PREFIX_BYTES);
+    const mimeValidation = validateMediaPrefixBytes(prefixBytes, normalizedMimeType, 'compact image payload bytes do not match the declared media type');
+    if (!mimeValidation.ok) {
+        return mimeValidation;
     }
 
     return {
@@ -2020,6 +2122,135 @@ function decodeBase64ToBytes(value) {
     }
 
     return bytes;
+}
+
+function decodeBase64PrefixToBytes(base64Payload, prefixByteLength = BLOG_MEDIA_SIGNATURE_PREFIX_BYTES) {
+    const normalizedPayload = String(base64Payload || '').replace(/\s+/g, '');
+    const normalizedPrefixByteLength = normalizePositiveInteger(prefixByteLength, BLOG_MEDIA_SIGNATURE_PREFIX_BYTES);
+    if (!normalizedPayload) {
+        return null;
+    }
+
+    const requiredGroups = Math.ceil(normalizedPrefixByteLength / 3);
+    const requiredCharacters = requiredGroups * 4;
+    try {
+        const bytes = decodeBase64ToBytes(normalizedPayload.slice(0, requiredCharacters));
+        return bytes.slice(0, normalizedPrefixByteLength);
+    } catch {
+        return null;
+    }
+}
+
+function normalizeMediaMimeType(value) {
+    const normalizedValue = String(value || '').trim().toLowerCase();
+    return normalizedValue === 'image/jpg' ? 'image/jpeg' : normalizedValue;
+}
+
+function detectMediaMimeTypeFromBytes(bytes) {
+    if (!(bytes instanceof Uint8Array) || bytes.length === 0) {
+        return '';
+    }
+
+    if (bytes.length >= 8 &&
+        bytes[0] === 0x89 &&
+        bytes[1] === 0x50 &&
+        bytes[2] === 0x4e &&
+        bytes[3] === 0x47 &&
+        bytes[4] === 0x0d &&
+        bytes[5] === 0x0a &&
+        bytes[6] === 0x1a &&
+        bytes[7] === 0x0a) {
+        return 'image/png';
+    }
+
+    if (bytes.length >= 3 &&
+        bytes[0] === 0xff &&
+        bytes[1] === 0xd8 &&
+        bytes[2] === 0xff) {
+        return 'image/jpeg';
+    }
+
+    if (bytes.length >= 12 &&
+        bytes[0] === 0x52 &&
+        bytes[1] === 0x49 &&
+        bytes[2] === 0x46 &&
+        bytes[3] === 0x46 &&
+        bytes[8] === 0x57 &&
+        bytes[9] === 0x45 &&
+        bytes[10] === 0x42 &&
+        bytes[11] === 0x50) {
+        return 'image/webp';
+    }
+
+    if (bytes.length >= 6) {
+        const gifHeader = String.fromCharCode(...bytes.slice(0, 6));
+        if (gifHeader === 'GIF87a' || gifHeader === 'GIF89a') {
+            return 'image/gif';
+        }
+    }
+
+    if (bytes.length >= 12 &&
+        bytes[4] === 0x66 &&
+        bytes[5] === 0x74 &&
+        bytes[6] === 0x79 &&
+        bytes[7] === 0x70) {
+        return 'video/mp4';
+    }
+
+    return '';
+}
+
+function validateMediaPrefixBytes(bytes, declaredMimeType, errorMessage) {
+    const detectedMimeType = detectMediaMimeTypeFromBytes(bytes);
+    if (!detectedMimeType || normalizeMediaMimeType(declaredMimeType) !== detectedMimeType) {
+        return {
+            ok: false,
+            error: errorMessage
+        };
+    }
+
+    return {
+        ok: true,
+        mimeType: detectedMimeType
+    };
+}
+
+function decodeZ85PrefixToBytes(encodedPayload, byteLength, prefixByteLength = BLOG_MEDIA_SIGNATURE_PREFIX_BYTES) {
+    const payload = String(encodedPayload || '').trim();
+    const normalizedByteLength = Number.parseInt(byteLength, 10);
+    if (!payload || payload.length % 5 !== 0 || !Number.isInteger(normalizedByteLength) || normalizedByteLength <= 0) {
+        return null;
+    }
+
+    const requiredBytes = Math.min(normalizePositiveInteger(prefixByteLength, BLOG_MEDIA_SIGNATURE_PREFIX_BYTES), normalizedByteLength);
+    const requiredGroups = Math.ceil(requiredBytes / 4);
+    const requiredCharacters = requiredGroups * 5;
+    if (payload.length < requiredCharacters) {
+        return null;
+    }
+
+    const output = new Uint8Array(requiredGroups * 4);
+    let outputIndex = 0;
+
+    for (let index = 0; index < requiredCharacters; index += 5) {
+        let value = 0;
+
+        for (let characterIndex = 0; characterIndex < 5; characterIndex += 1) {
+            const alphabetIndex = BLOG_Z85_CHAR_TO_VALUE[payload[index + characterIndex]];
+            if (!Number.isInteger(alphabetIndex) || alphabetIndex < 0) {
+                return null;
+            }
+            value = (value * 85) + alphabetIndex;
+        }
+
+        output[outputIndex] = Math.floor(value / 16777216) % 256;
+        output[outputIndex + 1] = Math.floor(value / 65536) % 256;
+        output[outputIndex + 2] = Math.floor(value / 256) % 256;
+        output[outputIndex + 3] = value % 256;
+        outputIndex += 4;
+    }
+
+    return output.slice(0, requiredBytes);
 }
 
 function encodeBytesToZ85(bytes) {
@@ -2324,6 +2555,15 @@ async function resolveStagedImageBlocks(blocks, maxImageDataUrlLength, env) {
 
         if (block.imageEncoding === 'z85') {
             if (Number(block.byteLength || 0) >= LARGE_STAGED_COMPACT_IMAGE_BYTE_LENGTH) {
+                const compactPrefixValidation = await validateStagedCompactImageUploadPrefix(
+                    env,
+                    block.stagedUploadToken,
+                    block.mimeType,
+                    block.byteLength
+                );
+                if (!compactPrefixValidation.ok) {
+                    return compactPrefixValidation;
+                }
                 resolvedBlocks.push(block);
                 continue;
             }
@@ -2420,6 +2660,27 @@ async function resolveStagedImageBlocks(blocks, maxImageDataUrlLength, env) {
         ok: true,
         blocks: finalizedBlocks
     };
+}
+
+async function validateStagedCompactImageUploadPrefix(env, uploadToken, mimeType, byteLength) {
+    try {
+        const meta = await fetchStagedUploadMeta(env, uploadToken);
+        const requiredBytes = Math.min(BLOG_MEDIA_SIGNATURE_PREFIX_BYTES, Number.parseInt(byteLength, 10) || BLOG_MEDIA_SIGNATURE_PREFIX_BYTES);
+        const requiredCharacters = Math.ceil(requiredBytes / 4) * 5;
+        let encodedPrefix = '';
+
+        for (let chunkIndex = 0; chunkIndex < meta.totalChunks && encodedPrefix.length < requiredCharacters; chunkIndex += 1) {
+            encodedPrefix += await fetchStagedUploadChunk(env, uploadToken, chunkIndex);
+        }
+
+        const prefixBytes = decodeZ85PrefixToBytes(encodedPrefix, byteLength, requiredBytes);
+        return validateMediaPrefixBytes(prefixBytes, mimeType, 'compact image payload bytes do not match the declared media type');
+    } catch (error) {
+        return {
+            ok: false,
+            error: error instanceof Error && error.message ? error.message : 'unable to inspect staged image upload'
+        };
+    }
 }
 
 async function consumeStagedImageUpload(env, uploadToken) {
@@ -2748,10 +3009,14 @@ function parseImageBytesFromDataUrl(imageDataUrl) {
         return null;
     }
 
-    return {
-        mimeType: parts.mimeType,
-        bytes: decodeBase64ToBytes(parts.base64Payload)
-    };
+    try {
+        return {
+            mimeType: parts.mimeType,
+            bytes: decodeBase64ToBytes(parts.base64Payload)
+        };
+    } catch {
+        return null;
+    }
 }
 
 function createHostedBlogMediaStorageKey(mimeType) {
@@ -3009,14 +3274,25 @@ async function verifyTurnstile(secret, token, ip) {
     return Boolean(payload.success);
 }
 
-async function enforceRateLimit(ip, env) {
+async function enforceRateLimit(ip, env, options = {}) {
     if (!env.RATE_LIMITER) {
         throw new Error('rate limiter binding not configured');
     }
 
-    const windowMs = Number(env.RATE_LIMIT_WINDOW_MS || 3600000);
-    const max = Number(env.RATE_LIMIT_MAX || 10);
-    const stub = getRateLimiterStub(env, ip);
+    const namespace = typeof options.namespace === 'string' && options.namespace.trim()
+        ? options.namespace.trim()
+        : 'rate';
+    const windowMsEnv = typeof options.windowMsEnv === 'string' && options.windowMsEnv.trim()
+        ? options.windowMsEnv.trim()
+        : 'RATE_LIMIT_WINDOW_MS';
+    const maxEnv = typeof options.maxEnv === 'string' && options.maxEnv.trim()
+        ? options.maxEnv.trim()
+        : 'RATE_LIMIT_MAX';
+    const defaultWindowMs = Number(options.defaultWindowMs || 3600000);
+    const defaultMax = Number(options.defaultMax || 10);
+    const windowMs = Number(env[windowMsEnv] || defaultWindowMs);
+    const max = Number(env[maxEnv] || defaultMax);
+    const stub = getRateLimiterStub(env, `${namespace}:${ip}`);
     const response = await stub.fetch('https://rate-limiter/consume', {
         method: 'POST',
         headers: {
@@ -4388,8 +4664,8 @@ function getVisitorCounterStub(env) {
     return env.VISITOR_COUNTER.get(id);
 }
 
-function getRateLimiterStub(env, ip) {
-    const id = env.RATE_LIMITER.idFromName(`rate:${ip}`);
+function getRateLimiterStub(env, key) {
+    const id = env.RATE_LIMITER.idFromName(key);
     return env.RATE_LIMITER.get(id);
 }
 
@@ -4419,13 +4695,14 @@ function jsonResponse(payload, status, origin, extraHeaders = {}) {
     });
 }
 
-async function proxyJsonResponse(response, origin) {
+async function proxyJsonResponse(response, origin, extraHeaders = {}) {
     const payload = await response.text();
     return new Response(payload, {
         status: response.status,
         headers: {
             'Content-Type': response.headers.get('Content-Type') || 'application/json; charset=utf-8',
-            ...corsHeaders(origin)
+            ...corsHeaders(origin),
+            ...extraHeaders
         }
     });
 }
@@ -4435,6 +4712,14 @@ function corsHeaders(origin) {
         'Access-Control-Allow-Origin': origin || '*',
         'Access-Control-Allow-Headers': 'Content-Type',
         'Access-Control-Allow-Methods': 'GET,POST,OPTIONS'
+    };
+}
+
+function hostedMediaHeaders(origin, extraHeaders = {}) {
+    return {
+        'X-Content-Type-Options': 'nosniff',
+        ...corsHeaders(origin),
+        ...extraHeaders
     };
 }
 

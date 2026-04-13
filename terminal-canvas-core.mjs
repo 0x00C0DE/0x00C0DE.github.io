@@ -4410,6 +4410,8 @@ function describeTerminalBlock(block) {
         bottom: Number.isFinite(block.bottom) ? block.bottom : null,
         command: block.data?.type === 'help-entry' ? String(block.data.command || '') : null,
         id: block.id || null,
+        kind: String(block.kind || ''),
+        text: typeof block.data === 'string' ? String(block.data) : null,
         title: block.data?.type === 'banner' ? String(block.data.title || '') : null,
         top: Number.isFinite(block.top) ? block.top : null,
         type: typeof block.data === 'object' && block.data

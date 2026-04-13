@@ -111,10 +111,17 @@ const BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL = 'png/jpg/jpeg/webp/gif/mp4';
 const BLOG_ALLOWED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 const BLOG_ALLOWED_POST_MEDIA_MIME_TYPES = new Set([...BLOG_ALLOWED_IMAGE_MIME_TYPES, 'video/mp4']);
 const BLOG_ALLOWED_HOSTED_MEDIA_MIME_TYPES = new Set(['image/gif', 'video/mp4']);
-const BLOG_IMAGE_FILE_ACCEPT = 'image/*';
-const BLOG_POST_FILE_ACCEPT = 'image/*,video/mp4';
+const USERPIC_SUPPORTED_IMAGE_TYPES_LABEL = 'png, jpg, jpeg, webp, or gif';
+const USERPIC_MAX_FILE_BYTES = 8 * 1024 * 1024;
+const USERPIC_MAX_SOURCE_WIDTH = 4096;
+const USERPIC_MAX_SOURCE_HEIGHT = 4096;
+const BLOG_IMAGE_FILE_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp';
+const BLOG_POST_FILE_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp,video/mp4';
 const FILE_PICKER_ACCEPT_EXTENSIONS = Object.freeze({
-    'image/*': Object.freeze(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.avif']),
+    'image/png': Object.freeze(['.png']),
+    'image/jpeg': Object.freeze(['.jpg', '.jpeg']),
+    'image/gif': Object.freeze(['.gif']),
+    'image/webp': Object.freeze(['.webp']),
     'video/mp4': Object.freeze(['.mp4'])
 });
 const BLOG_IMAGE_DATA_URL_PATTERN = /^data:([^;]+);base64,([A-Za-z0-9+/=\r\n]+)$/i;
@@ -130,6 +137,7 @@ const VISITOR_HEARTBEAT_MS = 1000;
 const VISITOR_STATS_POLL_MS = 500;
 const TURNSTILE_API_LOAD_TIMEOUT_MS = 15000;
 const TURNSTILE_TOKEN_TIMEOUT_MS = 30000;
+const BLOG_MEDIA_SIGNATURE_PREFIX_BYTES = 16;
 const TEXT_FILES = Object.freeze([
     'blog.txt',
     'readme.txt',
@@ -1139,6 +1147,7 @@ async function selectUserImageFilesWithOpenPicker(options = {}) {
     };
     const types = buildNativeFilePickerTypes(resolveUserImagePickerAccept(options));
     if (types.length > 0) {
+        pickerOptions.excludeAcceptAllOption = true;
         pickerOptions.types = types;
     }
 
@@ -1441,8 +1450,8 @@ async function selectUserImageFile(options = {}) {
     return files[0] || null;
 }
 
-async function decodeSelectedImage(file) {
-    const dataUrl = await readFileAsDataUrl(file);
+async function decodeSelectedImage(source) {
+    const dataUrl = typeof source === 'string' ? source : await readFileAsDataUrl(source);
     const image = new Image();
     image.src = dataUrl;
     await image.decode();
@@ -1469,6 +1478,41 @@ function readFileAsArrayBuffer(file) {
         reader.onerror = () => reject(reader.error || new Error('unable to read selected file'));
         reader.readAsArrayBuffer(file);
     });
+}
+
+function readFileSignatureBytes(file, byteLength = BLOG_MEDIA_SIGNATURE_PREFIX_BYTES) {
+    const normalizedByteLength = Number.isFinite(byteLength) && byteLength > 0
+        ? Math.floor(byteLength)
+        : BLOG_MEDIA_SIGNATURE_PREFIX_BYTES;
+    if (!file || typeof file.slice !== 'function') {
+        return readFileAsArrayBuffer(file)
+            .then(arrayBuffer => new Uint8Array(arrayBuffer).slice(0, normalizedByteLength));
+    }
+
+    return readFileAsArrayBuffer(file.slice(0, normalizedByteLength))
+        .then(arrayBuffer => new Uint8Array(arrayBuffer));
+}
+
+function encodeBytesToBase64(bytes) {
+    if (!(bytes instanceof Uint8Array) || bytes.length === 0) {
+        return '';
+    }
+
+    const chunkSize = 0x8000;
+    let binary = '';
+    for (let index = 0; index < bytes.length; index += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+    }
+    return btoa(binary);
+}
+
+function createDataUrlFromBytes(bytes, mimeType) {
+    const normalizedMimeType = normalizeSupportedMediaMimeType(mimeType);
+    const encodedPayload = encodeBytesToBase64(bytes);
+    if (!normalizedMimeType || !encodedPayload) {
+        return '';
+    }
+    return `data:${normalizedMimeType};base64,${encodedPayload}`;
 }
 
 function buildAsciiDownloadFilename(file) {
@@ -1806,6 +1850,99 @@ function getDataUrlMimeType(dataUrl) {
     return match ? match[1].toLowerCase() : '';
 }
 
+function normalizeSupportedMediaMimeType(mimeType) {
+    const normalizedMimeType = String(mimeType || '').trim().toLowerCase();
+    return normalizedMimeType === 'image/jpg' ? 'image/jpeg' : normalizedMimeType;
+}
+
+function detectSupportedMediaMimeTypeFromBytes(bytes) {
+    if (!(bytes instanceof Uint8Array) || bytes.length === 0) {
+        return '';
+    }
+
+    if (bytes.length >= 8 &&
+        bytes[0] === 0x89 &&
+        bytes[1] === 0x50 &&
+        bytes[2] === 0x4e &&
+        bytes[3] === 0x47 &&
+        bytes[4] === 0x0d &&
+        bytes[5] === 0x0a &&
+        bytes[6] === 0x1a &&
+        bytes[7] === 0x0a) {
+        return 'image/png';
+    }
+
+    if (bytes.length >= 3 &&
+        bytes[0] === 0xff &&
+        bytes[1] === 0xd8 &&
+        bytes[2] === 0xff) {
+        return 'image/jpeg';
+    }
+
+    if (bytes.length >= 12 &&
+        bytes[0] === 0x52 &&
+        bytes[1] === 0x49 &&
+        bytes[2] === 0x46 &&
+        bytes[3] === 0x46 &&
+        bytes[8] === 0x57 &&
+        bytes[9] === 0x45 &&
+        bytes[10] === 0x42 &&
+        bytes[11] === 0x50) {
+        return 'image/webp';
+    }
+
+    if (bytes.length >= 6) {
+        const gifHeader = String.fromCharCode(...bytes.slice(0, 6));
+        if (gifHeader === 'GIF87a' || gifHeader === 'GIF89a') {
+            return 'image/gif';
+        }
+    }
+
+    if (bytes.length >= 12 &&
+        bytes[4] === 0x66 &&
+        bytes[5] === 0x74 &&
+        bytes[6] === 0x79 &&
+        bytes[7] === 0x70) {
+        return 'video/mp4';
+    }
+
+    return '';
+}
+
+function mediaMimeTypesMatch(declaredMimeType, detectedMimeType) {
+    return normalizeSupportedMediaMimeType(declaredMimeType) === normalizeSupportedMediaMimeType(detectedMimeType);
+}
+
+function decodeBase64ToBytes(value) {
+    const binary = atob(String(value || '').replace(/\s+/g, ''));
+    const bytes = new Uint8Array(binary.length);
+
+    for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+    }
+
+    return bytes;
+}
+
+function decodeBase64PrefixToBytes(base64Payload, prefixByteLength = BLOG_MEDIA_SIGNATURE_PREFIX_BYTES) {
+    const normalizedPayload = String(base64Payload || '').replace(/\s+/g, '');
+    const normalizedPrefixByteLength = Number.isFinite(prefixByteLength) && prefixByteLength > 0
+        ? Math.floor(prefixByteLength)
+        : BLOG_MEDIA_SIGNATURE_PREFIX_BYTES;
+    if (!normalizedPayload) {
+        return null;
+    }
+
+    const requiredGroups = Math.ceil(normalizedPrefixByteLength / 3);
+    const requiredCharacters = requiredGroups * 4;
+    try {
+        const bytes = decodeBase64ToBytes(normalizedPayload.slice(0, requiredCharacters));
+        return bytes.slice(0, normalizedPrefixByteLength);
+    } catch {
+        return null;
+    }
+}
+
 function isHostedBlogMediaMimeType(mimeType) {
     return BLOG_ALLOWED_HOSTED_MEDIA_MIME_TYPES.has(String(mimeType || '').trim().toLowerCase());
 }
@@ -1867,7 +2004,13 @@ function isSafeBlogImageDataUrl(dataUrl) {
         return false;
     }
 
-    return BLOG_ALLOWED_IMAGE_MIME_TYPES.has(match[1].toLowerCase());
+    const mimeType = match[1].toLowerCase();
+    if (!BLOG_ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) {
+        return false;
+    }
+
+    const prefixBytes = decodeBase64PrefixToBytes(match[2], BLOG_MEDIA_SIGNATURE_PREFIX_BYTES);
+    return Boolean(prefixBytes) && mediaMimeTypesMatch(mimeType, detectSupportedMediaMimeTypeFromBytes(prefixBytes));
 }
 
 function isSafeBlogImageSource(source) {
@@ -1944,6 +2087,10 @@ function parseCompactBlogImageBlockLines(imageLines) {
 
     const imageBytes = decodeZ85ToBytes(encodedPayload, byteLength);
     if (!imageBytes) {
+        return null;
+    }
+
+    if (!mediaMimeTypesMatch(mimeType, detectSupportedMediaMimeTypeFromBytes(imageBytes.slice(0, BLOG_MEDIA_SIGNATURE_PREFIX_BYTES)))) {
         return null;
     }
 
@@ -2098,7 +2245,16 @@ async function buildPostMediaAttachmentFromFile(file) {
         return { error: 'post: no media selected' };
     }
 
-    const dataUrl = await readFileAsDataUrl(file);
+    const signatureBytes = await readFileSignatureBytes(file);
+    const detectedMimeType = detectSupportedMediaMimeTypeFromBytes(signatureBytes);
+    if (!BLOG_ALLOWED_POST_MEDIA_MIME_TYPES.has(detectedMimeType)) {
+        return { error: `post: media must be ${BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL}` };
+    }
+
+    const declaredMimeType = normalizeSupportedMediaMimeType(file.type);
+    const dataUrl = declaredMimeType && mediaMimeTypesMatch(declaredMimeType, detectedMimeType)
+        ? await readFileAsDataUrl(file)
+        : createDataUrlFromBytes(new Uint8Array(await readFileAsArrayBuffer(file)), detectedMimeType);
     const mimeType = getDataUrlMimeType(dataUrl);
     if (!BLOG_ALLOWED_POST_MEDIA_MIME_TYPES.has(mimeType)) {
         return { error: `post: media must be ${BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL}` };
@@ -2145,6 +2301,56 @@ async function buildPostMediaAttachmentFromFile(file) {
         dataUrl,
         mimeType,
         fileName: file.name || 'media'
+    };
+}
+
+async function buildUserpicImageSource(file) {
+    if (!file) {
+        return {
+            ok: false,
+            error: 'userpic: no image selected'
+        };
+    }
+
+    if (Number(file.size || 0) > USERPIC_MAX_FILE_BYTES) {
+        return {
+            ok: false,
+            error: 'userpic: selected image must be 8 MB or smaller'
+        };
+    }
+
+    const signatureBytes = await readFileSignatureBytes(file);
+    const detectedMimeType = detectSupportedMediaMimeTypeFromBytes(signatureBytes);
+    if (!BLOG_ALLOWED_IMAGE_MIME_TYPES.has(detectedMimeType)) {
+        return {
+            ok: false,
+            error: `userpic: selected file must be a ${USERPIC_SUPPORTED_IMAGE_TYPES_LABEL} image`
+        };
+    }
+
+    const declaredMimeType = normalizeSupportedMediaMimeType(file.type);
+    const imageSource = declaredMimeType && mediaMimeTypesMatch(declaredMimeType, detectedMimeType)
+        ? file
+        : createDataUrlFromBytes(new Uint8Array(await readFileAsArrayBuffer(file)), detectedMimeType);
+    if (!imageSource) {
+        return {
+            ok: false,
+            error: 'userpic: unable to process selected image'
+        };
+    }
+
+    const image = await decodeSelectedImage(imageSource);
+    const { sourceWidth, sourceHeight } = getAsciiSourceDimensions(image);
+    if (sourceWidth > USERPIC_MAX_SOURCE_WIDTH || sourceHeight > USERPIC_MAX_SOURCE_HEIGHT) {
+        return {
+            ok: false,
+            error: `userpic: selected image dimensions must be ${USERPIC_MAX_SOURCE_WIDTH}x${USERPIC_MAX_SOURCE_HEIGHT} or smaller`
+        };
+    }
+
+    return {
+        ok: true,
+        image
     };
 }
 
@@ -2887,16 +3093,14 @@ async function userpic_command(args) {
     const height = args[1] ? parseInt(args[1], 10) : null;
 
     const file = await selectUserImageFile();
-    if (!file) {
-        return ['userpic: no image selected'];
-    }
-    if (!file.type.startsWith('image/')) {
-        return ['userpic: selected file is not an image'];
-    }
 
     try {
-        const image = await decodeSelectedImage(file);
-        const asciiLines = await renderImageToAscii(image, width, height);
+        const preparedImage = await buildUserpicImageSource(file);
+        if (!preparedImage.ok) {
+            return [preparedImage.error];
+        }
+
+        const asciiLines = await renderImageToAscii(preparedImage.image, width, height);
         showAsciiStill(asciiLines, {
             title: 'userpic',
             download: {

@@ -6,6 +6,7 @@ import blogWorker, { B2QuotaGuard, BlogUploadSession, R2QuotaGuard, VisitorCount
 class FakeStorage {
     constructor() {
         this.data = new Map();
+        this.alarmAt = null;
     }
 
     async get(key) {
@@ -42,6 +43,18 @@ class FakeStorage {
             }
         }
         return result;
+    }
+
+    async setAlarm(timestamp) {
+        this.alarmAt = Number(timestamp);
+    }
+
+    async getAlarm() {
+        return this.alarmAt;
+    }
+
+    async deleteAlarm() {
+        this.alarmAt = null;
     }
 }
 
@@ -220,6 +233,77 @@ function createAlwaysAllowRateLimiter() {
             };
         }
     };
+}
+
+function createAlwaysDenyRateLimiter(headers = {
+    'X-RateLimit-Limit': '1',
+    'X-RateLimit-Remaining': '0',
+    'X-RateLimit-Reset': '12345'
+}) {
+    return {
+        idFromName(name) {
+            return name;
+        },
+        get() {
+            return {
+                async fetch() {
+                    return new Response(JSON.stringify({
+                        allowed: false,
+                        headers
+                    }), {
+                        status: 200,
+                        headers: {
+                            'Content-Type': 'application/json; charset=utf-8'
+                        }
+                    });
+                }
+            };
+        }
+    };
+}
+
+const TEST_GIF_BASE64 = 'R0lGODlhAQABAIAAAAUEBA==';
+const TEST_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6P6n8AAAAASUVORK5CYII=';
+const TEST_MP4_BASE64 = 'AAAAGGZ0eXBpc29tAAACAGlzb20=';
+const TEST_GIF_DATA_URL = `data:image/gif;base64,${TEST_GIF_BASE64}`;
+const TEST_PNG_DATA_URL = `data:image/png;base64,${TEST_PNG_BASE64}`;
+const TEST_GIF_DECLARED_PNG_DATA_URL = `data:image/gif;base64,${TEST_PNG_BASE64}`;
+const TEST_MP4_DATA_URL = `data:video/mp4;base64,${TEST_MP4_BASE64}`;
+const TEST_GIF_BYTES = decodeBase64ToBytes(TEST_GIF_BASE64);
+const TEST_GIF_Z85 = encodeBytesToZ85ForTest(TEST_GIF_BYTES);
+
+function decodeBase64ToBytes(base64) {
+    return Uint8Array.from(Buffer.from(base64, 'base64'));
+}
+
+function encodeBytesToZ85ForTest(bytes) {
+    const alphabet = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#';
+    if (!(bytes instanceof Uint8Array) || bytes.length === 0) {
+        return '';
+    }
+
+    const paddedLength = Math.ceil(bytes.length / 4) * 4;
+    const padded = new Uint8Array(paddedLength);
+    padded.set(bytes);
+    const output = [];
+
+    for (let index = 0; index < padded.length; index += 4) {
+        let value =
+            (padded[index] * 16777216) +
+            ((padded[index + 1] || 0) << 16) +
+            ((padded[index + 2] || 0) << 8) +
+            (padded[index + 3] || 0);
+        const chunk = new Array(5);
+
+        for (let characterIndex = 4; characterIndex >= 0; characterIndex -= 1) {
+            chunk[characterIndex] = alphabet[value % 85];
+            value = Math.floor(value / 85);
+        }
+
+        output.push(chunk.join(''));
+    }
+
+    return output.join('');
 }
 
 test('terminal su endpoint authenticates godlike with the delete password', async () => {
@@ -1277,7 +1361,7 @@ test('append endpoint rejects entries with more than 10 media attachments before
         body: JSON.stringify({
             contentBlocks: Array.from({ length: 11 }, (_, index) => ({
                 type: 'image',
-                imageDataUrl: `data:image/png;base64,AAAA${index}`
+                imageDataUrl: TEST_GIF_DATA_URL
             }))
         })
     }), env);
@@ -1458,7 +1542,7 @@ test('append endpoint uploads mp4 data urls to R2 and stores a hosted image-url 
         RATE_LIMITER: createAlwaysAllowRateLimiter()
     };
 
-    const mp4DataUrl = 'data:video/mp4;base64,AAECAwQF';
+    const mp4DataUrl = TEST_MP4_DATA_URL;
     const response = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
         method: 'POST',
         headers: {
@@ -1483,7 +1567,7 @@ test('append endpoint uploads mp4 data urls to R2 and stores a hosted image-url 
     assert.doesNotMatch(updatedBlogContent, /data:video\/mp4;base64/);
     assert.equal(r2Bucket.objects.size, 1);
     const uploaded = [...r2Bucket.objects.values()][0];
-    assert.equal(Buffer.from(uploaded.body).toString('base64'), 'AAECAwQF');
+    assert.equal(Buffer.from(uploaded.body).toString('base64'), TEST_MP4_BASE64);
     assert.equal(uploaded.httpMetadata.contentType, 'video/mp4');
 });
 
@@ -1719,7 +1803,7 @@ test('append endpoint accepts direct compact gif payloads and commits them to bl
         body: JSON.stringify({
             contentBlocks: [
                 { type: 'text', text: 'direct compact gif post' },
-                { type: 'image', imageEncoding: 'z85', mimeType: 'image/gif', byteLength: 4, encodedPayload: 'abcde' }
+                { type: 'image', imageEncoding: 'z85', mimeType: 'image/gif', byteLength: TEST_GIF_BYTES.length, encodedPayload: TEST_GIF_Z85 }
             ]
         })
     }), env);
@@ -1727,7 +1811,7 @@ test('append endpoint accepts direct compact gif payloads and commits them to bl
     assert.equal(response.status, 201);
     const updatedBlogContent = Buffer.from(githubUpdateBody.content, 'base64').toString('utf8');
     assert.match(updatedBlogContent, /direct compact gif post/);
-    assert.match(updatedBlogContent, /\[image-z85\]\nmime:image\/gif\nbytes:4\nabcde\n\[\/image-z85\]/);
+    assert.ok(updatedBlogContent.includes(`[image-z85]\nmime:image/gif\nbytes:${TEST_GIF_BYTES.length}\n${TEST_GIF_Z85}\n[/image-z85]`));
 });
 
 test('append endpoint can consume a staged image upload assembled from chunks', async t => {
@@ -1956,7 +2040,10 @@ test('append endpoint can consume a staged compact gif payload without convertin
     };
 
     const uploadId = 'upload-compact-gif-1';
-    const chunks = ['ab', 'cde'];
+    const chunks = [
+        TEST_GIF_Z85.slice(0, Math.ceil(TEST_GIF_Z85.length / 2)),
+        TEST_GIF_Z85.slice(Math.ceil(TEST_GIF_Z85.length / 2))
+    ];
 
     for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
         const stageResponse = await blogWorker.fetch(new Request('https://example.com/api/blog/upload-chunk', {
@@ -1982,7 +2069,7 @@ test('append endpoint can consume a staged compact gif payload without convertin
         body: JSON.stringify({
             contentBlocks: [
                 { type: 'text', text: 'staged compact gif post' },
-                { type: 'image', stagedUploadToken: uploadId, imageEncoding: 'z85', mimeType: 'image/gif', byteLength: 4 }
+                { type: 'image', stagedUploadToken: uploadId, imageEncoding: 'z85', mimeType: 'image/gif', byteLength: TEST_GIF_BYTES.length }
             ]
         })
     }), env);
@@ -1990,7 +2077,7 @@ test('append endpoint can consume a staged compact gif payload without convertin
     assert.equal(appendResponse.status, 201);
     const updatedBlogContent = Buffer.from(githubUpdateBody.content, 'base64').toString('utf8');
     assert.match(updatedBlogContent, /staged compact gif post/);
-    assert.match(updatedBlogContent, /\[image-z85\]\nmime:image\/gif\nbytes:4\nabcde\n\[\/image-z85\]/);
+    assert.ok(updatedBlogContent.includes(`[image-z85]\nmime:image/gif\nbytes:${TEST_GIF_BYTES.length}\n${TEST_GIF_Z85}\n[/image-z85]`));
 });
 
 test('append endpoint streams large staged compact gif payloads directly into blog.txt without extra repo files', async t => {
@@ -2148,7 +2235,11 @@ test('append endpoint streams large staged compact gif payloads directly into bl
     };
 
     const uploadId = 'upload-stream-compact-gif';
-    const chunks = ['ab', 'cde'];
+    const largeStreamPayloadPrefix = `${TEST_GIF_Z85}00000`;
+    const chunks = [
+        largeStreamPayloadPrefix.slice(0, 6),
+        largeStreamPayloadPrefix.slice(6)
+    ];
 
     for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
         const stageResponse = await blogWorker.fetch(new Request('https://example.com/api/blog/upload-chunk', {
@@ -2183,17 +2274,51 @@ test('append endpoint streams large staged compact gif payloads directly into bl
     assert.equal(contentsPutCalls, 0);
     assert.match(blobCreateBodyText, /"encoding":"utf-8"}/);
     assert.match(blobCreateBodyText, /streamed compact gif post/);
-    assert.match(blobCreateBodyText, /\[image-z85\]\\nmime:image\/gif\\nbytes:4000000\\nabcde\\n\[\/image-z85\]/);
+    assert.ok(blobCreateBodyText.includes(`[image-z85]\\nmime:image/gif\\nbytes:4000000\\n${largeStreamPayloadPrefix}\\n[/image-z85]`));
     assert.deepEqual(refUpdateBody, {
         sha: 'streamcommitsha',
         force: false
     });
 });
 
+test('upload-chunk endpoint enforces rate limits before storing staged data', async () => {
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        BLOG_UPLOAD_SESSION: createUploadSessionBinding(),
+        RATE_LIMITER: createAlwaysDenyRateLimiter({
+            'X-RateLimit-Limit': '4096',
+            'X-RateLimit-Remaining': '0',
+            'X-RateLimit-Reset': '987654321'
+        })
+    };
+
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/upload-chunk', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            uploadId: 'upload-rate-limited',
+            chunkIndex: 0,
+            totalChunks: 1,
+            chunk: TEST_GIF_DATA_URL
+        })
+    }), env);
+
+    assert.equal(response.status, 429);
+    assert.deepEqual(await response.json(), {
+        error: 'rate limit exceeded'
+    });
+    assert.equal(response.headers.get('X-RateLimit-Limit'), '4096');
+    assert.equal(response.headers.get('X-RateLimit-Remaining'), '0');
+    assert.equal(response.headers.get('X-RateLimit-Reset'), '987654321');
+});
+
 test('upload-chunk endpoint accepts high chunk counts needed for large staged uploads', async () => {
     const env = {
         ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
-        BLOG_UPLOAD_SESSION: createUploadSessionBinding()
+        BLOG_UPLOAD_SESSION: createUploadSessionBinding(),
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
     };
 
     const response = await blogWorker.fetch(new Request('https://example.com/api/blog/upload-chunk', {
@@ -2220,7 +2345,8 @@ test('upload-chunk endpoint accepts high chunk counts needed for large staged up
 test('upload-chunk endpoint returns a json error when staged upload storage throws', async () => {
     const env = {
         ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
-        BLOG_UPLOAD_SESSION: createThrowingUploadSessionBinding()
+        BLOG_UPLOAD_SESSION: createThrowingUploadSessionBinding(),
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
     };
 
     const response = await blogWorker.fetch(new Request('https://example.com/api/blog/upload-chunk', {
@@ -2239,6 +2365,169 @@ test('upload-chunk endpoint returns a json error when staged upload storage thro
     assert.equal(response.status, 500);
     assert.deepEqual(await response.json(), {
         error: 'unable to stage image upload right now'
+    });
+});
+
+test('blog upload session expires stale staged uploads and clears storage on consume', async () => {
+    const storage = new FakeStorage();
+    const session = new BlogUploadSession({ storage });
+
+    const stageResponse = await session.fetch(new Request('https://blog-upload-session/stage', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            chunkIndex: 0,
+            totalChunks: 1,
+            chunk: TEST_GIF_DATA_URL
+        })
+    }));
+
+    assert.equal(stageResponse.status, 200);
+    assert.ok(Number(await storage.getAlarm()) > Date.now());
+
+    const meta = await storage.get('meta');
+    await storage.put('meta', {
+        ...meta,
+        updatedAt: Date.now() - (16 * 60 * 1000),
+        expiresAt: Date.now() - 1000
+    });
+
+    const response = await session.fetch(new Request('https://blog-upload-session/consume', {
+        method: 'POST'
+    }));
+
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), {
+        error: 'staged upload expired'
+    });
+    assert.equal((await storage.list()).size, 0);
+    assert.equal(await storage.getAlarm(), null);
+});
+
+test('blog upload session alarm clears staged upload state', async () => {
+    const storage = new FakeStorage();
+    const session = new BlogUploadSession({ storage });
+
+    const stageResponse = await session.fetch(new Request('https://blog-upload-session/stage', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            chunkIndex: 0,
+            totalChunks: 1,
+            chunk: TEST_GIF_DATA_URL
+        })
+    }));
+
+    assert.equal(stageResponse.status, 200);
+    assert.ok((await storage.list()).size > 0);
+
+    await session.alarm();
+
+    assert.equal((await storage.list()).size, 0);
+    assert.equal(await storage.getAlarm(), null);
+});
+
+test('append endpoint rejects direct data URLs whose bytes do not match the declared media type', async () => {
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            contentBlocks: [
+                { type: 'text', text: 'spoofed media' },
+                { type: 'image', imageDataUrl: TEST_GIF_DECLARED_PNG_DATA_URL }
+            ]
+        })
+    }), {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
+    });
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), {
+        error: 'imageDataUrl bytes do not match the declared media type'
+    });
+});
+
+test('append endpoint rejects staged uploads whose bytes do not match the declared media type', async () => {
+    const uploadId = 'upload-spoofed-data-url';
+    const chunks = [
+        TEST_GIF_DECLARED_PNG_DATA_URL.slice(0, 14),
+        TEST_GIF_DECLARED_PNG_DATA_URL.slice(14, 30),
+        TEST_GIF_DECLARED_PNG_DATA_URL.slice(30)
+    ];
+    const env = {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        BLOG_UPLOAD_SESSION: createUploadSessionBinding(),
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
+    };
+
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+        const stageResponse = await blogWorker.fetch(new Request('https://example.com/api/blog/upload-chunk', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                uploadId,
+                chunkIndex,
+                totalChunks: chunks.length,
+                chunk: chunks[chunkIndex]
+            })
+        }), env);
+        assert.equal(stageResponse.status, 200);
+    }
+
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            contentBlocks: [
+                { type: 'text', text: 'spoofed staged media' },
+                { type: 'image', stagedUploadToken: uploadId }
+            ]
+        })
+    }), env);
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), {
+        error: 'imageDataUrl bytes do not match the declared media type'
+    });
+});
+
+test('append endpoint rejects compact gif payloads whose bytes are not a valid gif', async () => {
+    const spoofedGifPayload = encodeBytesToZ85ForTest(decodeBase64ToBytes(TEST_PNG_BASE64));
+    const response = await blogWorker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            contentBlocks: [
+                {
+                    type: 'image',
+                    imageEncoding: 'z85',
+                    mimeType: 'image/gif',
+                    byteLength: decodeBase64ToBytes(TEST_PNG_BASE64).length,
+                    encodedPayload: spoofedGifPayload
+                }
+            ]
+        })
+    }), {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
+    });
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), {
+        error: 'compact image payload bytes do not match the declared media type'
     });
 });
 
@@ -2602,9 +2891,9 @@ test('append endpoint preserves existing content when GitHub contents API return
     const requestBody = {
         contentBlocks: [
             { type: 'text', text: 'aaaa' },
-            { type: 'image', imageDataUrl: 'data:image/png;base64,AAAA' },
+            { type: 'image', imageDataUrl: TEST_PNG_DATA_URL },
             { type: 'text', text: 'bbbb' },
-            { type: 'image', imageDataUrl: 'data:image/png;base64,BBBB' },
+            { type: 'image', imageDataUrl: TEST_PNG_DATA_URL },
             { type: 'text', text: 'ccccccc' }
         ]
     };
@@ -2630,8 +2919,7 @@ test('append endpoint preserves existing content when GitHub contents API return
     assert.match(currentContent, /^0x00C0DE Blog\n=============\nHeader line\n/m);
     assert.match(currentContent, /\[2026-04-02T09:00:00.000Z]\nexisting entry\n/);
     assert.equal((currentContent.match(/\naaaa\n/g) || []).length, 2);
-    assert.equal((currentContent.match(/data:image\/png;base64,AAAA/g) || []).length, 2);
-    assert.equal((currentContent.match(/data:image\/png;base64,BBBB/g) || []).length, 2);
+    assert.equal((currentContent.match(new RegExp(TEST_PNG_DATA_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length, 4);
     assert.equal((currentContent.match(/\nccccccc\n/g) || []).length, 2);
 });
 
@@ -2852,6 +3140,7 @@ test('media endpoint serves hosted gifs from R2 primary storage', async () => {
 
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('Content-Type'), 'image/gif');
+    assert.equal(response.headers.get('X-Content-Type-Options'), 'nosniff');
     assert.equal(Buffer.from(await response.arrayBuffer()).toString('utf8'), 'GIF89a');
 });
 
@@ -2873,6 +3162,7 @@ test('media endpoint serves hosted mp4s from R2 primary storage', async () => {
 
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('Content-Type'), 'video/mp4');
+    assert.equal(response.headers.get('X-Content-Type-Options'), 'nosniff');
     assert.deepEqual(Array.from(new Uint8Array(await response.arrayBuffer())), [0, 1, 2, 3, 4]);
 });
 
