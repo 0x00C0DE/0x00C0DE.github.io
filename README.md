@@ -48,7 +48,7 @@ No frameworks. No frontend build step. No DOM reflow-driven text layout in the l
 
 The design philosophy is still **file-system-first**: documentation lives as real `.txt` files fetched over HTTP at runtime, mirroring how a real terminal would `cat` files off disk. This keeps content versionable, diffable, and human-readable without introducing a database or a frontend toolchain.
 
-The live blog still centers on `blog.txt`, and the Worker still supports three media storage modes inside that document: inline `[image-base64]` blocks for `png/jpg/jpeg/webp`, compact reversible `[image-z85]` blocks for smaller GIF payloads, and hosted `[image-url]` blocks for larger GIF or MP4 assets served through the Worker from `R2` with private `B2` fallback.
+The live blog still centers on `blog.txt`, and the Worker still supports three media storage modes inside that document: inline `[image-base64]` blocks for `png/jpg/jpeg/webp`, compact reversible `[image-z85]` blocks for smaller GIF payloads, and hosted `[image-url]` blocks for larger GIF or MP4 assets served through the Worker from `R2` with private `B2` fallback. The public `post` flow now also supports mixed text/media templates with repeated `[image]` placeholders, exact-count file picking, and optional Turnstile-backed verification before the append request reaches the Worker.
 
 The latest terminal update is the big one: the production terminal now follows the intended Pretext flow much more closely. Text is tokenized once, prepared once, and then laid out repeatedly for different widths or obstacle maps before the resulting fragments are drawn manually into canvas. That means plain terminal output, echoed commands, wrapped links, and the editorial `cat blog.txt` layout all avoid DOM measurement and CSS-driven text wrapping in the live render path.
 
@@ -134,13 +134,13 @@ When the active session is `root`, `cat blog.txt` routes the banner, visitor wid
 **Request flow for `post <message>`:**
 
 ```
-User types "post Hello world"
+User types "post first [image] second [image] third"
       │
       ▼
-commands.js::post() → POST to Cloudflare Worker endpoint
+commands.js::post() → POST mixed content blocks to the Cloudflare Worker
       │
       ▼
-Worker validates request → calls GitHub Contents API
+Worker validates content/rate limits/Turnstile → calls GitHub Contents API
       │
       ▼
 GitHub API appends entry to blog.txt → commits to main branch
@@ -149,7 +149,7 @@ GitHub API appends entry to blog.txt → commits to main branch
 Next `cat blog.txt` reflects the new entry live
 ```
 
-The universal `post ... [image] ...` flow shares the same Worker path as text-only posts, and the legacy `post --image` alias still routes through that same pipeline. PNG/JPEG/JPG/WEBP images remain inline in `blog.txt`, while hosted media blocks now cover larger GIFs and MP4 uploads through `/api/blog/media/...`. When a post template requests multiple `[image]` placeholders, the browser reopens the file chooser once per placeholder and requires the exact same number of selected media files before publishing; stopping early cancels the entire post instead of partially publishing it. Each entry supports up to 10 attached media blocks.
+The universal `post ... [image] ...` flow shares the same Worker path as text-only posts, and the legacy `post --image` alias still routes through that same pipeline. PNG/JPEG/JPG/WEBP images remain inline in `blog.txt`, while hosted media blocks now cover larger GIFs and MP4 uploads through `/api/blog/media/...`. When a post template requests multiple `[image]` placeholders, the browser reopens the file chooser once per placeholder and requires the exact same number of selected media files before publishing; stopping early cancels the entire post instead of partially publishing it. When Turnstile is enabled on the Worker, the browser also acquires a fresh token immediately before the append request is sent. Each entry supports up to 10 attached media blocks.
 
 ---
 
@@ -221,7 +221,7 @@ The universal `post ... [image] ...` flow shares the same Worker path as text-on
 Responsibilities:
 - Exposes the stable `bootTerminalSite(...)` entrypoint consumed by the HTML pages
 - Lazy-loads `terminal-canvas-core.mjs` so the live renderer stays modular
-- Re-exports prompt/session helpers expected by existing command code
+- Re-exports prompt/session/history helpers expected by existing command code
 - Keeps the page-level boot surface small while the actual REPL lives elsewhere
 
 ### `terminal-canvas-core.mjs` — Canvas Terminal Runtime
@@ -231,6 +231,7 @@ Responsibilities:
 - Handles keyboard input, scrolling, prompt echo, cursor blinking, and pointer interactions directly
 - Renders inline images, GIFs, and MP4 placeholders without relying on DOM text rows
 - Enables root-only draggable editorial blog layout and godlike-only inline delete controls
+- Owns the canonical live command history snapshot used by the `history` command bridge
 - Uses the hidden scratch canvas for measurement and media preparation while keeping the live path canvas-driven
 
 ```
@@ -256,13 +257,13 @@ The terminal command map routes each shell verb to its handler, with most comman
 | `fortune` | Displays a random quote from the fortune endpoint |
 | `github` | Opens the GitHub profile in a new tab |
 | `help` | Prints the command reference |
-| `history` | Prints recent command history |
+| `history` | Prints recent command history from the active terminal session |
 | `instagram` | Opens Instagram in a new tab |
 | `linkedin` | Opens LinkedIn in a new tab |
 | `ls` | Lists the available terminal-readable `.txt` files |
 | `video [w h]` | Activates webcam to live ASCII/glyph output in the zoomable viewer |
 | `mypic [w h]` | Renders a built-in ASCII portrait |
-| `post [text] ... [image] ...` | Appends a blog entry; omit `[image]` for text-only posts or use one selected `png/jpg/jpeg/webp/gif/mp4` file per placeholder (up to 10). Example: `post first [image] second [image] third` |
+| `post [text] ... [image] ...` | Appends a blog entry; omit `[image]` for text-only posts or use one selected `png/jpg/jpeg/webp/gif/mp4` file per placeholder (up to 10). When Turnstile is configured, a fresh verification token is requested immediately before submit. Example: `post first [image] second [image] third` |
 | `pretext [text]` | Reports terminal Pretext status or opens the lab with `pretext lab [text]` |
 | `projects` | Opens the dedicated projects terminal page |
 | `pwd` | Prints the simulated working directory |
@@ -278,7 +279,7 @@ Commands that require async I/O (`cat`, `post`, `fortune`, `video`, `userpic`, `
 
 For blog rendering, `cat blog.txt` groups entries into structured text/media blocks, understands inline base64 image blocks, compact reversible GIF blocks, and hosted media URL blocks for GIF and MP4 assets. When the active user is `root`, it reflows the banner, visitor widget, timestamps, and blog entries through a draggable editorial layout that treats media as terminal-wide obstacles; delete controls remain hidden unless the active user is `godlike`.
 
-`commands.js` also exposes bridge helpers used by the canvas runtime, including current visitor stats and filename normalization, while coordinating exact-count media selection, the guest/root/godlike session model, `su godlike` authentication, and image/post delete flows.
+`commands.js` also exposes bridge helpers used by the canvas runtime, including current visitor stats, filename normalization, and the shared live history path used by `history`, while coordinating exact-count media selection, the guest/root/godlike session model, `su godlike` authentication, Turnstile token acquisition for `post`, and image/post delete flows.
 
 ### `terminal-session-core.mjs` — Session State
 
@@ -394,7 +395,7 @@ The `post` command enables live, authenticated blog posting from the terminal di
 ```
                   Browser
                      │
-      POST /api/blog/append {"text": "..."}
+      POST /api/blog/append {"contentBlocks":[...],"turnstileToken":"..."}
                      │
                      ▼
           ┌──────────────────────────┐
@@ -408,14 +409,16 @@ The `post` command enables live, authenticated blog posting from the terminal di
           └──────────────────────────┘
                      │
                      ▼
-             github.com/.../blog.txt
+            github.com/.../blog.txt
 ```
+
+In practice, the browser builds `contentBlocks` from the mixed text/media template, uploads or stages any required media, and then requests a fresh Turnstile token immediately before the append request when verification is enabled.
 
 The Worker acts as a thin authenticated proxy between the public terminal UI, the GitHub API, and hosted blog media storage. The same package serves `/api/blog/append`, `/api/blog/delete-image`, `/api/blog/delete-entry`, `/api/blog/media/...`, `/api/terminal/su`, and visitor endpoints while `R2QuotaGuard` and `B2QuotaGuard` Durable Objects enforce conservative storage and operation thresholds before either provider reaches its free-tier limit.
 
-Secrets live in Cloudflare environment variables and are not committed to the repo. Current runtime secrets include `GITHUB_PAT`, `BLOG_IMAGE_DELETE_PASSWORD`, `B2_APPLICATION_KEY`, and `CLOUDFLARE_BILLING_API_TOKEN`. `BLOG_IMAGE_DELETE_PASSWORD` is also the password used by `su godlike`.
+Secrets live in Cloudflare environment variables and are not committed to the repo. Current runtime secrets include `GITHUB_PAT`, `TURNSTILE_SECRET_KEY`, `BLOG_IMAGE_DELETE_PASSWORD`, `B2_APPLICATION_KEY`, and `CLOUDFLARE_BILLING_API_TOKEN`. `BLOG_IMAGE_DELETE_PASSWORD` is also the password used by `su godlike`.
 
-Inline `png/jpg/jpeg/webp` images stay inside `blog.txt`, compact GIF payloads can still be serialized directly into the file, and larger GIF or MP4 uploads are stored as hosted Worker media URLs with `R2` as the primary store and private `B2` as the backup. The Worker also blocks posts and deletes while GitHub Pages is still catching up to the previous `blog.txt` commit so the live site and the repo do not drift.
+Inline `png/jpg/jpeg/webp` images stay inside `blog.txt`, compact GIF payloads can still be serialized directly into the file, and larger GIF or MP4 uploads are stored as hosted Worker media URLs with `R2` as the primary store and private `B2` as the backup. When `TURNSTILE_SECRET_KEY` is configured, the browser obtains a fresh token immediately before posting and the Worker verifies that token server-side before appending. The Worker also blocks posts and deletes while GitHub Pages is still catching up to the previous `blog.txt` commit so the live site and the repo do not drift.
 
 ### Directories
 
@@ -444,17 +447,26 @@ Cache busting is handled manually through version query strings in the terminal 
 
 ```html
 <script src="pictures.js?v=20260331b"></script>
-<script src="commands.js?v=20260404d"></script>
-<script src="term.js?v=20260404a"></script>
+<script src="commands.js?v=20260413d"></script>
+<script src="term.js?v=20260413a"></script>
 ```
 
 The entry pages now mount a visible `terminal-canvas` plus a hidden scratch canvas, and they intentionally do **not** include a stylesheet link for the live terminal renderer. Frontend-only changes go live with a push to `main`. A separate Worker redeploy is only needed when `backend/`, `worker/`, or `worker/wrangler.jsonc` changes.
+
+The live entry pages default to the deployed Worker endpoints and the public Turnstile site key through `window.*` fallbacks inside `commands.js`. For local/dev overrides, inject values before `commands.js` loads:
+
+```html
+<script>
+  window.BLOG_POST_API_URL = "https://your-worker-subdomain.workers.dev/api/blog/append";
+  window.TURNSTILE_SITE_KEY = "your-turnstile-sitekey";
+</script>
+```
 
 ---
 
 ## Testing
 
-The recent terminal updates were added with red/green TDD around the session/elevated-shell rules, Pretext wrapping and editorial layout adapters, package-sync guardrails, and the Worker-backed blog/media flows before wiring them into the browser runtime.
+The recent terminal updates were added with red/green TDD around the session/elevated-shell rules, Pretext wrapping and editorial layout adapters, package-sync guardrails, the Worker-backed blog/media flows, the live history bridge, and the Turnstile-enabled posting path before wiring them into the browser runtime.
 
 Current checks:
 
@@ -471,6 +483,9 @@ node --check terminal-pretext-runtime.mjs
 node --check pretext-browser.mjs
 node --check pretext-lab.mjs
 node --check scripts/sync-pretext-package.mjs
+node --test tests/history-command-browser.test.mjs
+node --test --test-name-pattern "help consolidates post into the universal multi-media form" tests/help-render-browser.test.mjs
+node --test tests/blog-upload-browser.test.mjs
 node --check worker/src/index.js
 node --check worker/src/index.test.js
 node --test worker/src/index.test.js
@@ -484,7 +499,7 @@ The Pretext lab remains available at [pretext-lab.html](https://0x00c0de.github.
 
 Start at **[https://0x00c0de.github.io](https://0x00c0de.github.io)**. The terminal loads automatically with the `banner` command.
 
-Plain terminal output, echoed commands, and `help` descriptions now use Pretext-backed wrapping and render directly into canvas, so they relayout cleanly on mobile and when the window width changes. The prompt starts in the original guest shell, `su` switches into `root`, `su guest` switches back to the guest shell and restores the default background, and `su godlike` authenticates against the same password used for blog/image deletion. When the active user is `root`, `cat blog.txt` enters the editorial layout with draggable media reflow across the banner, widget, timestamps, and blog text; delete controls stay hidden unless the active user is `godlike`.
+Plain terminal output, echoed commands, and `help` descriptions now use Pretext-backed wrapping and render directly into canvas, so they relayout cleanly on mobile and when the window width changes. The prompt starts in the original guest shell, `su` switches into `root`, `su guest` switches back to the guest shell and restores the default background, and `su godlike` authenticates against the same password used for blog/image deletion. When the active user is `root`, `cat blog.txt` enters the editorial layout with draggable media reflow across the banner, widget, timestamps, and blog text; delete controls stay hidden unless the active user is `godlike`. The `history` command now reads from the same live canvas runtime history used by the prompt, and `post` can request a fresh Turnstile token immediately before submit when the Worker secret is configured.
 
 ```text
 ╔══════════════════════════════════════════════════╗
@@ -494,7 +509,7 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
   help                       List all commands
   date                       Show current date and time
   echo hello                 Print text
-  history                    Show recent commands
+  history                    Show recent commands from the active session
   whoami                     Print the current terminal username
   pwd                        Print the simulated working directory
   cat blog.txt               Read the live blog
@@ -516,7 +531,7 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
   qr-totp --generate-qr ...  Enroll a QR/TOTP secret in-browser
   qr-totp --get-otp          Generate the current 6-digit code
   fortune                    Random quote
-  post [text] ... [image] ... Append to blog.txt; omit [image] for text-only posts or use one selected png/jpg/jpeg/webp/gif/mp4 file per placeholder (up to 10). Example: post first [image] second [image] third
+  post [text] ... [image] ... Append to blog.txt; omit [image] for text-only posts or use one selected png/jpg/jpeg/webp/gif/mp4 file per placeholder (up to 10). When enabled, Turnstile verification runs right before submit. Example: post first [image] second [image] third
   mypic                      ASCII portrait
   video                      Live webcam to ASCII art
   userpic                    Uploaded/captured image to ASCII art
