@@ -149,7 +149,7 @@ GitHub API appends entry to blog.txt → commits to main branch
 Next `cat blog.txt` reflects the new entry live
 ```
 
-`post --image` and inline-image posts share the same Worker path. PNG/JPEG/JPG/WEBP images remain inline in `blog.txt`, while hosted media blocks now cover larger GIFs and MP4 uploads through `/api/blog/media/...`. When a post template requests multiple `[image]` placeholders, the browser reopens the file chooser once per placeholder and requires the exact same number of selected media files before publishing; stopping early cancels the entire post instead of partially publishing it. Each entry supports up to 10 attached media blocks.
+The universal `post ... [image] ...` flow shares the same Worker path as text-only posts, and the legacy `post --image` alias still routes through that same pipeline. PNG/JPEG/JPG/WEBP images remain inline in `blog.txt`, while hosted media blocks now cover larger GIFs and MP4 uploads through `/api/blog/media/...`. When a post template requests multiple `[image]` placeholders, the browser reopens the file chooser once per placeholder and requires the exact same number of selected media files before publishing; stopping early cancels the entire post instead of partially publishing it. Each entry supports up to 10 attached media blocks.
 
 ---
 
@@ -262,9 +262,7 @@ The terminal command map routes each shell verb to its handler, with most comman
 | `ls` | Lists the available terminal-readable `.txt` files |
 | `video [w h]` | Activates webcam to live ASCII/glyph output in the zoomable viewer |
 | `mypic [w h]` | Renders a built-in ASCII portrait |
-| `post <text>` | Appends a text-only blog entry through the Worker |
-| `post --image [text]` | Appends one selected `png/jpg/jpeg/webp/gif/mp4` media file |
-| `post ... [image] ...` | Reopens the chooser once per `[image]` placeholder and inserts the exact-count selected `png/jpg/jpeg/webp/gif/mp4` media files inline |
+| `post [text] ... [image] ...` | Appends a blog entry; omit `[image]` for text-only posts or use one selected `png/jpg/jpeg/webp/gif/mp4` file per placeholder (up to 10). Example: `post first [image] second [image] third` |
 | `pretext [text]` | Reports terminal Pretext status or opens the lab with `pretext lab [text]` |
 | `projects` | Opens the dedicated projects terminal page |
 | `pwd` | Prints the simulated working directory |
@@ -518,9 +516,7 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
   qr-totp --generate-qr ...  Enroll a QR/TOTP secret in-browser
   qr-totp --get-otp          Generate the current 6-digit code
   fortune                    Random quote
-  post <your message>        Append to blog.txt
-  post --image [caption]     Append one selected png/jpg/jpeg/webp/gif/mp4 file
-  post hello [image] goodbye Reopen chooser per [image] and insert exact-count png/jpg/jpeg/webp/gif/mp4 file(s) inline (up to 10)
+  post [text] ... [image] ... Append to blog.txt; omit [image] for text-only posts or use one selected png/jpg/jpeg/webp/gif/mp4 file per placeholder (up to 10). Example: post first [image] second [image] third
   mypic                      ASCII portrait
   video                      Live webcam to ASCII art
   userpic                    Uploaded/captured image to ASCII art

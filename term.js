@@ -1,5 +1,5 @@
 let terminalCanvasCore = null;
-const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=20260409c')
+const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=20260413a')
     .then(core => {
         terminalCanvasCore = core;
         return core;
@@ -15,6 +15,7 @@ window.executeCommand = commandLine => withTerminalCanvasCore(core => core.execu
 window.getPromptPath = () => terminalCanvasCore ? terminalCanvasCore.getPromptPath() : '/home/0x00C0DE/Unkn0wn';
 window.getPromptUser = () => terminalCanvasCore ? terminalCanvasCore.getPromptUser() : 'guest';
 window.getPromptHost = () => terminalCanvasCore ? terminalCanvasCore.getPromptHost() : 'localhost';
+window.getTerminalCommandHistory = () => terminalCanvasCore ? terminalCanvasCore.getCommandHistory() : [];
 window.refreshTerminalInputPrompt = () => withTerminalCanvasCore(core => core.refreshTerminalInputPrompt());
 window.refreshTerminalVisitorStats = () => withTerminalCanvasCore(core => core.refreshTerminalVisitorStats());
 window.syncTerminalSessionAwareLines = () => withTerminalCanvasCore(core => core.syncTerminalSessionAwareLines());

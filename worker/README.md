@@ -72,8 +72,11 @@ Before `commands.js` loads, set:
 ```html
 <script>
   window.BLOG_POST_API_URL = "https://your-worker-subdomain.workers.dev/api/blog/append";
+  window.TURNSTILE_SITE_KEY = "your-turnstile-sitekey";
 </script>
 ```
+
+The sitekey is public and belongs in the frontend. The secret key stays in Wrangler secrets or local `.dev.vars`.
 
 Current deployed endpoint:
 

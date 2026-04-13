@@ -10,11 +10,23 @@ import { chromium } from 'playwright';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 const CHROME_PATH = 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
-const SAMPLE_MEDIA_PATHS = [
-    'E:/Downloads/spongebob1.jpg',
-    'E:/Downloads/patrick2.jpg',
-    'E:/Downloads/plankton1.jpg'
-];
+const SAMPLE_MEDIA_FIXTURES = Object.freeze([
+    {
+        bytes: Object.freeze([255, 216, 255, 224, 0, 16, 74, 70, 73, 70, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 255, 217]),
+        name: 'spongebob1.jpg',
+        type: 'image/jpeg'
+    },
+    {
+        bytes: Object.freeze([255, 216, 255, 224, 0, 16, 74, 70, 73, 70, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 255, 217]),
+        name: 'patrick2.jpg',
+        type: 'image/jpeg'
+    },
+    {
+        bytes: Object.freeze([255, 216, 255, 224, 0, 16, 74, 70, 73, 70, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 255, 217]),
+        name: 'plankton1.jpg',
+        type: 'image/jpeg'
+    }
+]);
 
 function createMediaPostCommand(requestedCount) {
     const textBlocks = ['aaa', 'bbb', 'ccc', 'ddd', 'eee', 'fff'];
@@ -119,6 +131,36 @@ async function prepareUploadPage(page, origin) {
     await page.goto(origin, { waitUntil: 'load' });
     await page.waitForFunction(() => typeof window.executeCommand === 'function');
     await page.waitForTimeout(2500);
+    await installTurnstileMock(page);
+}
+
+async function installTurnstileMock(page, token = 'browser-test-turnstile-token') {
+    await page.evaluate(mockToken => {
+        window.__turnstileRenderCalls = [];
+        window.__turnstileWidgetOptions = Object.create(null);
+
+        window.turnstile = {
+            render(_container, options = {}) {
+                const widgetId = `widget-${window.__turnstileRenderCalls.length + 1}`;
+                window.__turnstileRenderCalls.push({
+                    appearance: options.appearance || '',
+                    execution: options.execution || '',
+                    sitekey: options.sitekey || ''
+                });
+                window.__turnstileWidgetOptions[widgetId] = options;
+                return widgetId;
+            },
+            execute(widgetId) {
+                const options = window.__turnstileWidgetOptions[widgetId];
+                if (options && typeof options.callback === 'function') {
+                    window.setTimeout(() => options.callback(mockToken), 0);
+                }
+            },
+            remove(widgetId) {
+                delete window.__turnstileWidgetOptions[widgetId];
+            }
+        };
+    }, token);
 }
 
 async function startPostCommand(page, command) {
@@ -158,12 +200,12 @@ function getMediaMimeType(filePath) {
     }
 }
 
-async function loadActualPickerFixtures(filePaths = SAMPLE_MEDIA_PATHS) {
-    return Promise.all(filePaths.map(async filePath => ({
-        bytes: Array.from(await readFile(filePath)),
-        name: path.basename(filePath),
-        type: getMediaMimeType(filePath)
-    })));
+async function loadActualPickerFixtures(fixtures = SAMPLE_MEDIA_FIXTURES) {
+    return fixtures.map(fixture => ({
+        bytes: Array.from(fixture.bytes || []),
+        name: fixture.name,
+        type: fixture.type
+    }));
 }
 
 async function installShowOpenFilePickerMock(page, selectedFileBatches, options = {}) {
@@ -255,8 +297,14 @@ test('post uses showOpenFilePicker for multiple [image] placeholders and uploads
     const pickerCalls = await page.evaluate(() => window.__showOpenFilePickerCalls || []);
     assert.equal(pickerCalls.length, 1);
     assert.equal(pickerCalls[0].multiple, true);
+    const turnstileCalls = await page.evaluate(() => window.__turnstileRenderCalls || []);
+    assert.equal(turnstileCalls.length, 1);
+    assert.equal(turnstileCalls[0].sitekey, '0x4AAAAAAC85Zivt0Tn6Fqp9');
+    assert.equal(turnstileCalls[0].appearance, 'interaction-only');
+    assert.equal(turnstileCalls[0].execution, 'execute');
 
     assert.ok(appendPayload && Array.isArray(appendPayload.contentBlocks));
+    assert.equal(appendPayload.turnstileToken, 'browser-test-turnstile-token');
     assert.deepEqual(
         appendPayload.contentBlocks.map(block => block.type),
         ['text', 'image', 'text', 'image', 'text', 'image', 'text']

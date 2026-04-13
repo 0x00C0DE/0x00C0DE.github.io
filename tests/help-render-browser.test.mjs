@@ -498,6 +498,36 @@ test('help lists video and mypic instead of the old movie and picture command na
     assert.ok(!commands.includes('picture [w h]'));
 });
 
+test('help consolidates post into the universal multi-media form', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(async () => {
+        await server.close();
+    });
+
+    const page = await createPage(t);
+    await stubVisitorApis(page);
+    await bootTerminal(page, server.origin);
+
+    const postEntry = await page.evaluate(() => window.help_command()
+        .filter(entry => entry && typeof entry === 'object' && entry.type === 'help-entry')
+        .find(entry => entry.command === 'post [text] ... [image] ...'));
+
+    assert.ok(postEntry, 'expected consolidated post help entry');
+    assert.equal(
+        postEntry.description,
+        'Append a blog entry; omit [image] for text-only posts or use one selected media file per placeholder (png/jpg/jpeg/webp/gif/mp4, up to 10). Example: post first [image] second [image] third'
+    );
+
+    const commands = await page.evaluate(() => window.help_command()
+        .filter(entry => entry && typeof entry === 'object' && entry.type === 'help-entry')
+        .map(entry => entry.command));
+
+    assert.ok(commands.includes('post [text] ... [image] ...'));
+    assert.ok(!commands.includes('post <text>'));
+    assert.ok(!commands.includes('post --image [text]'));
+    assert.ok(!commands.includes('post hello [image] goodbye'));
+});
+
 test('desktop help commands stay on the terminal text color instead of bright white', { timeout: 120000 }, async t => {
     const server = await createStaticServer(REPO_ROOT);
     t.after(async () => {

@@ -91,6 +91,8 @@ const ASTROLOGY_FORTUNE_SOURCES = [
     }
 ];
 const BLOG_POST_API_URL = window.BLOG_POST_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/append';
+const TURNSTILE_SITE_KEY = window.TURNSTILE_SITE_KEY || '0x4AAAAAAC85Zivt0Tn6Fqp9';
+const TURNSTILE_API_URL = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 const BLOG_STAGE_IMAGE_API_URL = window.BLOG_STAGE_IMAGE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/upload-chunk';
 const BLOG_DELETE_IMAGE_API_URL = window.BLOG_DELETE_IMAGE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/delete-image';
 const BLOG_DELETE_TEXT_API_URL = window.BLOG_DELETE_TEXT_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/delete-text';
@@ -126,6 +128,8 @@ const BLOG_Z85_CHAR_TO_VALUE = (() => {
 })();
 const VISITOR_HEARTBEAT_MS = 1000;
 const VISITOR_STATS_POLL_MS = 500;
+const TURNSTILE_API_LOAD_TIMEOUT_MS = 15000;
+const TURNSTILE_TOKEN_TIMEOUT_MS = 30000;
 const TEXT_FILES = Object.freeze([
     'blog.txt',
     'readme.txt',
@@ -413,6 +417,7 @@ function getSafeTerminalHref(href) {
 }
 
 let blogUploadCoreReadyPromise = null;
+let turnstileApiReadyPromise = null;
 const BLOG_UPLOAD_CORE_MODULE_URL = './blog-upload-core.mjs?v=20260408b';
 
 function ensureBlogUploadCoreReady() {
@@ -427,6 +432,172 @@ function ensureBlogUploadCoreReady() {
         });
 
     return blogUploadCoreReadyPromise;
+}
+
+function ensureTurnstileReady() {
+    if (!TURNSTILE_SITE_KEY) {
+        return Promise.resolve(null);
+    }
+
+    if (window.turnstile && typeof window.turnstile.render === 'function') {
+        return Promise.resolve(window.turnstile);
+    }
+
+    if (turnstileApiReadyPromise) {
+        return turnstileApiReadyPromise;
+    }
+
+    turnstileApiReadyPromise = new Promise((resolve, reject) => {
+        let settled = false;
+        let timeoutId = 0;
+
+        const finish = (error, api) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            if (timeoutId) {
+                window.clearTimeout(timeoutId);
+            }
+            if (error) {
+                turnstileApiReadyPromise = null;
+                reject(error);
+                return;
+            }
+            resolve(api);
+        };
+
+        const handleReady = () => {
+            if (window.turnstile && typeof window.turnstile.render === 'function') {
+                finish(null, window.turnstile);
+                return;
+            }
+            finish(new Error('turnstile unavailable right now'));
+        };
+
+        const handleError = () => {
+            finish(new Error('unable to load turnstile right now'));
+        };
+
+        timeoutId = window.setTimeout(() => {
+            finish(new Error('turnstile load timed out'));
+        }, TURNSTILE_API_LOAD_TIMEOUT_MS);
+
+        const existingScript = Array.from(document.scripts || []).find(script =>
+            typeof script?.src === 'string' &&
+            script.src.startsWith('https://challenges.cloudflare.com/turnstile/v0/api.js')
+        );
+
+        if (existingScript) {
+            existingScript.addEventListener('load', handleReady, { once: true });
+            existingScript.addEventListener('error', handleError, { once: true });
+            if (window.turnstile && typeof window.turnstile.render === 'function') {
+                handleReady();
+            }
+            return;
+        }
+
+        const script = document.createElement('script');
+        script.src = TURNSTILE_API_URL;
+        script.async = true;
+        script.defer = true;
+        script.dataset.turnstileApi = 'true';
+        script.addEventListener('load', handleReady, { once: true });
+        script.addEventListener('error', handleError, { once: true });
+        (document.head || document.documentElement).append(script);
+    });
+
+    return turnstileApiReadyPromise;
+}
+
+function createTurnstileContainer() {
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.right = '16px';
+    container.style.bottom = '16px';
+    container.style.zIndex = '2147483647';
+    container.style.minWidth = '300px';
+    container.style.minHeight = '65px';
+    container.style.pointerEvents = 'auto';
+    container.style.background = 'transparent';
+    (document.body || document.documentElement).append(container);
+    return container;
+}
+
+async function requestTurnstileToken() {
+    if (!TURNSTILE_SITE_KEY) {
+        return '';
+    }
+
+    const turnstileApi = await ensureTurnstileReady();
+    if (!turnstileApi || typeof turnstileApi.render !== 'function' || typeof turnstileApi.execute !== 'function') {
+        throw new Error('turnstile unavailable right now');
+    }
+
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        let widgetId = null;
+        const container = createTurnstileContainer();
+        const timeoutId = window.setTimeout(() => {
+            finish(new Error('turnstile challenge timed out, try again'));
+        }, TURNSTILE_TOKEN_TIMEOUT_MS);
+
+        const cleanup = () => {
+            window.clearTimeout(timeoutId);
+            try {
+                if (widgetId !== null && typeof turnstileApi.remove === 'function') {
+                    turnstileApi.remove(widgetId);
+                } else if (widgetId !== null && typeof turnstileApi.reset === 'function') {
+                    turnstileApi.reset(widgetId);
+                }
+            } catch (error) {
+                console.error('turnstile cleanup failed', error);
+            }
+            if (container.isConnected) {
+                container.remove();
+            }
+        };
+
+        const finish = (error, token) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            cleanup();
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve(token);
+        };
+
+        try {
+            widgetId = turnstileApi.render(container, {
+                sitekey: TURNSTILE_SITE_KEY,
+                appearance: 'interaction-only',
+                execution: 'execute',
+                callback: token => {
+                    if (typeof token !== 'string' || !token.trim()) {
+                        finish(new Error('turnstile token missing, try again'));
+                        return;
+                    }
+                    finish(null, token);
+                },
+                'error-callback': () => {
+                    finish(new Error('turnstile verification failed, try again'));
+                },
+                'expired-callback': () => {
+                    finish(new Error('turnstile challenge expired, try again'));
+                },
+                'timeout-callback': () => {
+                    finish(new Error('turnstile challenge timed out, try again'));
+                }
+            });
+            turnstileApi.execute(widgetId);
+        } catch (error) {
+            finish(error instanceof Error ? error : new Error('turnstile unavailable right now'));
+        }
+    });
 }
 
 function buildTerminalLinkElement(fragment) {
@@ -822,9 +993,7 @@ function help_command() {
         ['video [w h]', 'Display your live camera footage as ASCII art at size w x h'],
         ['mypic [w h]', 'Display 0x00C0DE\'s picture as ASCII art at size w x h'],
         ['pretext [lab] [text]', 'Show terminal Pretext status or open the layout lab'],
-        ['post <text>', 'Append a blog entry through the backend API (may take a short time to appear)'],
-        ['post --image [text]', `Append a blog entry with a selected image or mp4 (${BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL})`],
-        ['post hello [image] goodbye', `Insert a selected image or mp4 between text blocks (${BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL})`],
+        ['post [text] ... [image] ...', `Append a blog entry; omit [image] for text-only posts or use one selected media file per placeholder (${BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL}, up to ${BLOG_MAX_IMAGE_ATTACHMENTS}). Example: post first [image] second [image] third`],
         ['pwd', 'Print working directory'],
         ['qr-totp', 'Browser QR enrollment + TOTP generator for the cs370 project'],
         ['resume', 'Open my resume PDF in a new tab'],
@@ -2159,6 +2328,9 @@ function github_command() {
 }
 
 function history_command() {
+    const commandHistory = typeof window.getTerminalCommandHistory === 'function'
+        ? window.getTerminalCommandHistory()
+        : [];
     if (commandHistory.length === 0) {
         return [];
     }
@@ -2291,10 +2463,10 @@ async function post_command(args) {
     const { includeImage, text } = parsePostArgs(args);
     if (!text && !includeImage) {
             return [
-                'post: missing blog text',
+                'post: missing entry content',
                 'usage: post Your blog entry goes here',
-                '       post --image Optional caption text',
-                '       post hello [image] goodbye',
+                '       post first [image] second [image] third',
+                '       omit [image] for text-only posts',
                 `       media types: ${BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL}`
             ];
         }
@@ -2306,13 +2478,16 @@ async function post_command(args) {
             return [resolved.error];
         }
 
+        const turnstileToken = await requestTurnstileToken();
+
         const response = await fetch(BLOG_POST_API_URL, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                contentBlocks: resolved.contentBlocks
+                contentBlocks: resolved.contentBlocks,
+                turnstileToken
             })
         });
 
@@ -3055,7 +3230,7 @@ window.setTerminalSessionState = setTerminalSessionState;
 window.refreshTerminalSessionUi = refreshTerminalSessionUi;
 
 function resume_command() {
-    window.open('resume.pdf', '_blank');
+    window.open('resume.pdf?v=20260413a', '_blank');
     return [];
 }
 

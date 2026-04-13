@@ -4392,6 +4392,10 @@ export function getPromptHost() {
     return getPromptSnapshot().host;
 }
 
+export function getCommandHistory() {
+    return app.commandHistory.slice();
+}
+
 function isLocalTerminalTestHost() {
     const hostname = typeof window?.location?.hostname === 'string' ? window.location.hostname : '';
     return hostname === '127.0.0.1' || hostname === 'localhost';
