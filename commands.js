@@ -991,7 +991,7 @@ function help_command() {
         ['cat', 'Display file contents'],
         ['clear', 'Clear the terminal screen'],
         ['date', 'Display current date and time'],
-        ['discord', 'Open the Discord invite in a new tab'],
+        ['discord', '0x00C0DE\'s world discord, features #stock-bot discord notifications about stock market insights during market hours (pre, during, and post)'],
         ['echo', 'Display text'],
         ['fortune', 'Display a live fortune'],
         ['github', 'Open GitHub in a new tab'],
