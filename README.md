@@ -345,7 +345,7 @@ Responsibilities:
 
 ## Data Model
 
-The site has **no database**. Persistent content lives in versioned `.txt` files in the repo root:
+The site has **no database**. Persistent content lives in versioned `.txt` files under `content/`:
 
 ```
 ┌──────────────┬─────────────────────────────────────────────────────────────┐
@@ -374,12 +374,12 @@ Each project has a dedicated `.html` page and, where applicable, a corresponding
 
 | Project | Description | Files |
 |---|---|---|
-| **Bloom Filters** | Probabilistic data structure implementation and analysis | `bloom.txt`, `project-bloom-filters.html` |
-| **Collision Avoidance** | Autonomous collision detection system | `project-collision-avoidance.html` |
-| **Property System (proprts)** | Custom property and trading-system write-up | `proprts.txt`, `project-proprts.html` |
-| **QR + TOTP** | Browser-side QR enrollment, QR export, and TOTP tooling | `qr-totp.txt`, `project-qr-totp.html` |
-| **Shellcode Template** | x86/x64 shellcode scaffolding for security research | `shellcode.txt`, `project-shellcode-template.html` |
-| **smallsh** | A POSIX-subset shell written in C | `smallsh.txt`, `project-smallsh.html` |
+| **Bloom Filters** | Probabilistic data structure implementation and analysis | `content/bloom.txt`, `pages/project-bloom-filters.html` |
+| **Collision Avoidance** | Autonomous collision detection system | `pages/project-collision-avoidance.html` |
+| **Property System (proprts)** | Custom property and trading-system write-up | `content/proprts.txt`, `pages/project-proprts.html` |
+| **QR + TOTP** | Browser-side QR enrollment, QR export, and TOTP tooling | `content/qr-totp.txt`, `pages/project-qr-totp.html` |
+| **Shellcode Template** | x86/x64 shellcode scaffolding for security research | `content/shellcode.txt`, `pages/project-shellcode-template.html` |
+| **smallsh** | A POSIX-subset shell written in C | `content/smallsh.txt`, `pages/project-smallsh.html` |
 
 Browse from the terminal:
 
@@ -442,18 +442,19 @@ Push to main
     ▼
 GitHub Pages publishes the updated frontend
     │
-    ├── index.html        → https://0x00c0de.github.io/
-    ├── projects.html     → https://0x00c0de.github.io/projects.html
-    ├── project-*.html    → https://0x00c0de.github.io/project-*.html
-    └── *.txt             → https://0x00c0de.github.io/*.txt
+    ├── index.html          → https://0x00c0de.github.io/
+    ├── pages/projects.html  → https://0x00c0de.github.io/pages/projects.html
+    ├── pages/project-*.html → https://0x00c0de.github.io/pages/project-*.html
+    ├── content/*.txt        → https://0x00c0de.github.io/content/*.txt
+    └── assets/resume.pdf    → https://0x00c0de.github.io/assets/resume.pdf
 ```
 
 Cache busting is handled manually through version query strings in the terminal entry pages:
 
 ```html
-<script src="pictures.js?v=20260331b"></script>
-<script src="commands.js?v=20260413d"></script>
-<script src="term.js?v=20260413a"></script>
+<script src="/src/pictures.js?v=20260331b"></script>
+<script src="/src/commands.js?v=20260413d"></script>
+<script src="/src/term.js?v=20260413a"></script>
 ```
 
 The entry pages now mount a visible `terminal-canvas` plus a hidden scratch canvas, and they intentionally do **not** include a stylesheet link for the live terminal renderer. Frontend-only changes go live with a push to `main`. A separate Worker redeploy is only needed when `backend/`, `worker/`, or `worker/wrangler.jsonc` changes.
@@ -480,16 +481,16 @@ Current checks:
 
 ```bash
 node --test tests/terminal-session-core.test.mjs tests/terminal-visuals-core.test.mjs tests/terminal-pretext-core.test.mjs tests/pretext-lab-core.test.mjs tests/pretext-package-sync.test.mjs
-node --check commands.js
-node --check term.js
-node --check banner-wave-core.mjs
-node --check terminal-canvas-core.mjs
-node --check terminal-session-core.mjs
-node --check terminal-visuals-core.mjs
-node --check terminal-pretext-core.mjs
-node --check terminal-pretext-runtime.mjs
-node --check pretext-browser.mjs
-node --check pretext-lab.mjs
+node --check src/commands.js
+node --check src/term.js
+node --check src/banner-wave-core.mjs
+node --check src/terminal-canvas-core.mjs
+node --check src/terminal-session-core.mjs
+node --check src/terminal-visuals-core.mjs
+node --check src/terminal-pretext-core.mjs
+node --check src/terminal-pretext-runtime.mjs
+node --check src/pretext-browser.mjs
+node --check src/pretext-lab.mjs
 node --check scripts/sync-pretext-package.mjs
 node --test tests/history-command-browser.test.mjs
 node --test --test-name-pattern "help consolidates post into the universal multi-media form" tests/help-render-browser.test.mjs
@@ -500,7 +501,7 @@ node --check worker/src/index.test.js
 node --test worker/src/index.test.js
 ```
 
-The Pretext lab remains available at [pretext-lab.html](https://0x00c0de.github.io/pretext-lab.html) for manual layout experiments and visual smoke testing.
+The Pretext lab remains available at [pages/pretext-lab.html](https://0x00c0de.github.io/pages/pretext-lab.html) for manual layout experiments and visual smoke testing.
 
 ---
 
