@@ -991,6 +991,7 @@ function help_command() {
         ['cat', 'Display file contents'],
         ['clear', 'Clear the terminal screen'],
         ['date', 'Display current date and time'],
+        ['discord', 'Open the Discord invite in a new tab'],
         ['echo', 'Display text'],
         ['fortune', 'Display a live fortune'],
         ['github', 'Open GitHub in a new tab'],
@@ -2492,6 +2493,11 @@ function createBlogUploadId() {
 
 function date_command() {
     return [new Date().toString()];
+}
+
+function discord_command() {
+    window.open('https://discord.gg/GdYf9Mtb8c', '_blank');
+    return [];
 }
 
 function echo_command(args) {

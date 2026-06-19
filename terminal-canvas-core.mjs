@@ -3218,6 +3218,7 @@ function getCommandHandlers() {
         ['banner', window.banner_command],
         ['cat', window.cat_command],
         ['date', window.date_command],
+        ['discord', window.discord_command],
         ['echo', window.echo_command],
         ['fortune', window.fortune_command],
         ['github', window.github_command],
