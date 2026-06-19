@@ -3,6 +3,23 @@ import assert from 'node:assert/strict';
 
 import blogWorker, { B2QuotaGuard, BlogUploadSession, R2QuotaGuard, VisitorCounter, appendBlogEntry, createBlogImageKey, createBlogTextBlockKey, removeBlogEntry, removeImageBlock, removeTextBlock } from './index.js';
 
+// Billing-guardrail records are only counted when their charge period falls in
+// the current UTC month (see billingRecordBelongsToMonth in index.js). Endpoint
+// tests drive the worker with the real system clock and cannot inject `now`, so
+// their mocked billing periods must track the current month rather than a fixed
+// literal that goes stale once the wall clock leaves it.
+function currentMonthBillingPeriod(now = new Date()) {
+    const year = now.getUTCFullYear();
+    const month = now.getUTCMonth();
+    const monthStart = new Date(Date.UTC(year, month, 1)).toISOString();
+    const chargeEnd = new Date(Date.UTC(year, month, 3, 12, 0, 0)).toISOString();
+    return {
+        BillingPeriodStart: monthStart,
+        ChargePeriodStart: monthStart,
+        ChargePeriodEnd: chargeEnd
+    };
+}
+
 class FakeStorage {
     constructor() {
         this.data = new Map();
@@ -965,9 +982,7 @@ test('append endpoint falls back to private B2 when billing guardrails stop R2 w
         if (urlString === 'https://api.cloudflare.com/client/v4/accounts/account-id/billing/usage/paygo') {
             return new Response(JSON.stringify({
                 result: [{
-                    BillingPeriodStart: '2026-04-01T00:00:00Z',
-                    ChargePeriodStart: '2026-04-01T00:00:00Z',
-                    ChargePeriodEnd: '2026-04-03T12:00:00Z',
+                    ...currentMonthBillingPeriod(),
                     ServiceName: 'R2 Class A Operations',
                     ConsumedUnit: 'requests',
                     ConsumedQuantity: 4,
@@ -3185,9 +3200,7 @@ test('media endpoint stops R2 reads when billing guardrails are near the class B
         if (urlString === 'https://api.cloudflare.com/client/v4/accounts/account-id/billing/usage/paygo') {
             return new Response(JSON.stringify({
                 result: [{
-                    BillingPeriodStart: '2026-04-01T00:00:00Z',
-                    ChargePeriodStart: '2026-04-01T00:00:00Z',
-                    ChargePeriodEnd: '2026-04-03T12:00:00Z',
+                    ...currentMonthBillingPeriod(),
                     ServiceName: 'R2 Class B Operations',
                     ConsumedUnit: 'requests',
                     ConsumedQuantity: 9,
