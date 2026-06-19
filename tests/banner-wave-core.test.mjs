@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { splitBannerWaveGlyphs } from '../banner-wave-core.mjs';
+import { splitBannerWaveGlyphs } from '../src/banner-wave-core.mjs';
 
 test('splitBannerWaveGlyphs assigns wave indexes only to visible glyphs', () => {
     assert.deepEqual(splitBannerWaveGlyphs('0x 0'), [

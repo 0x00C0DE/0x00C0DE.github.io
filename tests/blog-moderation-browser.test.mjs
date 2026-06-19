@@ -79,7 +79,7 @@ async function createStaticServer(rootDirectory) {
 
 async function setupModerationPage(page, origin, options = {}) {
     if (typeof options.blogContent === 'string') {
-        await page.route(`${origin}/blog.txt`, route => route.fulfill({
+        await page.route(`${origin}/content/blog.txt`, route => route.fulfill({
             body: options.blogContent,
             contentType: 'text/plain; charset=utf-8',
             status: 200
@@ -607,7 +607,7 @@ test('godlike post delete stays clickable after dragging media across it', { tim
         await page.close();
     });
 
-    const repoBlogText = await readFile(path.join(REPO_ROOT, 'blog.txt'), 'utf8');
+    const repoBlogText = await readFile(path.join(REPO_ROOT, 'content', 'blog.txt'), 'utf8');
     const imageMatch = /\[image-base64]\r?\n([\s\S]*?)\r?\n\[\/image-base64]/.exec(repoBlogText);
     assert.ok(imageMatch, 'expected a large embedded blog image fixture');
     const blogContent = [

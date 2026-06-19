@@ -6,7 +6,7 @@ import {
     buildPretextLayout,
     buildPretextLabHref,
     parsePretextStateFromSearch
-} from '../pretext-lab-core.mjs';
+} from '../src/pretext-lab-core.mjs';
 
 test('parsePretextStateFromSearch clamps numeric params and keeps non-empty text', () => {
     const state = parsePretextStateFromSearch('?text=hello%20world&width=9999&fontSize=8&lineHeight=400&whiteSpace=normal');
@@ -70,7 +70,7 @@ test('buildPretextLayout normalizes state and shapes the pretext result for the 
 test('buildPretextLabHref encodes text for the terminal command bridge', () => {
     assert.equal(
         buildPretextLabHref('measure this next'),
-        'pretext-lab.html?text=measure+this+next'
+        '/pages/pretext-lab.html?text=measure+this+next'
     );
-    assert.equal(buildPretextLabHref('   '), 'pretext-lab.html');
+    assert.equal(buildPretextLabHref('   '), '/pages/pretext-lab.html');
 });

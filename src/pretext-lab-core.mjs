@@ -73,11 +73,11 @@ export function buildPretextSearch(state) {
 export function buildPretextLabHref(text = '') {
     const trimmed = typeof text === 'string' ? text.trim() : '';
     if (!trimmed) {
-        return 'pretext-lab.html';
+        return '/pages/pretext-lab.html';
     }
 
     const params = new URLSearchParams({ text: trimmed });
-    return `pretext-lab.html?${params.toString()}`;
+    return `/pages/pretext-lab.html?${params.toString()}`;
 }
 
 export function buildPretextLayout(pretextApi, input = {}) {

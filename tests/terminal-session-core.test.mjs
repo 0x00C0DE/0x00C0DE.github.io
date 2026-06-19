@@ -7,7 +7,7 @@ import {
     getTerminalPromptSnapshot,
     getTerminalSessionPwd,
     getTerminalSessionUsername
-} from '../terminal-session-core.mjs';
+} from '../src/terminal-session-core.mjs';
 
 test('default terminal session keeps the original guest prompt', () => {
     const session = createDefaultTerminalSession();

@@ -7,7 +7,7 @@ import {
     getBinaryRainColumnFrame,
     getPromptUserClassName,
     shouldUseRootTerminalVisuals
-} from '../terminal-visuals-core.mjs';
+} from '../src/terminal-visuals-core.mjs';
 
 function createDeterministicRandom(values) {
     let index = 0;

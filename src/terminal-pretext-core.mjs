@@ -10,6 +10,19 @@ function getGraphemeSegmenter() {
     return sharedGraphemeSegmenter;
 }
 
+// Map a bare terminal filename onto the reorganized site layout (pages in
+// /pages, downloadable assets in /assets). Site is served from the domain
+// root, so absolute paths resolve correctly from any page.
+function resolveTerminalFileHref(name) {
+    if (/\.pdf$/i.test(name)) {
+        return `/assets/${name}`;
+    }
+    if (/\.html$/i.test(name)) {
+        return `/pages/${name}`;
+    }
+    return name;
+}
+
 function resolveTerminalLinkToken(tokenText, options = {}) {
     if (/^https?:\/\//i.test(tokenText)) {
         return {
@@ -43,7 +56,7 @@ function resolveTerminalLinkToken(tokenText, options = {}) {
     return {
         type: 'link',
         text: tokenText,
-        href: tokenText,
+        href: resolveTerminalFileHref(tokenText),
         newTab: /\.pdf$/i.test(tokenText)
     };
 }

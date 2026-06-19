@@ -8,7 +8,7 @@ import {
     collectExactPostMediaFiles,
     collectIncrementalPostMediaFiles,
     collectSequentialPostMediaFiles
-} from '../blog-upload-core.mjs';
+} from '../src/blog-upload-core.mjs';
 
 const SAMPLE_MEDIA_FIXTURES = [
     {

@@ -6,7 +6,7 @@ import {
     buildTerminalPretextLayout,
     getTerminalTextFromTokens,
     tokenizeTerminalText
-} from '../terminal-pretext-core.mjs';
+} from '../src/terminal-pretext-core.mjs';
 
 function createLinkOptions() {
     return {
@@ -48,7 +48,7 @@ test('tokenizeTerminalText preserves plain text and terminal link metadata', () 
         {
             type: 'link',
             text: 'resume.pdf',
-            href: 'resume.pdf',
+            href: '/assets/resume.pdf',
             newTab: true,
             start: 46,
             end: 56

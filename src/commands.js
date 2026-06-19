@@ -424,6 +424,21 @@ function getSafeTerminalHref(href) {
     return '#';
 }
 
+// Resolve a bare terminal filename to its location in the reorganized site
+// layout (pages live in /pages, downloadable assets in /assets). Keeps the
+// displayed link text as the bare filename while pointing the href at the
+// real file. Site is served from the domain root, so absolute paths work
+// from index.html and from the pages in /pages alike.
+function resolveTerminalFileHref(name) {
+    if (/\.pdf$/i.test(name)) {
+        return `/assets/${name}`;
+    }
+    if (/\.html$/i.test(name)) {
+        return `/pages/${name}`;
+    }
+    return name;
+}
+
 let blogUploadCoreReadyPromise = null;
 let turnstileApiReadyPromise = null;
 const BLOG_UPLOAD_CORE_MODULE_URL = './blog-upload-core.mjs?v=20260408b';
@@ -642,7 +657,7 @@ function renderTerminalLineContentFallback(container, text) {
             }
         } else {
             const newTab = /\.pdf$/i.test(matchedText);
-            appendAnchor(container, matchedText, matchedText, { newTab });
+            appendAnchor(container, resolveTerminalFileHref(matchedText), matchedText, { newTab });
         }
 
         lastIndex = start + matchedText.length;
@@ -705,7 +720,7 @@ function renderTerminalEditorialLineContent(container, line, options = {}) {
 }
 
 async function readTextFile(filename) {
-    const response = await fetch(filename, { cache: 'no-store' });
+    const response = await fetch(`/content/${filename}`, { cache: 'no-store' });
     if (!response.ok) {
         throw new Error(`request failed with status ${response.status}`);
     }
@@ -980,10 +995,10 @@ function formatHelpEntry(command, description, width) {
 function buildPretextLabHref(text) {
     const trimmed = typeof text === 'string' ? text.trim() : '';
     if (!trimmed) {
-        return 'pretext-lab.html';
+        return '/pages/pretext-lab.html';
     }
 
-    return `pretext-lab.html?${new URLSearchParams({ text: trimmed }).toString()}`;
+    return `/pages/pretext-lab.html?${new URLSearchParams({ text: trimmed }).toString()}`;
 }
 
 function help_command() {
@@ -3418,7 +3433,7 @@ async function visitors_command() {
 }
 
 function projects_command() {
-    window.open('projects.html', '_self');
+    window.open('/pages/projects.html', '_self');
     return [];
 }
 
@@ -3440,7 +3455,7 @@ window.setTerminalSessionState = setTerminalSessionState;
 window.refreshTerminalSessionUi = refreshTerminalSessionUi;
 
 function resume_command() {
-    window.open('resume.pdf?v=20260413a', '_blank');
+    window.open('/assets/resume.pdf?v=20260413a', '_blank');
     return [];
 }
 

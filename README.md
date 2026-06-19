@@ -117,7 +117,7 @@ User types "cat blog.txt"
 terminal-canvas-core.mjs parses input → dispatches to commands.js::cat()
       │
       ▼
-fetch("blog.txt") over HTTP
+fetch("/content/blog.txt") over HTTP
       │
       ▼
 commands.js parses blog text/media blocks and terminal links
@@ -158,54 +158,59 @@ The universal `post ... [image] ...` flow shares the same Worker path as text-on
 ```
 0x00C0DE.github.io/
 │
-├── index.html                        # Main terminal entry page
-├── projects.html                     # Projects-focused terminal entry page
+├── index.html                          # Main terminal entry page (served at the site root)
 │
-├── project-bloom-filters.html        # Project deep-dive: Bloom Filters
-├── project-collision-avoidance.html  # Project deep-dive: Collision Avoidance
-├── project-proprts.html              # Project deep-dive: Property System
-├── project-qr-totp.html              # Project deep-dive: QR/TOTP
-├── project-shellcode-template.html   # Project deep-dive: Shellcode Template
-├── project-smallsh.html              # Project deep-dive: smallsh Unix shell
+├── pages/                              # Secondary HTML entry pages
+│   ├── projects.html                   # Projects-focused terminal entry page
+│   ├── project-bloom-filters.html      # Project deep-dive: Bloom Filters
+│   ├── project-collision-avoidance.html# Project deep-dive: Collision Avoidance
+│   ├── project-proprts.html            # Project deep-dive: Property System
+│   ├── project-qr-totp.html            # Project deep-dive: QR/TOTP
+│   ├── project-shellcode-template.html # Project deep-dive: Shellcode Template
+│   ├── project-smallsh.html            # Project deep-dive: smallsh Unix shell
+│   └── pretext-lab.html                # Standalone layout lab for Pretext experiments
 │
-├── term.js                           # Thin boot bridge that loads the canvas runtime
-├── terminal-canvas-core.mjs          # Canvas terminal engine, input loop, viewer, and blog/media interactions
-├── commands.js                       # Shell commands, blog/media parsing, session auth, and helper bridges
-├── pictures.js                       # ASCII/glyph image rendering + webcam support
-├── banner-wave-core.mjs              # Grapheme-aware banner wave segmentation helpers
-├── terminal-session-core.mjs         # Pure session state for guest/root/godlike prompt behavior
-├── terminal-visuals-core.mjs         # Pure helpers for elevated animated glyph rain
-├── terminal-pretext-core.mjs         # Link-aware tokenization plus Pretext prepare/layout helpers
-├── terminal-pretext-runtime.mjs      # Legacy no-op shim retained for older compatibility expectations
-├── pretext-lab.html                  # Standalone layout lab for Pretext experiments
-├── pretext-lab.mjs                   # Browser controller for the lab
-├── pretext-lab-core.mjs              # Shared lab state and query serialization helpers
-├── pretext-browser.mjs               # Shared browser wrapper around the synced Pretext package
+├── src/                                # Browser JavaScript / ES modules
+│   ├── term.js                         # Thin boot bridge that loads the canvas runtime
+│   ├── terminal-canvas-core.mjs        # Canvas terminal engine, input loop, viewer, and blog/media interactions
+│   ├── commands.js                     # Shell commands, blog/media parsing, session auth, and helper bridges
+│   ├── pictures.js                     # ASCII/glyph image rendering + webcam support
+│   ├── banner-wave-core.mjs            # Grapheme-aware banner wave segmentation helpers
+│   ├── terminal-session-core.mjs       # Pure session state for guest/root/godlike prompt behavior
+│   ├── terminal-visuals-core.mjs       # Pure helpers for elevated animated glyph rain
+│   ├── terminal-pretext-core.mjs       # Link-aware tokenization plus Pretext prepare/layout helpers
+│   ├── terminal-pretext-runtime.mjs    # Legacy no-op shim retained for older compatibility expectations
+│   ├── blog-upload-core.mjs            # Incremental multi-media post upload helpers
+│   ├── pretext-lab.mjs                 # Browser controller for the lab
+│   ├── pretext-lab-core.mjs            # Shared lab state and query serialization helpers
+│   └── pretext-browser.mjs             # Shared browser wrapper around the synced Pretext package
 │
-├── blog.txt                          # Live blog, appended via Cloudflare Worker
-├── projects.txt                      # Project listing
-├── links.txt                         # Curated external links
-├── bloom.txt                         # Bloom filter project documentation
-├── smallsh.txt                       # smallsh shell project documentation
-├── shellcode.txt                     # Shellcode template project documentation
-├── qr-totp.txt                       # QR/TOTP project documentation
-├── proprts.txt                       # Property system project documentation
-├── amr.txt                           # AMR project notes
-├── readme.txt                        # In-terminal readme served by `cat readme.txt`
+├── content/                            # Terminal text data, served via `cat <file>.txt`
+│   ├── blog.txt                        # Live blog, appended via Cloudflare Worker
+│   ├── projects.txt                    # Project listing
+│   ├── links.txt                       # Curated external links
+│   ├── bloom.txt                       # Bloom filter project documentation
+│   ├── smallsh.txt                     # smallsh shell project documentation
+│   ├── shellcode.txt                   # Shellcode template project documentation
+│   ├── qr-totp.txt                     # QR/TOTP project documentation
+│   ├── proprts.txt                     # Property system project documentation
+│   ├── amr.txt                         # AMR project notes
+│   └── readme.txt                      # In-terminal readme served by `cat readme.txt`
 │
-├── resume.pdf                        # Downloadable resume
+├── assets/                             # Static downloadable assets
+│   └── resume.pdf                      # Downloadable resume
 │
-├── backend/                          # Local backend/server helpers
-├── worker/                           # Cloudflare Worker package and deployment scripts
-├── tests/                            # Node tests for session, visuals, and Pretext logic
-├── scripts/sync-pretext-package.mjs  # Syncs vendor/pretext from the npm package
-├── vendor/pretext/                   # npm-synced Pretext runtime used in-browser
-├── package.json                      # Root npm manifest for frontend package tooling
-├── package-lock.json                 # Locked frontend dependency graph
+├── backend/                            # Local backend/server helpers
+├── worker/                             # Cloudflare Worker package and deployment scripts
+├── tests/                              # Node tests for session, visuals, and Pretext logic
+├── scripts/sync-pretext-package.mjs    # Syncs vendor/pretext from the npm package
+├── vendor/pretext/                     # npm-synced Pretext runtime used in-browser
+├── package.json                        # Root npm manifest for frontend package tooling
+├── package-lock.json                   # Locked frontend dependency graph
 │
 ├── .gitignore
 ├── LICENSE
-└── README.md                         # You are here
+└── README.md                           # You are here
 ```
 
 > **Note:** All `.txt` files serve a dual purpose. They are valid plain-text documents and the terminal's live data source. Running `cat <file>.txt` in the terminal fetches the canonical file over HTTP exactly as it appears in the repo.
