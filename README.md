@@ -258,6 +258,7 @@ The terminal command map routes each shell verb to its handler, with most comman
 | `cat <file>` | Fetches a `.txt` file and streams it to the terminal |
 | `clear` | Clears terminal output and rebuilds the prompt |
 | `date` | Prints the browser's current date/time string |
+| `discord` | Opens the 0x00C0DE Discord invite in a new tab (`#stock-bot` posts market-hours insights) |
 | `echo <text>` | Prints the provided text back to the terminal |
 | `fortune` | Displays a random quote from the fortune endpoint |
 | `github` | Opens the GitHub profile in a new tab |
@@ -533,6 +534,7 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
   linkedin                   Open LinkedIn in a new tab
   instagram                  Open Instagram in a new tab
   youtube                    Open YouTube in a new tab
+  discord                    Open the 0x00C0DE Discord invite (#stock-bot market notifications)
   projects                   Render project index
   resume                     Download resume PDF
   su                         Switch to the root shell
