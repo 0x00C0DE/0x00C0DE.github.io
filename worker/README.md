@@ -33,6 +33,7 @@ This config uses `new_sqlite_classes`, which is required for Durable Objects on 
 After deploying this branch, the Worker exposes:
 
 - `GET /api/visitors`
+- `GET /api/fortune`
 - `POST /api/visitors/track`
 - `POST /api/visitors/leave`
 

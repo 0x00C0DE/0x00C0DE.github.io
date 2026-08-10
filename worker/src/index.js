@@ -13,6 +13,10 @@ export default {
             return jsonResponse({ ok: true }, 200, env.ALLOWED_ORIGIN);
         }
 
+        if (request.method === 'GET' && url.pathname === '/api/fortune') {
+            return handleFortune(request, env);
+        }
+
         if (request.method === 'GET' && url.pathname === '/api/visitors') {
             return handleVisitorCount(env);
         }
@@ -56,6 +60,95 @@ export default {
         return jsonResponse({ error: 'not found' }, 404, env.ALLOWED_ORIGIN);
     }
 };
+
+const ASTROLOGY_FORTUNE_URL = 'https://www.astrology.com/compatibility/fortune-cookie.html';
+const FORTUNE_CACHE_URL = 'https://fortune-cache.0x00c0de.internal/fortunes';
+const FORTUNE_CACHE_SECONDS = 300;
+const FORTUNE_SOURCE_TIMEOUT_MS = 2500;
+const FORTUNE_SOURCE_MAX_BYTES = 512 * 1024;
+
+export async function handleFortune(request, env, dependencies = {}) {
+    const fetchFunction = dependencies.fetch || fetch;
+    const cache = dependencies.cache || caches.default;
+    const random = dependencies.random || Math.random;
+    const cacheKey = new Request(FORTUNE_CACHE_URL);
+    let fortunes;
+
+    const cachedResponse = await cache.match(cacheKey);
+    if (cachedResponse) {
+        fortunes = await cachedResponse.json();
+    } else {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), FORTUNE_SOURCE_TIMEOUT_MS);
+        try {
+            const response = await fetchFunction(ASTROLOGY_FORTUNE_URL, {
+                headers: { 'User-Agent': '0x00C0DE-fortune-worker' },
+                signal: controller.signal
+            });
+            if (!response.ok) {
+                throw new Error(`fortune source returned ${response.status}`);
+            }
+            fortunes = parseAstrologyFortunes(await readResponseTextLimited(response, FORTUNE_SOURCE_MAX_BYTES));
+            await cache.put(cacheKey, new Response(JSON.stringify(fortunes), {
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8',
+                    'Cache-Control': `public, max-age=${FORTUNE_CACHE_SECONDS}`
+                }
+            }));
+        } catch (error) {
+            console.error('fortune source fetch failed', error);
+            return jsonResponse({ error: 'unable to retrieve a live fortune' }, 503, env.ALLOWED_ORIGIN, {
+                'Cache-Control': 'no-store'
+            });
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    }
+
+    const fortune = fortunes[Math.floor(random() * fortunes.length)];
+    return jsonResponse({ fortune }, 200, env.ALLOWED_ORIGIN, {
+        'Cache-Control': 'no-store'
+    });
+}
+
+function parseAstrologyFortunes(source) {
+    const match = source.match(/(?:const|let|var)\s+FORTUNE_COOKIE_RESP\s*=\s*(\[[\s\S]*?\]);/);
+    if (!match) {
+        throw new Error('fortune array not found');
+    }
+    const fortunes = JSON.parse(match[1]);
+    if (!Array.isArray(fortunes) || fortunes.length === 0 || fortunes.some(fortune => typeof fortune !== 'string')) {
+        throw new Error('fortune array invalid');
+    }
+    return fortunes;
+}
+
+async function readResponseTextLimited(response, maximumBytes) {
+    const declaredLength = Number(response.headers.get('Content-Length') || 0);
+    if (declaredLength > maximumBytes) {
+        throw new Error('fortune source response is too large');
+    }
+    if (!response.body) {
+        return '';
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let receivedBytes = 0;
+    let result = '';
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+            return result + decoder.decode();
+        }
+        receivedBytes += value.byteLength;
+        if (receivedBytes > maximumBytes) {
+            await reader.cancel();
+            throw new Error('fortune source response is too large');
+        }
+        result += decoder.decode(value, { stream: true });
+    }
+}
 
 export class VisitorCounter {
     constructor(state) {

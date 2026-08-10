@@ -72,25 +72,10 @@
     ]
 };
 
-const ASTROLOGY_FORTUNE_URL = 'https://www.astrology.com/compatibility/fortune-cookie.html';
-const ASTROLOGY_FORTUNE_SOURCES = [
-    {
-        url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(ASTROLOGY_FORTUNE_URL)}`,
-        parseResponse: async response => response.text()
-    },
-    {
-        url: `https://api.allorigins.win/get?url=${encodeURIComponent(ASTROLOGY_FORTUNE_URL)}`,
-        parseResponse: async response => {
-            const payload = await response.json();
-            return payload.contents || '';
-        }
-    },
-    {
-        url: `https://api.allorigins.win/raw?url=${encodeURIComponent(ASTROLOGY_FORTUNE_URL)}`,
-        parseResponse: async response => response.text()
-    }
-];
 const BLOG_POST_API_URL = window.BLOG_POST_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/append';
+const FORTUNE_API_URL = window.FORTUNE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/fortune';
+const FORTUNE_API_TIMEOUT_MS = 3000;
+let prefetchedFortunePromise = null;
 const TURNSTILE_SITE_KEY = window.TURNSTILE_SITE_KEY || '0x4AAAAAAC85Zivt0Tn6Fqp9';
 const TURNSTILE_API_URL = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 const BLOG_STAGE_IMAGE_API_URL = window.BLOG_STAGE_IMAGE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/upload-chunk';
@@ -2519,35 +2504,53 @@ function echo_command(args) {
     return [args.join(' ')];
 }
 
-function parseAstrologyFortunes(source) {
-    const match = source.match(/(?:const|let|var)\s+FORTUNE_COOKIE_RESP\s*=\s*(\[[\s\S]*?\]);/);
-    if (!match) {
-        throw new Error('fortune array not found');
+async function requestLiveFortune() {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FORTUNE_API_TIMEOUT_MS);
+    try {
+        const response = await fetch(FORTUNE_API_URL, {
+            cache: 'no-store',
+            signal: controller.signal
+        });
+        if (!response.ok) {
+            throw new Error(`request failed with status ${response.status}`);
+        }
+        const payload = await response.json();
+        if (typeof payload.fortune !== 'string' || !payload.fortune.trim()) {
+            throw new Error('fortune response was invalid');
+        }
+        return payload.fortune;
+    } finally {
+        clearTimeout(timeoutId);
     }
-    const fortunes = JSON.parse(match[1]);
-    if (!Array.isArray(fortunes) || fortunes.length === 0) {
-        throw new Error('fortune array empty');
+}
+
+function beginFortunePrefetch() {
+    if (!prefetchedFortunePromise) {
+        prefetchedFortunePromise = requestLiveFortune().catch(error => {
+            console.error('fortune prefetch failed', error);
+            return null;
+        });
     }
-    return fortunes;
+    return prefetchedFortunePromise;
 }
 
 async function fortune_command() {
-    for (const source of ASTROLOGY_FORTUNE_SOURCES) {
-        try {
-            const response = await fetch(source.url, { cache: 'no-store' });
-            if (!response.ok) {
-                throw new Error(`request failed with status ${response.status}`);
-            }
-            const html = await source.parseResponse(response);
-            const fortunes = parseAstrologyFortunes(html);
-            return [fortunes[Math.floor(Math.random() * fortunes.length)]];
-        } catch (error) {
-            console.error(`fortune fetch failed for ${source.url}`, error);
+    const request = beginFortunePrefetch();
+    try {
+        const fortune = await request;
+        return fortune
+            ? [fortune]
+            : ['fortune: unable to retrieve a live fortune right now'];
+    } finally {
+        if (prefetchedFortunePromise === request) {
+            prefetchedFortunePromise = null;
         }
+        setTimeout(beginFortunePrefetch, 0);
     }
-
-    return ['fortune: unable to retrieve a live fortune right now'];
 }
+
+setTimeout(beginFortunePrefetch, 0);
 
 function github_command() {
     window.open('https://github.com/0x00C0DE', '_blank');

@@ -454,7 +454,7 @@ Cache busting is handled manually through version query strings in the terminal 
 
 ```html
 <script src="/src/pictures.js?v=20260331b"></script>
-<script src="/src/commands.js?v=20260413d"></script>
+<script src="/src/commands.js?v=20260810a"></script>
 <script src="/src/term.js?v=20260413a"></script>
 ```
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import blogWorker, { B2QuotaGuard, BlogUploadSession, R2QuotaGuard, VisitorCounter, appendBlogEntry, createBlogImageKey, createBlogTextBlockKey, removeBlogEntry, removeImageBlock, removeTextBlock } from './index.js';
+import blogWorker, { B2QuotaGuard, BlogUploadSession, R2QuotaGuard, VisitorCounter, appendBlogEntry, createBlogImageKey, createBlogTextBlockKey, handleFortune, removeBlogEntry, removeImageBlock, removeTextBlock } from './index.js';
 
 // Billing-guardrail records are only counted when their charge period falls in
 // the current UTC month (see billingRecordBelongsToMonth in index.js). Endpoint
@@ -74,6 +74,40 @@ class FakeStorage {
         this.alarmAt = null;
     }
 }
+
+test('fortune endpoint fetches the source once and serves subsequent requests from edge cache', async () => {
+    let sourceFetches = 0;
+    let cachedResponse = null;
+    const dependencies = {
+        fetch: async () => {
+            sourceFetches += 1;
+            return new Response('const FORTUNE_COOKIE_RESP = ["Live fortune one.", "Live fortune two."];', {
+                status: 200
+            });
+        },
+        cache: {
+            async match() {
+                return cachedResponse?.clone() || null;
+            },
+            async put(_key, response) {
+                cachedResponse = response.clone();
+            }
+        },
+        random: () => 0
+    };
+    const request = new Request('https://example.com/api/fortune');
+    const env = { ALLOWED_ORIGIN: 'https://0x00c0de.github.io' };
+
+    const firstResponse = await handleFortune(request, env, dependencies);
+    const secondResponse = await handleFortune(request, env, dependencies);
+
+    assert.equal(firstResponse.status, 200);
+    assert.deepEqual(await firstResponse.json(), { fortune: 'Live fortune one.' });
+    assert.deepEqual(await secondResponse.json(), { fortune: 'Live fortune one.' });
+    assert.equal(sourceFetches, 1);
+    assert.equal(firstResponse.headers.get('Access-Control-Allow-Origin'), 'https://0x00c0de.github.io');
+    assert.equal(firstResponse.headers.get('Cache-Control'), 'no-store');
+});
 
 class FakeR2Bucket {
     constructor() {
