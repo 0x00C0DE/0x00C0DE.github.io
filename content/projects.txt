@@ -6,6 +6,7 @@ amr.txt      : autonomous mobile robot collision-avoidance stack driven by perce
 shellcode.txt: low-level shellcode development scaffold for payload testing and memory experimentation
 smallsh.txt  : Unix shell implementation covering process control, signals, and redirection
 bloom.txt    : probabilistic password screening using Bloom filters and compact bit arrays
+doublehitcollectibles.txt: live collectibles portfolio, pricing, search, and collection management platform
 
 Terminal pages
 --------------
@@ -16,3 +17,4 @@ project-collision-avoidance.html
 project-shellcode-template.html
 project-smallsh.html
 project-bloom-filters.html
+project-doublehitcollectibles.html

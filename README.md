@@ -381,6 +381,7 @@ Each project has a dedicated `.html` page and, where applicable, a corresponding
 | **QR + TOTP** | Browser-side QR enrollment, QR export, and TOTP tooling | `content/qr-totp.txt`, `pages/project-qr-totp.html` |
 | **Shellcode Template** | x86/x64 shellcode scaffolding for security research | `content/shellcode.txt`, `pages/project-shellcode-template.html` |
 | **smallsh** | A POSIX-subset shell written in C | `content/smallsh.txt`, `pages/project-smallsh.html` |
+| **Double Hit Collectibles** | Live collectibles portfolio, pricing, search, and collection management | `content/doublehitcollectibles.txt`, `pages/project-doublehitcollectibles.html` |
 
 Browse from the terminal:
 
@@ -454,7 +455,7 @@ Cache busting is handled manually through version query strings in the terminal 
 
 ```html
 <script src="/src/pictures.js?v=20260331b"></script>
-<script src="/src/commands.js?v=20260810b"></script>
+<script src="/src/commands.js?v=20260810c"></script>
 <script src="/src/term.js?v=20260413a"></script>
 ```
 

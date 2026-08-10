@@ -19,7 +19,8 @@
         '<a href="project-collision-avoidance.html">Autonomous Mobile Robot Collision Avoidance</a> - Python, robotics, vision',
         '<a href="project-shellcode-template.html">Shellcode Development Template</a>          - C, security, low-level experimentation',
         '<a href="project-smallsh.html">Unix Small Shell Implementation</a>            - C, Unix process management',
-        '<a href="project-bloom-filters.html">Bloom Filter Password Screening</a>          - Python, algorithms, membership testing'
+        '<a href="project-bloom-filters.html">Bloom Filter Password Screening</a>          - Python, algorithms, membership testing',
+        '<a href="project-doublehitcollectibles.html">Double Hit Collectibles</a>                - Jekyll, JavaScript, Cloudflare Workers, D1'
     ],
     "links.txt": [
         "External links",
@@ -69,6 +70,16 @@
         "Probabilistic membership testing for password workflows using Bloom filters.",
         'Project page : <a href="project-bloom-filters.html">project-bloom-filters.html</a>',
         'Repository   : <a href="https://github.com/0x00C0DE/cs370_bloom_filters" target="_blank">github.com/0x00C0DE/cs370_bloom_filters</a>'
+    ],
+    "doublehitcollectibles.txt": [
+        "Double Hit Collectibles",
+        "-----------------------",
+        "Collection and pricing platform for trading cards, graded cards, sealed products, and mixed TCG inventory.",
+        "Stack          : Jekyll, Sass, JavaScript, Cloudflare Workers, D1, KV, Queues",
+        "Features       : public portfolio, market pricing, search, price history, and authenticated collection management",
+        'Project page   : <a href="project-doublehitcollectibles.html">project-doublehitcollectibles.html</a>',
+        'Live site      : <a href="https://doublehitcollectibles.github.io/" target="_blank">doublehitcollectibles.github.io</a>',
+        'Repository     : <a href="https://github.com/doublehitcollectibles/doublehitcollectibles.github.io" target="_blank">github.com/doublehitcollectibles/doublehitcollectibles.github.io</a>'
     ]
 };
 
@@ -147,7 +158,8 @@ const TEXT_FILES = Object.freeze([
     'amr.txt',
     'shellcode.txt',
     'smallsh.txt',
-    'bloom.txt'
+    'bloom.txt',
+    'doublehitcollectibles.txt'
 ]);
 
 const TEXT_FILE_LOOKUP = new Map(TEXT_FILES.map(filename => [filename.toUpperCase(), filename]));

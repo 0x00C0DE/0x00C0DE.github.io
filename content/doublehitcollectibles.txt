@@ -1,0 +1,10 @@
+Double Hit Collectibles
+=======================
+Domain         : trading-card and mixed-collectible portfolio, pricing, and collection management
+Primary stack  : Jekyll, Sass, JavaScript, Cloudflare Workers, D1, KV, Queues, and Durable Objects
+Core behavior  : displays owned collectibles, current market estimates, cost basis, returns, and historical prices
+Public tools   : collection browsing, Pokemon and mixed-collectible search, inline detail panels, and price charts
+Admin tools    : authenticated add, edit, and delete workflows for cards, graded items, and sealed products
+Project page   : project-doublehitcollectibles.html
+Live site      : https://doublehitcollectibles.github.io/
+Repository     : https://github.com/doublehitcollectibles/doublehitcollectibles.github.io
