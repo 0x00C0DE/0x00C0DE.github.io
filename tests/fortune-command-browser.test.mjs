@@ -91,3 +91,37 @@ test('fortune uses the prefetched first-party endpoint without contacting public
     assert.ok(result.elapsedMs < 500, `expected a live fortune within 500ms, got ${result.elapsedMs}ms`);
     assert.equal(publicProxyRequests, 0);
 });
+
+test('fortune returns an immediate fallback when the deployed endpoint is missing', { timeout: 30000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(() => server.close());
+
+    const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
+    t.after(() => browser.close());
+    const page = await browser.newPage();
+
+    await page.route('https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors**', route => route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ onSite: 1, uniqueVisitors: 1, visits: 1 })
+    }));
+    await page.route('https://0x00c0de-blog-append.0x00c0de.workers.dev/api/fortune', route => route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'not found' })
+    }));
+
+    await page.goto(server.origin, { waitUntil: 'load' });
+    await page.waitForFunction(() => typeof window.fortune_command === 'function');
+
+    const result = await page.evaluate(async () => {
+        const startedAt = performance.now();
+        const fortune = await window.fortune_command();
+        return { fortune, elapsedMs: performance.now() - startedAt };
+    });
+
+    assert.equal(result.fortune.length, 1);
+    assert.notEqual(result.fortune[0], 'fortune: unable to retrieve a live fortune right now');
+    assert.ok(result.fortune[0].length > 10, 'expected a meaningful fallback fortune');
+    assert.ok(result.elapsedMs < 500, `expected a fallback within 500ms, got ${result.elapsedMs}ms`);
+});

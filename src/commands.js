@@ -75,6 +75,20 @@
 const BLOG_POST_API_URL = window.BLOG_POST_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/append';
 const FORTUNE_API_URL = window.FORTUNE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/fortune';
 const FORTUNE_API_TIMEOUT_MS = 3000;
+const FORTUNE_FALLBACKS = [
+    'A small improvement today will compound into something remarkable.',
+    'The solution appears when you question the assumption everyone else accepted.',
+    'An unexpected conversation will open a useful door.',
+    'Your patience with a difficult problem is about to pay off.',
+    'The next brave step is smaller and easier than it looks.',
+    'A discarded idea deserves one more careful look.',
+    'Good news travels toward those who keep building.',
+    'The skill you practice quietly will soon become unusually valuable.',
+    'A change in perspective will reveal the shortcut you were missing.',
+    'Today favors clear decisions, kind words, and finished work.',
+    'The opportunity ahead is disguised as a problem worth solving.',
+    'Trust the evidence, then give your intuition the final vote.'
+];
 let prefetchedFortunePromise = null;
 const TURNSTILE_SITE_KEY = window.TURNSTILE_SITE_KEY || '0x4AAAAAAC85Zivt0Tn6Fqp9';
 const TURNSTILE_API_URL = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
@@ -2541,7 +2555,7 @@ async function fortune_command() {
         const fortune = await request;
         return fortune
             ? [fortune]
-            : ['fortune: unable to retrieve a live fortune right now'];
+            : [FORTUNE_FALLBACKS[Math.floor(Math.random() * FORTUNE_FALLBACKS.length)]];
     } finally {
         if (prefetchedFortunePromise === request) {
             prefetchedFortunePromise = null;
