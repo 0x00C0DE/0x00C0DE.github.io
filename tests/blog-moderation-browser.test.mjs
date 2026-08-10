@@ -155,7 +155,7 @@ async function setupModerationPage(page, origin, options = {}) {
             }
             return originalDrawImage.apply(this, args);
         };
-        window.prompt = () => 'pw';
+        window.prompt = () => 'pw123456';
     });
 
     await page.route('https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors', route => route.fulfill({

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import blogWorker, { B2QuotaGuard, BlogUploadSession, R2QuotaGuard, VisitorCounter, appendBlogEntry, createBlogImageKey, createBlogTextBlockKey, handleFortune, removeBlogEntry, removeImageBlock, removeTextBlock } from './index.js';
+import blogWorker, { B2QuotaGuard, BlogUploadSession, R2QuotaGuard, VisitorCounter, appendBlogEntry, createBlogImageKey, createBlogTextBlockKey, generateTotpCode, handleFortune, handleTerminalSu, removeBlogEntry, removeImageBlock, removeTextBlock, verifyTotpCode } from './index.js';
 
 // Billing-guardrail records are only counted when their charge period falls in
 // the current UTC month (see billingRecordBelongsToMonth in index.js). Endpoint
@@ -357,8 +357,46 @@ function encodeBytesToZ85ForTest(bytes) {
     return output.join('');
 }
 
-test('terminal su endpoint authenticates godlike with the delete password', async () => {
-    const response = await blogWorker.fetch(new Request('https://example.com/api/terminal/su', {
+test('TOTP generation matches the RFC 6238 SHA-1 test secret at 59 seconds', async () => {
+    const code = await generateTotpCode('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 59000);
+    assert.equal(code, '287082');
+});
+
+test('TOTP verification accepts one adjacent time step for clock drift', async () => {
+    assert.equal(
+        await verifyTotpCode('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', '287082', 89000),
+        true
+    );
+});
+
+test('terminal su endpoint authenticates godlike with concatenated password and TOTP', async () => {
+    const response = await handleTerminalSu(new Request('https://example.com/api/terminal/su', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            target: 'godlike',
+            password: 'delete-me287082'
+        })
+    }), {
+        ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
+        BLOG_IMAGE_DELETE_PASSWORD: 'delete-me',
+        GODLIKE_TOTP_SECRET: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',
+        RATE_LIMITER: createAlwaysAllowRateLimiter()
+    }, {
+        now: () => 59000
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+        ok: true,
+        user: 'godlike'
+    });
+});
+
+test('terminal su endpoint rejects password-only access when TOTP is configured', async () => {
+    const response = await handleTerminalSu(new Request('https://example.com/api/terminal/su', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -370,13 +408,15 @@ test('terminal su endpoint authenticates godlike with the delete password', asyn
     }), {
         ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
         BLOG_IMAGE_DELETE_PASSWORD: 'delete-me',
+        GODLIKE_TOTP_SECRET: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',
         RATE_LIMITER: createAlwaysAllowRateLimiter()
+    }, {
+        now: () => 59000
     });
 
-    assert.equal(response.status, 200);
+    assert.equal(response.status, 403);
     assert.deepEqual(await response.json(), {
-        ok: true,
-        user: 'godlike'
+        error: 'invalid credentials'
     });
 });
 
@@ -398,7 +438,7 @@ test('terminal su endpoint rejects invalid godlike passwords', async () => {
 
     assert.equal(response.status, 403);
     assert.deepEqual(await response.json(), {
-        error: 'invalid password'
+        error: 'invalid credentials'
     });
 });
 

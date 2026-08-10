@@ -1666,7 +1666,81 @@ async function handleAppend(request, env) {
     }
 }
 
-async function handleTerminalSu(request, env) {
+const TOTP_BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+const TOTP_STEP_MS = 30000;
+const TOTP_DIGITS = 6;
+
+export async function generateTotpCode(base32Secret, timestampMs = Date.now()) {
+    const secretBytes = decodeTotpBase32(base32Secret);
+    const counter = BigInt(Math.floor(timestampMs / TOTP_STEP_MS));
+    const counterBytes = new Uint8Array(8);
+    let remainingCounter = counter;
+    for (let index = counterBytes.length - 1; index >= 0; index -= 1) {
+        counterBytes[index] = Number(remainingCounter & 255n);
+        remainingCounter >>= 8n;
+    }
+
+    const key = await crypto.subtle.importKey(
+        'raw',
+        secretBytes,
+        { name: 'HMAC', hash: 'SHA-1' },
+        false,
+        ['sign']
+    );
+    const signature = new Uint8Array(await crypto.subtle.sign('HMAC', key, counterBytes));
+    const offset = signature[signature.length - 1] & 15;
+    const binary =
+        ((signature[offset] & 127) << 24) |
+        ((signature[offset + 1] & 255) << 16) |
+        ((signature[offset + 2] & 255) << 8) |
+        (signature[offset + 3] & 255);
+    return String(binary % (10 ** TOTP_DIGITS)).padStart(TOTP_DIGITS, '0');
+}
+
+export async function verifyTotpCode(base32Secret, candidate, timestampMs = Date.now()) {
+    if (!/^\d{6}$/.test(candidate)) {
+        return false;
+    }
+    for (const stepOffset of [-1, 0, 1]) {
+        const expected = await generateTotpCode(base32Secret, timestampMs + (stepOffset * TOTP_STEP_MS));
+        if (timingSafeStringEqual(candidate, expected)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function decodeTotpBase32(secret) {
+    const normalized = String(secret || '')
+        .toUpperCase()
+        .replace(/[\s-]+/g, '')
+        .replace(/=+$/g, '');
+    if (!normalized) {
+        throw new Error('TOTP secret is empty');
+    }
+
+    let bits = 0;
+    let value = 0;
+    const output = [];
+    for (const character of normalized) {
+        const alphabetIndex = TOTP_BASE32_ALPHABET.indexOf(character);
+        if (alphabetIndex < 0) {
+            throw new Error('TOTP secret is not valid Base32');
+        }
+        value = (value << 5) | alphabetIndex;
+        bits += 5;
+        if (bits >= 8) {
+            output.push((value >>> (bits - 8)) & 255);
+            bits -= 8;
+        }
+    }
+    if (output.length === 0) {
+        throw new Error('TOTP secret is too short');
+    }
+    return new Uint8Array(output);
+}
+
+export async function handleTerminalSu(request, env, dependencies = {}) {
     try {
         const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
         const rateCheck = await enforceRateLimit(ip, env);
@@ -1680,14 +1754,30 @@ async function handleTerminalSu(request, env) {
 
         const body = await request.json().catch(() => null);
         const target = String(body?.target || '').trim().toLowerCase();
-        const password = typeof body?.password === 'string' ? body.password : '';
+        const credential = typeof body?.password === 'string' ? body.password : '';
 
         if (target !== 'godlike') {
             return jsonResponse({ error: 'unsupported su target' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
-        if (!timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD)) {
-            return jsonResponse({ error: 'invalid password' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
+        let password = credential;
+        let passwordMatches;
+        let totpMatches = true;
+        if (env.GODLIKE_TOTP_SECRET) {
+            const candidateTotp = credential.slice(-TOTP_DIGITS);
+            password = credential.slice(0, -TOTP_DIGITS);
+            passwordMatches = timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD);
+            totpMatches = await verifyTotpCode(
+                env.GODLIKE_TOTP_SECRET,
+                candidateTotp,
+                (dependencies.now || Date.now)()
+            );
+        } else {
+            passwordMatches = timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD);
+        }
+
+        if (!passwordMatches || !totpMatches) {
+            return jsonResponse({ error: 'invalid credentials' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
         return jsonResponse({

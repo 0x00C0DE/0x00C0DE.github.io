@@ -20,10 +20,11 @@ Set them with Wrangler:
 wrangler secret put GITHUB_PAT
 wrangler secret put TURNSTILE_SECRET_KEY
 wrangler secret put BLOG_IMAGE_DELETE_PASSWORD
+wrangler secret put GODLIKE_TOTP_SECRET
 ```
 
 `TURNSTILE_SECRET_KEY` is optional. If omitted, Turnstile verification is skipped.
-`BLOG_IMAGE_DELETE_PASSWORD` is used by the blog image delete button and should be set as a Worker secret, not committed.
+`BLOG_IMAGE_DELETE_PASSWORD` is used by the blog deletion controls and as the password portion of `su godlike`. `GODLIKE_TOTP_SECRET` is the Base32 seed used to verify the final six digits supplied during `su godlike`; both should be set as Worker secrets and never committed.
 
 ## Visitor counter binding
 

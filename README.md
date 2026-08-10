@@ -423,7 +423,7 @@ In practice, the browser builds `contentBlocks` from the mixed text/media templa
 
 The Worker acts as a thin authenticated proxy between the public terminal UI, the GitHub API, and hosted blog media storage. The same package serves `/api/blog/append`, `/api/blog/upload-chunk`, `/api/blog/delete-image`, `/api/blog/delete-entry`, `/api/blog/media/...`, `/api/terminal/su`, and visitor endpoints while `R2QuotaGuard` and `B2QuotaGuard` Durable Objects enforce conservative storage and operation thresholds before either provider reaches its free-tier limit. The staged-upload Durable Object now schedules alarm-based cleanup, returns expired uploads as missing instead of letting them linger, and the public `/api/blog/upload-chunk` entrypoint has its own rate-limit window separate from the append/delete path.
 
-Secrets live in Cloudflare environment variables and are not committed to the repo. Current runtime secrets include `GITHUB_PAT`, `TURNSTILE_SECRET_KEY`, `BLOG_IMAGE_DELETE_PASSWORD`, `B2_APPLICATION_KEY`, and `CLOUDFLARE_BILLING_API_TOKEN`. `BLOG_IMAGE_DELETE_PASSWORD` is also the password used by `su godlike`.
+Secrets live in Cloudflare environment variables and are not committed to the repo. Current runtime secrets include `GITHUB_PAT`, `TURNSTILE_SECRET_KEY`, `BLOG_IMAGE_DELETE_PASSWORD`, `GODLIKE_TOTP_SECRET`, `B2_APPLICATION_KEY`, and `CLOUDFLARE_BILLING_API_TOKEN`. `su godlike` requires `BLOG_IMAGE_DELETE_PASSWORD` immediately followed by the current six-digit code derived from `GODLIKE_TOTP_SECRET`.
 
 Inline `png/jpg/jpeg/webp` images stay inside `blog.txt`, compact GIF payloads can still be serialized directly into the file, and larger GIF or MP4 uploads are stored as hosted Worker media URLs with `R2` as the primary store and private `B2` as the backup. When `TURNSTILE_SECRET_KEY` is configured, the browser obtains a fresh token immediately before posting and the Worker verifies that token server-side before appending. The Worker also blocks posts and deletes while GitHub Pages is still catching up to the previous `blog.txt` commit so the live site and the repo do not drift. New hardening in this path includes MIME/signature matching for `png/jpg/jpeg/webp/gif/mp4`, `nosniff` headers on hosted media responses, and configurable staged-upload controls through `BLOG_STAGE_RATE_LIMIT_WINDOW_MS`, `BLOG_STAGE_RATE_LIMIT_MAX`, and `BLOG_UPLOAD_SESSION_TTL_MS`.
 
@@ -455,7 +455,7 @@ Cache busting is handled manually through version query strings in the terminal 
 
 ```html
 <script src="/src/pictures.js?v=20260331b"></script>
-<script src="/src/commands.js?v=20260810c"></script>
+<script src="/src/commands.js?v=20260810d"></script>
 <script src="/src/term.js?v=20260413a"></script>
 ```
 

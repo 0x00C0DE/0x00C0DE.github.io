@@ -2654,11 +2654,17 @@ async function authenticateGodlikeSession() {
         return { ok: true };
     }
 
-    const password = window.prompt('Enter godlike password');
-    if (password === null) {
+    const credential = window.prompt('Enter godlike password followed by the current 6-digit authenticator code');
+    if (credential === null) {
         return {
             ok: false,
             error: 'authentication cancelled'
+        };
+    }
+    if (!/^.+\d{6}$/.test(credential)) {
+        return {
+            ok: false,
+            error: 'enter your password followed by the current 6-digit authenticator code'
         };
     }
 
@@ -2669,7 +2675,7 @@ async function authenticateGodlikeSession() {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                password,
+                password: credential,
                 target: 'godlike'
             })
         });
@@ -2682,7 +2688,7 @@ async function authenticateGodlikeSession() {
             };
         }
 
-        setGodlikePassword(password);
+        setGodlikePassword(credential.slice(0, -6));
         return { ok: true };
     } catch (error) {
         console.error('godlike authentication failed', error);
