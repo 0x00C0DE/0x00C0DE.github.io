@@ -889,10 +889,9 @@ export class B2QuotaGuard {
     }
 }
 
-// Keep the timeout comfortably above the persisted heartbeat cadence so
-// active visitors do not disappear if the Durable Object is reloaded
-// between storage flushes.
-const VISITOR_ONSITE_WINDOW_MS = 8000;
+// Keep the timeout at three heartbeat intervals so a delayed request does not
+// temporarily remove an otherwise active browser session.
+const VISITOR_ONSITE_WINDOW_MS = 45000;
 const HEARTBEAT_PERSIST_INTERVAL_MS = 2000;
 const MIN_SNAPSHOT_FLUSH_INTERVAL_MS = 1000;
 const MAX_IMAGE_DATA_URL_LENGTH = 100000000;

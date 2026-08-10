@@ -143,8 +143,14 @@ const BLOG_Z85_CHAR_TO_VALUE = (() => {
     }
     return mapping;
 })();
-const VISITOR_HEARTBEAT_MS = 1000;
-const VISITOR_STATS_POLL_MS = 500;
+const VISITOR_HEARTBEAT_MS = 15000;
+const VISITOR_SESSION_TTL_MS = VISITOR_HEARTBEAT_MS * 3;
+const VISITOR_TRACKING_LOCK_NAME = 'site-visitor-tracking-v1';
+const VISITOR_TRACKING_CHANNEL_NAME = 'site-visitor-tracking-v1';
+const VISITOR_SESSION_STORAGE_KEY = 'siteVisitorSessionV1';
+const VISITOR_LEADER_STORAGE_KEY = 'siteVisitorLeaderV1';
+const VISITOR_LEADER_LEASE_MS = 10000;
+const VISITOR_LEADER_RENEW_MS = 4000;
 const TURNSTILE_API_LOAD_TIMEOUT_MS = 15000;
 const TURNSTILE_TOKEN_TIMEOUT_MS = 30000;
 const BLOG_MEDIA_SIGNATURE_PREFIX_BYTES = 16;
@@ -169,9 +175,17 @@ const visitorCounterState = {
     stats: null,
     initialized: false,
     heartbeatId: null,
-    statsPollId: null,
     pendingStats: null,
-    leaveSent: false
+    pendingTrack: null,
+    leaveSent: false,
+    isLeader: false,
+    leadershipPending: false,
+    leadershipAbortController: null,
+    releaseLeadership: null,
+    channel: null,
+    tabId: null,
+    leaderLeaseId: null,
+    leadershipRetryId: null
 };
 const QR_TOTP_MEMORY_KEY = '__qrTotpEnrollmentV1';
 const QR_TOTP_BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -3308,6 +3322,95 @@ function extractVisitorStats(payload) {
     };
 }
 
+function readVisitorStorageRecord(key) {
+    try {
+        const value = JSON.parse(window.localStorage.getItem(key) || 'null');
+        return value && typeof value === 'object' ? value : null;
+    } catch (error) {
+        console.warn('visitor tracking storage unavailable', error);
+        return null;
+    }
+}
+
+function writeVisitorStorageRecord(key, value) {
+    try {
+        window.localStorage.setItem(key, JSON.stringify(value));
+        return true;
+    } catch (error) {
+        console.warn('visitor tracking storage unavailable', error);
+        return false;
+    }
+}
+
+function getSharedVisitorSession() {
+    const session = readVisitorStorageRecord(VISITOR_SESSION_STORAGE_KEY);
+    if (
+        typeof session?.visitId !== 'string' ||
+        !session.visitId ||
+        !Number.isFinite(session.expiresAt) ||
+        session.expiresAt <= Date.now()
+    ) {
+        return null;
+    }
+    return session;
+}
+
+function refreshSharedVisitorSession() {
+    const visitId = getCurrentVisitId();
+    writeVisitorStorageRecord(VISITOR_SESSION_STORAGE_KEY, {
+        visitId,
+        expiresAt: Date.now() + VISITOR_SESSION_TTL_MS
+    });
+}
+
+function prepareSharedVisitorSession() {
+    const session = getSharedVisitorSession();
+    if (session) {
+        visitorCounterState.visitId = session.visitId;
+        refreshSharedVisitorSession();
+        return false;
+    }
+
+    refreshSharedVisitorSession();
+    return true;
+}
+
+function broadcastVisitorStats() {
+    if (!visitorCounterState.channel || !visitorCounterState.stats) {
+        return;
+    }
+    visitorCounterState.channel.postMessage({
+        type: 'stats',
+        stats: visitorCounterState.stats
+    });
+}
+
+function applyBroadcastVisitorStats(payload) {
+    if (!isValidVisitorStats(payload)) {
+        return;
+    }
+    visitorCounterState.stats = extractVisitorStats(payload);
+    renderVisitorCounter();
+}
+
+function initVisitorTrackingChannel() {
+    if (visitorCounterState.channel || typeof window.BroadcastChannel !== 'function') {
+        return;
+    }
+
+    visitorCounterState.channel = new window.BroadcastChannel(VISITOR_TRACKING_CHANNEL_NAME);
+    visitorCounterState.channel.addEventListener('message', event => {
+        if (event.data?.type === 'stats') {
+            applyBroadcastVisitorStats(event.data.stats);
+            return;
+        }
+        if (event.data?.type === 'stats-request' && visitorCounterState.isLeader) {
+            broadcastVisitorStats();
+        }
+    });
+    visitorCounterState.channel.postMessage({ type: 'stats-request' });
+}
+
 async function fetchVisitorStats() {
     if (visitorCounterState.pendingStats) {
         return visitorCounterState.pendingStats;
@@ -3339,31 +3442,43 @@ async function fetchVisitorStats() {
 }
 
 async function sendVisitorTrack(action = 'heartbeat') {
-    const response = await fetch(VISITOR_TRACK_API_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            visitorId: getPersistentVisitorId(),
-            visitId: getCurrentVisitId(),
-            action
-        }),
-        cache: 'no-store'
-    });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !isValidVisitorStats(payload)) {
-        throw new Error(payload.error || `request failed with status ${response.status}`);
+    if (visitorCounterState.pendingTrack) {
+        return visitorCounterState.pendingTrack;
     }
 
-    visitorCounterState.stats = extractVisitorStats(payload);
-    renderVisitorCounter();
-    return visitorCounterState.stats;
+    visitorCounterState.pendingTrack = (async () => {
+        const response = await fetch(VISITOR_TRACK_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                visitorId: getPersistentVisitorId(),
+                visitId: getCurrentVisitId(),
+                action
+            }),
+            cache: 'no-store'
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !isValidVisitorStats(payload)) {
+            throw new Error(payload.error || `request failed with status ${response.status}`);
+        }
+
+        refreshSharedVisitorSession();
+        visitorCounterState.stats = extractVisitorStats(payload);
+        renderVisitorCounter();
+        broadcastVisitorStats();
+        return visitorCounterState.stats;
+    })().finally(() => {
+        visitorCounterState.pendingTrack = null;
+    });
+
+    return visitorCounterState.pendingTrack;
 }
 
 function sendVisitorLeave() {
-    if (!visitorCounterState.initialized || visitorCounterState.leaveSent) {
+    if (!visitorCounterState.initialized || !visitorCounterState.isLeader || visitorCounterState.leaveSent) {
         return;
     }
 
@@ -3389,18 +3504,197 @@ function sendVisitorLeave() {
         console.warn('visitor leave beacon failed', error);
     }
 
-    fetch(VISITOR_LEAVE_API_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: payload,
-        keepalive: true
-    }).catch(() => null);
-
-    if (!beaconSent && document.visibilityState !== 'hidden') {
-        fetchVisitorStats().catch(() => null);
+    if (!beaconSent) {
+        fetch(VISITOR_LEAVE_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: payload,
+            keepalive: true
+        }).catch(() => null);
     }
+}
+
+function startVisitorHeartbeat() {
+    if (visitorCounterState.heartbeatId !== null) {
+        window.clearInterval(visitorCounterState.heartbeatId);
+    }
+    visitorCounterState.heartbeatId = window.setInterval(() => {
+        if (!visitorCounterState.isLeader || document.visibilityState === 'hidden') {
+            return;
+        }
+        sendVisitorTrack('heartbeat').catch(error => {
+            console.error('visitor heartbeat failed', error);
+        });
+    }, VISITOR_HEARTBEAT_MS);
+}
+
+function becomeVisitorTrackingLeader() {
+    if (visitorCounterState.isLeader || document.visibilityState === 'hidden') {
+        return;
+    }
+
+    visitorCounterState.isLeader = true;
+    visitorCounterState.leaveSent = false;
+    const isNewSession = prepareSharedVisitorSession();
+    sendVisitorTrack(isNewSession ? 'visit' : 'heartbeat').catch(error => {
+        console.error('visitor tracking failed', error);
+    });
+    startVisitorHeartbeat();
+}
+
+function clearFallbackLeadershipTimers() {
+    if (visitorCounterState.leaderLeaseId !== null) {
+        window.clearInterval(visitorCounterState.leaderLeaseId);
+        visitorCounterState.leaderLeaseId = null;
+    }
+    if (visitorCounterState.leadershipRetryId !== null) {
+        window.clearTimeout(visitorCounterState.leadershipRetryId);
+        visitorCounterState.leadershipRetryId = null;
+    }
+}
+
+function releaseFallbackLeadership() {
+    clearFallbackLeadershipTimers();
+    const lease = readVisitorStorageRecord(VISITOR_LEADER_STORAGE_KEY);
+    if (lease?.ownerId === visitorCounterState.tabId) {
+        try {
+            window.localStorage.removeItem(VISITOR_LEADER_STORAGE_KEY);
+        } catch (error) {
+            console.warn('visitor tracking storage unavailable', error);
+        }
+    }
+}
+
+function stopVisitorTrackingLeader({ notifyLeave = true } = {}) {
+    if (!visitorCounterState.isLeader) {
+        return;
+    }
+
+    if (notifyLeave) {
+        sendVisitorLeave();
+    }
+    visitorCounterState.isLeader = false;
+    if (visitorCounterState.heartbeatId !== null) {
+        window.clearInterval(visitorCounterState.heartbeatId);
+        visitorCounterState.heartbeatId = null;
+    }
+    releaseFallbackLeadership();
+    if (visitorCounterState.releaseLeadership) {
+        const release = visitorCounterState.releaseLeadership;
+        visitorCounterState.releaseLeadership = null;
+        release();
+    }
+}
+
+function scheduleFallbackLeadershipAttempt() {
+    if (visitorCounterState.leadershipRetryId !== null || document.visibilityState === 'hidden') {
+        return;
+    }
+    visitorCounterState.leadershipRetryId = window.setTimeout(() => {
+        visitorCounterState.leadershipRetryId = null;
+        requestFallbackVisitorLeadership();
+    }, VISITOR_LEADER_RENEW_MS);
+}
+
+function requestFallbackVisitorLeadership() {
+    if (
+        visitorCounterState.isLeader ||
+        visitorCounterState.leadershipPending ||
+        document.visibilityState === 'hidden'
+    ) {
+        return;
+    }
+
+    visitorCounterState.tabId ||= generateVisitorId().replace(/^visitor-/, 'tab-');
+    const currentLease = readVisitorStorageRecord(VISITOR_LEADER_STORAGE_KEY);
+    if (
+        currentLease?.ownerId !== visitorCounterState.tabId &&
+        Number.isFinite(currentLease?.expiresAt) &&
+        currentLease.expiresAt > Date.now()
+    ) {
+        scheduleFallbackLeadershipAttempt();
+        return;
+    }
+
+    visitorCounterState.leadershipPending = true;
+    const candidate = {
+        ownerId: visitorCounterState.tabId,
+        expiresAt: Date.now() + VISITOR_LEADER_LEASE_MS
+    };
+    if (!writeVisitorStorageRecord(VISITOR_LEADER_STORAGE_KEY, candidate)) {
+        visitorCounterState.leadershipPending = false;
+        becomeVisitorTrackingLeader();
+        return;
+    }
+
+    window.setTimeout(() => {
+        visitorCounterState.leadershipPending = false;
+        const confirmedLease = readVisitorStorageRecord(VISITOR_LEADER_STORAGE_KEY);
+        if (confirmedLease?.ownerId !== visitorCounterState.tabId) {
+            scheduleFallbackLeadershipAttempt();
+            return;
+        }
+
+        becomeVisitorTrackingLeader();
+        visitorCounterState.leaderLeaseId = window.setInterval(() => {
+            const lease = readVisitorStorageRecord(VISITOR_LEADER_STORAGE_KEY);
+            if (lease?.ownerId !== visitorCounterState.tabId) {
+                stopVisitorTrackingLeader({ notifyLeave: false });
+                scheduleFallbackLeadershipAttempt();
+                return;
+            }
+            writeVisitorStorageRecord(VISITOR_LEADER_STORAGE_KEY, {
+                ownerId: visitorCounterState.tabId,
+                expiresAt: Date.now() + VISITOR_LEADER_LEASE_MS
+            });
+        }, VISITOR_LEADER_RENEW_MS);
+    }, 50);
+}
+
+function requestVisitorLeadership() {
+    if (
+        visitorCounterState.isLeader ||
+        visitorCounterState.leadershipPending ||
+        document.visibilityState === 'hidden'
+    ) {
+        return;
+    }
+
+    if (!navigator.locks || typeof navigator.locks.request !== 'function') {
+        requestFallbackVisitorLeadership();
+        return;
+    }
+
+    visitorCounterState.leadershipPending = true;
+    const controller = new AbortController();
+    visitorCounterState.leadershipAbortController = controller;
+
+    navigator.locks.request(VISITOR_TRACKING_LOCK_NAME, {
+        mode: 'exclusive',
+        signal: controller.signal
+    }, async () => {
+        visitorCounterState.leadershipPending = false;
+        visitorCounterState.leadershipAbortController = null;
+        if (document.visibilityState === 'hidden') {
+            return;
+        }
+
+        becomeVisitorTrackingLeader();
+        await new Promise(resolve => {
+            visitorCounterState.releaseLeadership = resolve;
+        });
+    }).catch(error => {
+        if (error?.name !== 'AbortError') {
+            console.error('visitor leadership failed', error);
+        }
+    }).finally(() => {
+        visitorCounterState.leadershipPending = false;
+        if (visitorCounterState.leadershipAbortController === controller) {
+            visitorCounterState.leadershipAbortController = null;
+        }
+    });
 }
 
 function resumeVisitorTracking() {
@@ -3413,14 +3707,15 @@ function resumeVisitorTracking() {
     }
 
     visitorCounterState.leaveSent = false;
-    sendVisitorTrack('heartbeat').catch(() => {
-        fetchVisitorStats().catch(() => null);
-    });
+    window.setTimeout(requestVisitorLeadership, 0);
 }
 
 function handleVisitorVisibilityChange() {
     if (document.visibilityState === 'hidden') {
-        sendVisitorLeave();
+        if (visitorCounterState.leadershipAbortController) {
+            visitorCounterState.leadershipAbortController.abort();
+        }
+        stopVisitorTrackingLeader();
         return;
     }
 
@@ -3430,24 +3725,27 @@ function handleVisitorVisibilityChange() {
 function initVisitorTracking() {
     if (!visitorCounterState.initialized) {
         visitorCounterState.initialized = true;
-        sendVisitorTrack('visit').catch(() => {
-            fetchVisitorStats().catch(() => null);
-        });
-        visitorCounterState.heartbeatId = window.setInterval(() => {
-            sendVisitorTrack('heartbeat').catch(() => {
-                fetchVisitorStats().catch(() => null);
-            });
-        }, VISITOR_HEARTBEAT_MS);
-        visitorCounterState.statsPollId = window.setInterval(() => {
-            fetchVisitorStats().catch(() => null);
-        }, VISITOR_STATS_POLL_MS);
-        fetchVisitorStats().catch(() => null);
+        initVisitorTrackingChannel();
+        requestVisitorLeadership();
 
         document.addEventListener('visibilitychange', handleVisitorVisibilityChange);
         window.addEventListener('pageshow', resumeVisitorTracking);
         window.addEventListener('focus', resumeVisitorTracking);
-        window.addEventListener('pagehide', sendVisitorLeave);
-        window.addEventListener('beforeunload', sendVisitorLeave);
+        window.addEventListener('pagehide', () => stopVisitorTrackingLeader());
+        window.addEventListener('beforeunload', () => stopVisitorTrackingLeader());
+        window.addEventListener('storage', event => {
+            if (
+                event.key !== VISITOR_LEADER_STORAGE_KEY ||
+                (navigator.locks && typeof navigator.locks.request === 'function')
+            ) {
+                return;
+            }
+            const lease = readVisitorStorageRecord(VISITOR_LEADER_STORAGE_KEY);
+            if (visitorCounterState.isLeader && lease?.ownerId !== visitorCounterState.tabId) {
+                stopVisitorTrackingLeader({ notifyLeave: false });
+            }
+            requestFallbackVisitorLeadership();
+        });
     } else {
         renderVisitorCounter();
     }
