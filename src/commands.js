@@ -3455,7 +3455,7 @@ window.setTerminalSessionState = setTerminalSessionState;
 window.refreshTerminalSessionUi = refreshTerminalSessionUi;
 
 function resume_command() {
-    window.open('/assets/resume.pdf?v=20260413a', '_blank');
+    window.open('/assets/resume.pdf?v=20260810a', '_blank');
     return [];
 }
 
