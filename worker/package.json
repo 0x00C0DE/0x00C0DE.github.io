@@ -10,6 +10,6 @@
     "test": "node --test src/index.test.js"
   },
   "devDependencies": {
-    "wrangler": "^4.11.1"
+    "wrangler": "^4.120.1"
   }
 }

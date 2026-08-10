@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "postinstall": "node scripts/sync-pretext-package.mjs",
-    "sync:pretext": "node scripts/sync-pretext-package.mjs"
+    "sync:pretext": "node scripts/sync-pretext-package.mjs",
+    "test:security": "npm audit --audit-level=moderate && npm --prefix worker audit --audit-level=moderate && npm --prefix backend audit --audit-level=moderate"
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.5"
