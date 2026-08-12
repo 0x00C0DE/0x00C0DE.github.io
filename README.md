@@ -174,6 +174,8 @@ The universal `post ... [image] ...` flow shares the same Worker path as text-on
 │   ├── term.js                         # Thin boot bridge that loads the canvas runtime
 │   ├── terminal-canvas-core.mjs        # Canvas terminal engine, input loop, viewer, and blog/media interactions
 │   ├── commands.js                     # Shell commands, blog/media parsing, session auth, and helper bridges
+│   ├── bitcoin-analytics-core.mjs       # Bitcoin parsing, indicators, forecasting, formatting, and backtesting
+│   ├── bitcoin-dashboard-core.mjs       # Responsive Bitcoin dashboard view model, layout, and Canvas renderer
 │   ├── pictures.js                     # ASCII/glyph image rendering + webcam support
 │   ├── banner-wave-core.mjs            # Grapheme-aware banner wave segmentation helpers
 │   ├── terminal-session-core.mjs       # Pure session state for guest/root/godlike prompt behavior
@@ -197,8 +199,15 @@ The universal `post ... [image] ...` flow shares the same Worker path as text-on
 │   ├── amr.txt                         # AMR project notes
 │   └── readme.txt                      # In-terminal readme served by `cat readme.txt`
 │
+├── bitcoindata/                        # Primary newline-delimited repository Bitcoin history by timeframe
+│   ├── PROPRTS-job_1m-unlimited-history.txt
+│   ├── PROPRTS-job_2m-unlimited-history.txt
+│   ├── PROPRTS-job_5m-unlimited-history.txt
+│   └── ... 10m, 15m, 30m, 1h, and 2h histories
+│
 ├── assets/                             # Static downloadable assets
-│   └── resume.pdf                      # Downloadable resume
+│   ├── resume.pdf                      # Downloadable resume
+│   └── bitcoin-dashboard.png           # Verified Bitcoin dashboard example
 │
 ├── backend/                            # Local backend/server helpers
 ├── worker/                             # Cloudflare Worker package and deployment scripts
@@ -233,6 +242,7 @@ Responsibilities:
 
 Responsibilities:
 - Draws the prompt, command history, wrapped output, banner, visitor widget, and viewer mode into the visible canvas
+- Renders responsive Bitcoin chart-dashboard blocks through the dedicated dashboard module
 - Handles keyboard input, scrolling, prompt echo, cursor blinking, and pointer interactions directly
 - Renders inline images, GIFs, and MP4 placeholders without relying on DOM text rows
 - Enables root-only draggable editorial blog layout and godlike-only inline delete controls
@@ -256,6 +266,7 @@ The terminal command map routes each shell verb to its handler, with most comman
 |---|---|
 | `banner` | Renders the canvas welcome screen |
 | `bitcoin [interval]` | Analyzes the repository's `bitcoindata` history across all intervals, or drills into `1m`, `2m`, `5m`, `10m`, `15m`, `30m`, `1h`, or `2h` with trend/pattern classification, SMA, EMA, RSI, MACD, volatility, momentum, support/resistance, drawdown, spread, liquidity, freshness, and data-quality metrics |
+| `bitcoin dashboard [interval]` | Renders the responsive visual chart dashboard for all timeframes, or a single selected timeframe, using the newest stored repository observations |
 | `bitcoin forecast [interval]` | Builds multi-horizon probabilistic estimates from the selected repository dataset, including expected returns, estimated 80% ranges, and explicit model-prediction versus speculative-projection labels; defaults to `1m` |
 | `bitcoin backtest [interval]` | Runs expanding-window historical evaluation with MAE, RMSE, MAPE, directional accuracy, range coverage, and skill against an unchanged-price baseline; defaults to `1m` |
 | `cat <file>` | Fetches a `.txt` file and streams it to the terminal |
@@ -286,9 +297,33 @@ The terminal command map routes each shell verb to its handler, with most comman
 
 Commands that require async I/O (`bitcoin`, `cat`, `post`, `fortune`, `video`, `userpic`, `qr-totp`, `visitors`) return Promises and can be aborted mid-execution.
 
-The `bitcoin` command reads bounded tails of the newline-delimited files in `bitcoindata/` instead of downloading their unlimited history in full. Its default dashboard compares every interval with per-window sparklines, a confidence-qualified multi-timeframe bias, and a compact forecast snapshot. `bitcoin <interval>` exposes SMA 5/20, EMA 5/13, RSI(14), MACD 12/26/9, normalized trend score, historical pattern and market-condition labels, realized volatility, momentum, z-score, maximum drawdown, support/resistance estimates, spread/liquidity baselines, timestamp-gap validation, sample coverage, and freshness.
+The `bitcoin` command reads bounded tails of the newline-delimited files in `bitcoindata/` instead of downloading their unlimited history in full. Its default output now begins with the visual dashboard and retains the existing text dashboard beneath it, including per-window sparklines, the confidence-qualified multi-timeframe bias, and the compact forecast snapshot. `bitcoin <interval>` renders a focused single-panel chart before the existing detail output and exposes SMA 5/20, EMA 5/13, RSI(14), MACD 12/26/9, normalized trend score, historical pattern and market-condition labels, realized volatility, momentum, z-score, maximum drawdown, support/resistance estimates, spread/liquidity baselines, timestamp-gap validation, sample coverage, and freshness. `bitcoin dashboard [interval]` provides a GUI-focused view for either all supported timeframes or one selected interval.
+
+The visual dashboard follows a compact two-column layout at desktop widths and stacks panels vertically on narrow screens. Every available panel plots historical mid/last, bid, and ask prices; a window-mean reference price; support/resistance-informed buy and sell trigger levels; projected prices; an estimated 80% forecast band; and a highlighted latest-price marker. Its status rows show the current price, update time, spread and spread shock, expected return, score and raw signal, BUY/SELL/HOLD state, buy/sell signal state, momentum, volatility class, projection direction, RSI, MACD histogram, pattern, coverage, and sample count. When enough evidence exists, the footer includes one-step walk-forward MAE, RMSE, MAPE, directional accuracy, estimated-range coverage, and skill versus the unchanged-price baseline. BUY or SELL is displayed only when the technical signal agrees with the market condition and the backtest has at least eight trials, at least 50% directional accuracy, and positive baseline skill; otherwise the panel remains HOLD. Missing or malformed interval data becomes an explicit unavailable panel rather than a fabricated chart.
+
+![Bitcoin analytics dashboard](assets/bitcoin-dashboard.png)
+
+The dashboard uses the existing Canvas 2D terminal runtime and adds no runtime dependency, API key, account data, average-cost configuration, or Worker deployment requirement. Because this repository has no portfolio cost basis, the purple **Reference** line is the arithmetic mean of the displayed historical window, not an account average cost. Re-run `bitcoin` or `bitcoin dashboard` to fetch and render the newest stored observations.
 
 `bitcoin forecast [interval]` uses a lightweight ensemble of median historical log-return drift, fitted log-price trend, EMA separation, recent momentum, and a small mean-reversion component. Extrapolation is damped as the horizon grows, while estimated 80% prediction ranges widen from observed return and regression-residual dispersion. A horizon is shown under **MODEL PREDICTIONS** only when its distance fits within the available historical evidence window; longer horizons are separated under **SPECULATIVE PROJECTIONS**. `bitcoin backtest [interval]` refits the model using only data available before each historical target and reports MAE, RMSE, MAPE, directional accuracy, estimated-range coverage, naive persistence MAE, and relative skill. These estimates assume recent historical relationships remain approximately stable, are limited by the repository's small and uneven sample depth, exclude external news and market microstructure, and are never guaranteed outcomes, financial advice, or trading instructions.
+
+### `bitcoin-analytics-core.mjs` — Historical Analytics and Forecasting
+
+Responsibilities:
+- Validates and deduplicates the repository JSONL observations
+- Calculates trend, SMA, EMA, RSI, MACD, volatility, momentum, drawdown, support/resistance, spread, freshness, and data-quality metrics
+- Produces damped multi-horizon probabilistic estimates with widening historical-dispersion ranges
+- Runs expanding-window backtests and reports MAE, RMSE, MAPE, directional accuracy, range coverage, and naive-baseline skill
+- Keeps historical evidence, model-supported predictions, and speculative projections explicitly separated
+
+### `bitcoin-dashboard-core.mjs` — Visual Dashboard
+
+Responsibilities:
+- Converts analytics, forecast, and backtest results into a visualization-only view model
+- Derives evidence-qualified BUY/SELL/HOLD diagnostics and support/resistance-informed trigger levels
+- Creates responsive two-column desktop and one-column mobile panel layouts
+- Draws chart axes, labels, legends, historical market lines, trigger/reference levels, forecast paths and ranges, latest markers, signal markers, and performance summaries
+- Handles incomplete or unavailable intervals without coupling the renderer to file retrieval or forecasting internals
 
 For blog rendering, `cat blog.txt` groups entries into structured text/media blocks, understands inline base64 image blocks, compact reversible GIF blocks, and hosted media URL blocks for GIF and MP4 assets. When the active user is `root`, it reflows the banner, visitor widget, timestamps, and blog entries through a draggable editorial layout that treats media as terminal-wide obstacles; delete controls remain hidden unless the active user is `godlike`.
 
@@ -462,8 +497,8 @@ Cache busting is handled manually through version query strings in the terminal 
 
 ```html
 <script src="/src/pictures.js?v=20260331b"></script>
-<script src="/src/commands.js?v=20260812c"></script>
-<script src="/src/term.js?v=20260413a"></script>
+<script src="/src/commands.js?v=20260812d"></script>
+<script src="/src/term.js?v=20260812b"></script>
 ```
 
 The entry pages now mount a visible `terminal-canvas` plus a hidden scratch canvas, and they intentionally do **not** include a stylesheet link for the live terminal renderer. Frontend-only changes go live with a push to `main`. A separate Worker redeploy is only needed when `backend/`, `worker/`, or `worker/wrangler.jsonc` changes.
@@ -484,15 +519,18 @@ The Turnstile site key is intentionally public and safe to ship in the frontend.
 
 ## Testing
 
-The recent terminal updates were added with red/green TDD around the session/elevated-shell rules, Pretext wrapping and editorial layout adapters, package-sync guardrails, the Worker-backed blog/media flows, the live history bridge, the Turnstile-enabled posting path, and the newer media hardening for staged upload expiry/rate limits, signature validation, `nosniff`, and `userpic` caps before wiring them into the browser runtime.
+The recent terminal updates were added with red/green TDD around the session/elevated-shell rules, Pretext wrapping and editorial layout adapters, package-sync guardrails, the Worker-backed blog/media flows, the live history bridge, Bitcoin analytics/forecasting/backtesting and the responsive dashboard model, the Turnstile-enabled posting path, and the newer media hardening for staged upload expiry/rate limits, signature validation, `nosniff`, and `userpic` caps before wiring them into the browser runtime.
 
 Current checks:
 
 ```bash
 node --test tests/terminal-session-core.test.mjs tests/terminal-visuals-core.test.mjs tests/terminal-pretext-core.test.mjs tests/pretext-lab-core.test.mjs tests/pretext-package-sync.test.mjs
+node --test tests/bitcoin-analytics-core.test.mjs tests/bitcoin-dashboard-core.test.mjs tests/bitcoin-command-source.test.mjs tests/bitcoin-command-browser.test.mjs
 node --check src/commands.js
 node --check src/term.js
 node --check src/banner-wave-core.mjs
+node --check src/bitcoin-analytics-core.mjs
+node --check src/bitcoin-dashboard-core.mjs
 node --check src/terminal-canvas-core.mjs
 node --check src/terminal-session-core.mjs
 node --check src/terminal-visuals-core.mjs
@@ -552,6 +590,8 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
   qr-totp --get-otp          Generate the current 6-digit code from the loaded enrollment
   bitcoin                    Multi-timeframe analytics from repository Bitcoin history
   bitcoin 1m                 Detailed 1-minute trend, indicators, levels, and data-quality view
+  bitcoin dashboard          Responsive visual dashboard for every supported timeframe
+  bitcoin dashboard 1m       Focused visual dashboard for the 1-minute repository history
   bitcoin forecast 1m        Multi-horizon probabilistic estimates with widening 80% ranges
   bitcoin backtest 1m        Walk-forward forecast errors, coverage, direction, and naive skill
   fortune                    Random quote
@@ -568,6 +608,7 @@ userpic                    Uploaded/captured png/jpg/jpeg/webp/gif to ASCII art 
 
 ```text
 https://0x00c0de.github.io/?command=cat%20blog.txt
+https://0x00c0de.github.io/?command=bitcoin%20dashboard
 ```
 
 The `command` URL parameter is parsed by the entry page and passed directly into the terminal boot flow.

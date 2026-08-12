@@ -1,5 +1,5 @@
 let terminalCanvasCore = null;
-const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=20260812a')
+const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=20260812b')
     .then(core => {
         terminalCanvasCore = core;
         return core;
