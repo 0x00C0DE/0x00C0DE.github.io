@@ -102,7 +102,7 @@ const FORTUNE_FALLBACKS = [
 ];
 let prefetchedFortunePromise = null;
 let bitcoinAnalyticsCorePromise = null;
-const BITCOIN_ANALYTICS_MODULE_URL = '/src/bitcoin-analytics-core.mjs?v=20260812a';
+const BITCOIN_ANALYTICS_MODULE_URL = '/src/bitcoin-analytics-core.mjs?v=20260812b';
 const BITCOIN_HISTORY_TAIL_BYTES = 262144;
 const BITCOIN_HISTORY_MAX_POINTS = 512;
 const TURNSTILE_SITE_KEY = window.TURNSTILE_SITE_KEY || '0x4AAAAAAC85Zivt0Tn6Fqp9';
@@ -1033,6 +1033,8 @@ function buildPretextLabHref(text) {
 function help_command() {
     const entries = [
         ['bitcoin <interval>', 'Analyze repository Bitcoin history across all intervals or drill into 1m, 2m, 5m, 10m, 15m, 30m, 1h, or 2h'],
+        ['bitcoin forecast [interval]', 'Project probabilistic price ranges across multiple horizons (defaults to 1m data)'],
+        ['bitcoin backtest [interval]', 'Walk-forward test the forecast against repository history (defaults to 1m data)'],
         ['cat', 'Display file contents'],
         ['clear', 'Clear the terminal screen'],
         ['date', 'Display current date and time'],
@@ -2589,8 +2591,11 @@ async function fetchBitcoinIntervalHistory(core, interval) {
 function getBitcoinCommandUsage(core) {
     return [
         'Usage: bitcoin [interval]',
+        '       bitcoin forecast [interval]',
+        '       bitcoin backtest [interval]',
         `Intervals: ${core.BITCOIN_INTERVALS.map(interval => interval.id).join(', ')}`,
-        'Run without an interval for the multi-timeframe analytics dashboard.'
+        'Run without an interval for the multi-timeframe analytics dashboard.',
+        'Forecast and backtest default to the 1m repository dataset.'
     ];
 }
 
@@ -2598,7 +2603,35 @@ async function bitcoin_command(args) {
     try {
         const core = await loadBitcoinAnalyticsCore();
         const requested = String(args?.[0] || '').trim().toLowerCase();
-        if (requested === 'help' || args?.length > 1) {
+        if (requested === 'help') {
+            return getBitcoinCommandUsage(core);
+        }
+
+        if (requested === 'forecast' || requested === 'backtest') {
+            if (args?.length > 2) {
+                return getBitcoinCommandUsage(core);
+            }
+            const intervalId = String(args?.[1] || '1m').trim().toLowerCase();
+            const interval = core.BITCOIN_INTERVALS.find(candidate => candidate.id === intervalId);
+            if (!interval) {
+                return [`bitcoin: unsupported interval '${intervalId}'`, ...getBitcoinCommandUsage(core)];
+            }
+            const history = await fetchBitcoinIntervalHistory(core, interval);
+            const analysis = core.analyzeBitcoinHistory(history, interval);
+            if (requested === 'forecast') {
+                const forecast = core.buildBitcoinForecast(analysis);
+                return core.formatBitcoinForecast(analysis, forecast);
+            }
+            const horizons = core.buildBitcoinForecast(analysis).projections
+                .slice(0, 3)
+                .map(projection => projection.horizonBars);
+            const backtests = (horizons.length ? horizons : [1]).map(horizonBars => (
+                core.backtestBitcoinForecast(history, interval, { horizonBars })
+            ));
+            return core.formatBitcoinBacktest(analysis, backtests);
+        }
+
+        if (args?.length > 1) {
             return getBitcoinCommandUsage(core);
         }
 

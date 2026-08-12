@@ -255,7 +255,9 @@ The terminal command map routes each shell verb to its handler, with most comman
 | Command | Description |
 |---|---|
 | `banner` | Renders the canvas welcome screen |
-| `bitcoin [interval]` | Analyzes the repository's `bitcoindata` history across all intervals, or drills into `1m`, `2m`, `5m`, `10m`, `15m`, `30m`, `1h`, or `2h` with price, EMA, RSI, volatility, momentum, spread, liquidity, projection, freshness, and data-quality metrics |
+| `bitcoin [interval]` | Analyzes the repository's `bitcoindata` history across all intervals, or drills into `1m`, `2m`, `5m`, `10m`, `15m`, `30m`, `1h`, or `2h` with trend/pattern classification, SMA, EMA, RSI, MACD, volatility, momentum, support/resistance, drawdown, spread, liquidity, freshness, and data-quality metrics |
+| `bitcoin forecast [interval]` | Builds multi-horizon probabilistic estimates from the selected repository dataset, including expected returns, estimated 80% ranges, and explicit model-prediction versus speculative-projection labels; defaults to `1m` |
+| `bitcoin backtest [interval]` | Runs expanding-window historical evaluation with MAE, RMSE, MAPE, directional accuracy, range coverage, and skill against an unchanged-price baseline; defaults to `1m` |
 | `cat <file>` | Fetches a `.txt` file and streams it to the terminal |
 | `clear` | Clears terminal output and rebuilds the prompt |
 | `date` | Prints the browser's current date/time string |
@@ -284,7 +286,9 @@ The terminal command map routes each shell verb to its handler, with most comman
 
 Commands that require async I/O (`bitcoin`, `cat`, `post`, `fortune`, `video`, `userpic`, `qr-totp`, `visitors`) return Promises and can be aborted mid-execution.
 
-The `bitcoin` command reads bounded tails of the newline-delimited files in `bitcoindata/` instead of downloading their unlimited history in full. Its default dashboard compares every interval with per-window sparklines and a confidence-qualified multi-timeframe bias; `bitcoin <interval>` exposes the underlying EMA 5/13, RSI(14), normalized trend score, realized volatility, z-score, one-bar regression projection, spread baseline, liquidity quality, and sample freshness. The output is informational historical analysis and does not place orders or provide trading instructions.
+The `bitcoin` command reads bounded tails of the newline-delimited files in `bitcoindata/` instead of downloading their unlimited history in full. Its default dashboard compares every interval with per-window sparklines, a confidence-qualified multi-timeframe bias, and a compact forecast snapshot. `bitcoin <interval>` exposes SMA 5/20, EMA 5/13, RSI(14), MACD 12/26/9, normalized trend score, historical pattern and market-condition labels, realized volatility, momentum, z-score, maximum drawdown, support/resistance estimates, spread/liquidity baselines, timestamp-gap validation, sample coverage, and freshness.
+
+`bitcoin forecast [interval]` uses a lightweight ensemble of median historical log-return drift, fitted log-price trend, EMA separation, recent momentum, and a small mean-reversion component. Extrapolation is damped as the horizon grows, while estimated 80% prediction ranges widen from observed return and regression-residual dispersion. A horizon is shown under **MODEL PREDICTIONS** only when its distance fits within the available historical evidence window; longer horizons are separated under **SPECULATIVE PROJECTIONS**. `bitcoin backtest [interval]` refits the model using only data available before each historical target and reports MAE, RMSE, MAPE, directional accuracy, estimated-range coverage, naive persistence MAE, and relative skill. These estimates assume recent historical relationships remain approximately stable, are limited by the repository's small and uneven sample depth, exclude external news and market microstructure, and are never guaranteed outcomes, financial advice, or trading instructions.
 
 For blog rendering, `cat blog.txt` groups entries into structured text/media blocks, understands inline base64 image blocks, compact reversible GIF blocks, and hosted media URL blocks for GIF and MP4 assets. When the active user is `root`, it reflows the banner, visitor widget, timestamps, and blog entries through a draggable editorial layout that treats media as terminal-wide obstacles; delete controls remain hidden unless the active user is `godlike`.
 
@@ -458,7 +462,7 @@ Cache busting is handled manually through version query strings in the terminal 
 
 ```html
 <script src="/src/pictures.js?v=20260331b"></script>
-<script src="/src/commands.js?v=20260810d"></script>
+<script src="/src/commands.js?v=20260812c"></script>
 <script src="/src/term.js?v=20260413a"></script>
 ```
 
@@ -547,7 +551,9 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
   qr-totp --generate-qr ...  Generate and scan an in-browser TOTP enrollment for godlike 2FA
   qr-totp --get-otp          Generate the current 6-digit code from the loaded enrollment
   bitcoin                    Multi-timeframe analytics from repository Bitcoin history
-  bitcoin 1m                 Detailed 1-minute EMA, RSI, volatility, spread, and projection view
+  bitcoin 1m                 Detailed 1-minute trend, indicators, levels, and data-quality view
+  bitcoin forecast 1m        Multi-horizon probabilistic estimates with widening 80% ranges
+  bitcoin backtest 1m        Walk-forward forecast errors, coverage, direction, and naive skill
   fortune                    Random quote
 post [text] ... [image] ... Append to blog.txt; omit [image] for text-only posts or use one selected png/jpg/jpeg/webp/gif/mp4 file per placeholder (up to 10). Uploads are signature-checked and staged uploads expire/rate-limit before commit. When enabled, Turnstile verification runs right before submit. Example: post first [image] second [image] third
   mypic                      ASCII portrait
