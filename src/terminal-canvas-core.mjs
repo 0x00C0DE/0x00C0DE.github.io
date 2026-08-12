@@ -1,4 +1,8 @@
 import { splitBannerWaveGlyphs } from './banner-wave-core.mjs';
+import {
+    createBitcoinDashboardLayout,
+    renderBitcoinDashboard
+} from './bitcoin-dashboard-core.mjs';
 import * as pretext from './pretext-browser.mjs';
 import {
     layoutPreparedTerminalEditorialText,
@@ -2413,6 +2417,41 @@ function layoutTextLink(block, width, metrics, context = {}) {
         });
 }
 
+function layoutBitcoinDashboard(block, width, metrics, context = {}) {
+    const dashboard = block.data?.dashboard && typeof block.data.dashboard === 'object'
+        ? block.data.dashboard
+        : { panels: [] };
+    const dashboardLayout = createBitcoinDashboardLayout(width, dashboard.panels?.length || 0);
+    const baseLayout = {
+        dashboardLayout,
+        height: dashboardLayout.height,
+        hitRegions: [],
+        render(ctx, originX, originY, palette) {
+            try {
+                renderBitcoinDashboard(ctx, dashboard, dashboardLayout, {
+                    originX,
+                    originY,
+                    palette
+                });
+            } catch (error) {
+                console.error('bitcoin dashboard render failed', error);
+                ctx.fillStyle = palette.block;
+                ctx.strokeStyle = palette.border;
+                ctx.fillRect(originX, originY, dashboardLayout.width, dashboardLayout.height);
+                ctx.strokeRect(originX + 0.5, originY + 0.5, dashboardLayout.width - 1, dashboardLayout.height - 1);
+                ctx.fillStyle = palette.text;
+                ctx.font = metrics.textFont;
+                ctx.textBaseline = 'top';
+                ctx.fillText('bitcoin dashboard: visualization unavailable; text analytics remain below', originX + 12, originY + 12);
+            }
+        }
+    };
+    return placeLayoutAroundEditorialObstacles(baseLayout, width, context, {
+        blockHeight: dashboardLayout.height,
+        blockWidth: dashboardLayout.width
+    });
+}
+
 function isEditorialModeActive() {
     const snapshot = getPromptSnapshot();
     return Boolean(snapshot.isRoot || String(snapshot.user || '').toLowerCase() === 'root');
@@ -2436,6 +2475,8 @@ function layoutOutputBlock(block, width, metrics, context = {}) {
     switch (block.data.type) {
     case 'banner':
         return layoutBanner(block, width, metrics, context);
+    case 'bitcoin-dashboard':
+        return layoutBitcoinDashboard(block, width, metrics, context);
     case 'blog-entry':
         return layoutBlogEntry(block, width, metrics, isEditorialModeActive(), context);
     case 'blog-entry-header':
@@ -3264,6 +3305,17 @@ function appendCommandEcho(commandLine) {
     markLayoutDirty();
 }
 
+function revealLatestOutputType(type) {
+    ensureLayoutCurrent();
+    const block = [...app.blocks].reverse().find(item => item.data?.type === type);
+    if (!block || !Number.isFinite(block.top)) {
+        return false;
+    }
+    stopScrollGlide();
+    app.scrollTop = clamp(block.top, 0, getMaxScrollTop());
+    return true;
+}
+
 export async function executeCommand(commandLine) {
     const safeCommand = typeof commandLine === 'string' ? commandLine.trim() : '';
     if (!safeCommand) {
@@ -3297,7 +3349,11 @@ export async function executeCommand(commandLine) {
     appendOutput(output);
     app.inputValue = '';
     syncTextInputProxyValue();
-    scrollToBottom();
+    const includesBitcoinDashboard = Array.isArray(output)
+        && output.some(item => item?.type === 'bitcoin-dashboard');
+    if (!includesBitcoinDashboard || !revealLatestOutputType('bitcoin-dashboard')) {
+        scrollToBottom();
+    }
 }
 
 export function setupTerminal() {
@@ -4410,9 +4466,16 @@ function describeTerminalBlock(block) {
 
     return {
         bottom: Number.isFinite(block.bottom) ? block.bottom : null,
+        columns: Number.isFinite(block.layout?.dashboardLayout?.columns)
+            ? block.layout.dashboardLayout.columns
+            : null,
         command: block.data?.type === 'help-entry' ? String(block.data.command || '') : null,
+        height: Number.isFinite(block.layout?.height) ? block.layout.height : null,
         id: block.id || null,
         kind: String(block.kind || ''),
+        panelCount: block.data?.type === 'bitcoin-dashboard' && Array.isArray(block.data.dashboard?.panels)
+            ? block.data.dashboard.panels.length
+            : null,
         text: typeof block.data === 'string' ? String(block.data) : null,
         title: block.data?.type === 'banner' ? String(block.data.title || '') : null,
         top: Number.isFinite(block.top) ? block.top : null,
@@ -4447,6 +4510,10 @@ function syncLocalTestHooks() {
                 block.data?.type === 'help-entry'
                 && String(block.data.command || '') === String(command || '')
             )));
+        },
+        getBitcoinDashboardBlock() {
+            ensureLayoutCurrent();
+            return describeTerminalBlock(app.blocks.find(block => block.data?.type === 'bitcoin-dashboard'));
         },
         getScrollbarLayout() {
             ensureLayoutCurrent();

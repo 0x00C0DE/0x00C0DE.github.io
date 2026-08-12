@@ -108,6 +108,11 @@ test('bitcoin command renders repository analytics and interval detail in the li
         contentType: 'application/json',
         status: 200
     }));
+    await context.route('**/bitcoindata/PROPRTS-job_1h-unlimited-history.txt*', route => route.fulfill({
+        body: 'temporarily unavailable',
+        contentType: 'text/plain',
+        status: 503
+    }));
     const page = await context.newPage();
     await page.goto(server.origin, { waitUntil: 'load' });
     await page.waitForFunction(() => typeof window.bitcoin_command === 'function');
@@ -117,6 +122,24 @@ test('bitcoin command renders repository analytics and interval detail in the li
     assert.match(dashboard.join('\n'), /Multi-timeframe bias/);
     assert.match(dashboard.join('\n'), /1M/);
     assert.match(dashboard.join('\n'), /FORECAST SNAPSHOT/);
+    const visualDashboard = dashboard.find(item => item?.type === 'bitcoin-dashboard');
+    assert.ok(visualDashboard, 'expected the default command to include a visual dashboard block');
+    assert.ok(visualDashboard.dashboard.panels.length >= 2);
+    assert.ok(visualDashboard.dashboard.panels.some(panel => panel.available));
+    assert.ok(visualDashboard.dashboard.panels.every(panel => panel.intervalId));
+    const unavailablePanel = visualDashboard.dashboard.panels.find(panel => panel.intervalId === '1h');
+    assert.equal(unavailablePanel.available, false);
+    assert.equal(unavailablePanel.status, 'UNAVAILABLE');
+    assert.deepEqual(unavailablePanel.history, []);
+
+    const standaloneDashboard = await page.evaluate(() => window.bitcoin_command(['dashboard', '1m']));
+    assert.equal(standaloneDashboard[0].type, 'bitcoin-dashboard');
+    assert.equal(standaloneDashboard[0].dashboard.panels.length, 1);
+    assert.equal(standaloneDashboard[0].dashboard.panels[0].intervalId, '1m');
+    assert.equal(
+        standaloneDashboard[0].dashboard.panels[0].history.at(-1).mid,
+        standaloneDashboard[0].dashboard.panels[0].latestPrice
+    );
 
     const forecast = await page.evaluate(() => window.bitcoin_command(['forecast', '1m']));
     assert.match(forecast.join('\n'), /BITCOIN 1M FORECAST/);
@@ -133,6 +156,58 @@ test('bitcoin command renders repository analytics and interval detail in the li
         .join('\n'));
     assert.match(outputText, /1M INTERVAL DETAIL/);
     assert.match(outputText, /EMA 5\/13/);
+
+    await page.evaluate(() => window.executeCommand('clear'));
+    await page.evaluate(() => window.executeCommand('bitcoin dashboard 1m'));
+    const dashboardBlock = await page.evaluate(() => window.__terminalCanvasTestHooks.getBitcoinDashboardBlock());
+    assert.equal(dashboardBlock.type, 'bitcoin-dashboard');
+    assert.equal(dashboardBlock.panelCount, 1);
+    assert.ok(dashboardBlock.height > 200);
+    assert.equal(dashboardBlock.columns, 1);
+    await page.waitForTimeout(150);
+    const renderedColorCounts = await page.evaluate(() => {
+        const canvas = document.getElementById('terminal-canvas');
+        const context = canvas.getContext('2d');
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        const targets = {
+            ask: [248, 81, 73],
+            bid: [46, 160, 67],
+            latest: [255, 152, 0],
+            mid: [47, 129, 247],
+            projection: [210, 153, 34]
+        };
+        const counts = Object.fromEntries(Object.keys(targets).map(key => [key, 0]));
+        for (let index = 0; index < pixels.length; index += 4) {
+            Object.entries(targets).forEach(([key, color]) => {
+                if (
+                    Math.abs(pixels[index] - color[0]) <= 24
+                    && Math.abs(pixels[index + 1] - color[1]) <= 24
+                    && Math.abs(pixels[index + 2] - color[2]) <= 24
+                    && pixels[index + 3] > 0
+                ) {
+                    counts[key] += 1;
+                }
+            });
+        }
+        return counts;
+    });
+    Object.entries(renderedColorCounts).forEach(([series, count]) => {
+        assert.ok(count > 2, `expected rendered ${series} chart pixels`);
+    });
+
+    await page.setViewportSize({ width: 430, height: 900 });
+    await page.evaluate(() => window.executeCommand('clear'));
+    await page.evaluate(() => window.executeCommand('bitcoin dashboard'));
+    const mobileDashboardBlock = await page.evaluate(() => window.__terminalCanvasTestHooks.getBitcoinDashboardBlock());
+    assert.equal(mobileDashboardBlock.panelCount, 8);
+    assert.equal(mobileDashboardBlock.columns, 1);
+    assert.ok(mobileDashboardBlock.height > dashboardBlock.height * 6);
+    const mobileDashboardState = await page.evaluate(() => window.__terminalCanvasTestHooks.getState());
+    assert.ok(
+        mobileDashboardState.scrollTop >= mobileDashboardBlock.top - 2
+        && mobileDashboardState.scrollTop <= mobileDashboardBlock.top + 2,
+        'expected the command to reveal the dashboard header instead of scrolling past it'
+    );
     assert.ok(server.rejectedOversizedRanges > 0, 'expected GitHub Pages-style 416 range responses');
     assert.ok(server.bitcoinFullResponses > 0, 'expected a full-file retry after an oversized range is rejected');
 });
