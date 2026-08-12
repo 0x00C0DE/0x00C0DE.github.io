@@ -1,0 +1,106 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
+
+import { chromium } from 'playwright';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(__dirname, '..');
+const CHROME_PATH = 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
+const VISITOR_API_ROOT = 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors';
+
+function getContentType(filePath) {
+    switch (path.extname(filePath).toLowerCase()) {
+    case '.html':
+        return 'text/html; charset=utf-8';
+    case '.js':
+    case '.mjs':
+        return 'application/javascript; charset=utf-8';
+    case '.txt':
+        return 'text/plain; charset=utf-8';
+    default:
+        return 'application/octet-stream';
+    }
+}
+
+async function createStaticServer(rootDirectory) {
+    const server = http.createServer(async (request, response) => {
+        try {
+            const requestUrl = new URL(request.url || '/', 'http://127.0.0.1');
+            const requestedPath = requestUrl.pathname === '/' ? '/index.html' : requestUrl.pathname;
+            const resolvedPath = path.resolve(rootDirectory, `.${decodeURIComponent(requestedPath)}`);
+            if (!resolvedPath.startsWith(rootDirectory)) {
+                response.writeHead(403);
+                response.end('forbidden');
+                return;
+            }
+            const file = await readFile(resolvedPath);
+            const suffixRange = String(request.headers.range || '').match(/^bytes=-(\d+)$/);
+            if (suffixRange) {
+                const requestedBytes = Number(suffixRange[1]);
+                const start = Math.max(0, file.length - requestedBytes);
+                const body = file.subarray(start);
+                response.writeHead(206, {
+                    'Accept-Ranges': 'bytes',
+                    'Content-Range': `bytes ${start}-${file.length - 1}/${file.length}`,
+                    'Content-Length': body.length,
+                    'Content-Type': getContentType(resolvedPath),
+                    'Cache-Control': 'no-store'
+                });
+                response.end(body);
+                return;
+            }
+            response.writeHead(200, {
+                'Content-Type': getContentType(resolvedPath),
+                'Cache-Control': 'no-store'
+            });
+            response.end(file);
+        } catch {
+            response.writeHead(404);
+            response.end('not found');
+        }
+    });
+    await new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', resolve);
+    });
+    const address = server.address();
+    return {
+        close: () => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())),
+        origin: `http://127.0.0.1:${address.port}`
+    };
+}
+
+test('bitcoin command renders repository analytics and interval detail in the live terminal', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(() => server.close());
+
+    const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
+    t.after(() => browser.close());
+
+    const context = await browser.newContext();
+    await context.route(`${VISITOR_API_ROOT}**`, route => route.fulfill({
+        body: JSON.stringify({ onSite: 1, uniqueVisitors: 1, visits: 1 }),
+        contentType: 'application/json',
+        status: 200
+    }));
+    const page = await context.newPage();
+    await page.goto(server.origin, { waitUntil: 'load' });
+    await page.waitForFunction(() => typeof window.bitcoin_command === 'function');
+
+    const dashboard = await page.evaluate(() => window.bitcoin_command([]));
+    assert.match(dashboard.join('\n'), /BITCOIN MARKET ANALYTICS/);
+    assert.match(dashboard.join('\n'), /Multi-timeframe bias/);
+    assert.match(dashboard.join('\n'), /1M/);
+
+    await page.evaluate(() => window.executeCommand('bitcoin 1m'));
+    const outputText = await page.evaluate(() => window.__terminalCanvasTestHooks.getState().blocks
+        .map(block => block.text)
+        .filter(Boolean)
+        .join('\n'));
+    assert.match(outputText, /1M INTERVAL DETAIL/);
+    assert.match(outputText, /EMA 5\/13/);
+});

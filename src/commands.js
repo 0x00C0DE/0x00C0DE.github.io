@@ -101,6 +101,10 @@ const FORTUNE_FALLBACKS = [
     'Trust the evidence, then give your intuition the final vote.'
 ];
 let prefetchedFortunePromise = null;
+let bitcoinAnalyticsCorePromise = null;
+const BITCOIN_ANALYTICS_MODULE_URL = '/src/bitcoin-analytics-core.mjs?v=20260812a';
+const BITCOIN_HISTORY_TAIL_BYTES = 262144;
+const BITCOIN_HISTORY_MAX_POINTS = 512;
 const TURNSTILE_SITE_KEY = window.TURNSTILE_SITE_KEY || '0x4AAAAAAC85Zivt0Tn6Fqp9';
 const TURNSTILE_API_URL = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 const BLOG_STAGE_IMAGE_API_URL = window.BLOG_STAGE_IMAGE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/upload-chunk';
@@ -1028,6 +1032,7 @@ function buildPretextLabHref(text) {
 
 function help_command() {
     const entries = [
+        ['bitcoin <interval>', 'Analyze repository Bitcoin history across all intervals or drill into 1m, 2m, 5m, 10m, 15m, 30m, 1h, or 2h'],
         ['cat', 'Display file contents'],
         ['clear', 'Clear the terminal screen'],
         ['date', 'Display current date and time'],
@@ -2542,6 +2547,87 @@ function discord_command() {
 
 function echo_command(args) {
     return [args.join(' ')];
+}
+
+function loadBitcoinAnalyticsCore() {
+    if (!bitcoinAnalyticsCorePromise) {
+        bitcoinAnalyticsCorePromise = import(BITCOIN_ANALYTICS_MODULE_URL).catch(error => {
+            bitcoinAnalyticsCorePromise = null;
+            throw error;
+        });
+    }
+    return bitcoinAnalyticsCorePromise;
+}
+
+async function fetchBitcoinIntervalHistory(core, interval) {
+    const response = await fetch(`/bitcoindata/${encodeURIComponent(interval.filename)}?v=${Date.now()}`, {
+        cache: 'no-store',
+        headers: {
+            Range: `bytes=-${BITCOIN_HISTORY_TAIL_BYTES}`
+        }
+    });
+    if (!response.ok) {
+        throw new Error(`request failed with status ${response.status}`);
+    }
+    const contentRange = response.headers.get('Content-Range') || '';
+    const rangeStart = Number(contentRange.match(/^bytes\s+(\d+)-/i)?.[1] || 0);
+    const text = await response.text();
+    const history = core.parseBitcoinHistory(text, {
+        discardLeadingPartialLine: response.status === 206 && rangeStart > 0,
+        maxPoints: BITCOIN_HISTORY_MAX_POINTS
+    });
+    if (!history.length) {
+        throw new Error('history did not contain any valid snapshots');
+    }
+    return history;
+}
+
+function getBitcoinCommandUsage(core) {
+    return [
+        'Usage: bitcoin [interval]',
+        `Intervals: ${core.BITCOIN_INTERVALS.map(interval => interval.id).join(', ')}`,
+        'Run without an interval for the multi-timeframe analytics dashboard.'
+    ];
+}
+
+async function bitcoin_command(args) {
+    try {
+        const core = await loadBitcoinAnalyticsCore();
+        const requested = String(args?.[0] || '').trim().toLowerCase();
+        if (requested === 'help' || args?.length > 1) {
+            return getBitcoinCommandUsage(core);
+        }
+
+        if (requested) {
+            const interval = core.BITCOIN_INTERVALS.find(candidate => candidate.id === requested);
+            if (!interval) {
+                return [`bitcoin: unsupported interval '${requested}'`, ...getBitcoinCommandUsage(core)];
+            }
+            const history = await fetchBitcoinIntervalHistory(core, interval);
+            const analysis = core.analyzeBitcoinHistory(history, interval);
+            return core.formatBitcoinIntervalDetail(analysis);
+        }
+
+        const results = await Promise.all(core.BITCOIN_INTERVALS.map(async interval => {
+            try {
+                const history = await fetchBitcoinIntervalHistory(core, interval);
+                return {
+                    analysis: core.analyzeBitcoinHistory(history, interval),
+                    interval,
+                    ok: true
+                };
+            } catch (error) {
+                console.warn(`bitcoin ${interval.id} history unavailable`, error);
+                return { interval, ok: false };
+            }
+        }));
+        const analyses = results.filter(result => result.ok && result.analysis).map(result => result.analysis);
+        const unavailableIntervals = results.filter(result => !result.ok).map(result => result.interval.id);
+        return core.formatBitcoinDashboard(analyses, { unavailableIntervals });
+    } catch (error) {
+        console.error('bitcoin analytics failed', error);
+        return ['bitcoin: unable to analyze the repository market history right now'];
+    }
 }
 
 async function requestLiveFortune() {

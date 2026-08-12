@@ -3216,6 +3216,7 @@ function getCommandHandlers() {
     return new Map([
         ['help', window.help_command],
         ['banner', window.banner_command],
+        ['bitcoin', window.bitcoin_command],
         ['cat', window.cat_command],
         ['date', window.date_command],
         ['discord', window.discord_command],
