@@ -13,6 +13,8 @@ test('bitcoin analytics is registered as a terminal command and documented in he
 
     assert.match(commands, /async function bitcoin_command\(args\)/);
     assert.match(commands, /\['bitcoin <interval>',\s*'Analyze/);
+    assert.match(commands, /requested === 'forecast'/);
+    assert.match(commands, /requested === 'backtest'/);
     assert.match(terminal, /\['bitcoin', window\.bitcoin_command\]/);
 });
 

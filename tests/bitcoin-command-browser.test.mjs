@@ -116,6 +116,15 @@ test('bitcoin command renders repository analytics and interval detail in the li
     assert.match(dashboard.join('\n'), /BITCOIN MARKET ANALYTICS/);
     assert.match(dashboard.join('\n'), /Multi-timeframe bias/);
     assert.match(dashboard.join('\n'), /1M/);
+    assert.match(dashboard.join('\n'), /FORECAST SNAPSHOT/);
+
+    const forecast = await page.evaluate(() => window.bitcoin_command(['forecast', '1m']));
+    assert.match(forecast.join('\n'), /BITCOIN 1M FORECAST/);
+    assert.match(forecast.join('\n'), /estimated 80% range/i);
+
+    const backtest = await page.evaluate(() => window.bitcoin_command(['backtest', '1m']));
+    assert.match(backtest.join('\n'), /WALK-FORWARD BACKTEST/);
+    assert.match(backtest.join('\n'), /RMSE/);
 
     await page.evaluate(() => window.executeCommand('bitcoin 1m'));
     const outputText = await page.evaluate(() => window.__terminalCanvasTestHooks.getState().blocks
