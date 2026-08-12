@@ -2560,12 +2560,16 @@ function loadBitcoinAnalyticsCore() {
 }
 
 async function fetchBitcoinIntervalHistory(core, interval) {
-    const response = await fetch(`/bitcoindata/${encodeURIComponent(interval.filename)}?v=${Date.now()}`, {
+    const historyUrl = `/bitcoindata/${encodeURIComponent(interval.filename)}?v=${Date.now()}`;
+    let response = await fetch(historyUrl, {
         cache: 'no-store',
         headers: {
             Range: `bytes=-${BITCOIN_HISTORY_TAIL_BYTES}`
         }
     });
+    if (response.status === 416) {
+        response = await fetch(historyUrl, { cache: 'no-store' });
+    }
     if (!response.ok) {
         throw new Error(`request failed with status ${response.status}`);
     }

@@ -22,5 +22,6 @@ test('bitcoin command loads only repository data and requests bounded file tails
     assert.match(commands, /\/bitcoindata\//);
     assert.match(commands, /Range/);
     assert.match(commands, /bytes=-/);
+    assert.match(commands, /response\.status === 416/);
     assert.doesNotMatch(commands, /api\.robinhood|coinbase|coingecko/i);
 });

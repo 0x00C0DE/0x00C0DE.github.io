@@ -27,6 +27,8 @@ function getContentType(filePath) {
 }
 
 async function createStaticServer(rootDirectory) {
+    let bitcoinFullResponses = 0;
+    let rejectedOversizedRanges = 0;
     const server = http.createServer(async (request, response) => {
         try {
             const requestUrl = new URL(request.url || '/', 'http://127.0.0.1');
@@ -41,6 +43,16 @@ async function createStaticServer(rootDirectory) {
             const suffixRange = String(request.headers.range || '').match(/^bytes=-(\d+)$/);
             if (suffixRange) {
                 const requestedBytes = Number(suffixRange[1]);
+                if (requestedBytes > file.length) {
+                    rejectedOversizedRanges += 1;
+                    response.writeHead(416, {
+                        'Accept-Ranges': 'bytes',
+                        'Content-Range': `bytes */${file.length}`,
+                        'Content-Length': 0
+                    });
+                    response.end();
+                    return;
+                }
                 const start = Math.max(0, file.length - requestedBytes);
                 const body = file.subarray(start);
                 response.writeHead(206, {
@@ -52,6 +64,9 @@ async function createStaticServer(rootDirectory) {
                 });
                 response.end(body);
                 return;
+            }
+            if (requestedPath.startsWith('/bitcoindata/')) {
+                bitcoinFullResponses += 1;
             }
             response.writeHead(200, {
                 'Content-Type': getContentType(resolvedPath),
@@ -69,8 +84,14 @@ async function createStaticServer(rootDirectory) {
     });
     const address = server.address();
     return {
+        get bitcoinFullResponses() {
+            return bitcoinFullResponses;
+        },
         close: () => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())),
-        origin: `http://127.0.0.1:${address.port}`
+        origin: `http://127.0.0.1:${address.port}`,
+        get rejectedOversizedRanges() {
+            return rejectedOversizedRanges;
+        }
     };
 }
 
@@ -103,4 +124,6 @@ test('bitcoin command renders repository analytics and interval detail in the li
         .join('\n'));
     assert.match(outputText, /1M INTERVAL DETAIL/);
     assert.match(outputText, /EMA 5\/13/);
+    assert.ok(server.rejectedOversizedRanges > 0, 'expected GitHub Pages-style 416 range responses');
+    assert.ok(server.bitcoinFullResponses > 0, 'expected a full-file retry after an oversized range is rejected');
 });
