@@ -105,6 +105,9 @@ let bitcoinAnalyticsCorePromise = null;
 let bitcoinDashboardCorePromise = null;
 const BITCOIN_ANALYTICS_MODULE_URL = '/src/bitcoin-analytics-core.mjs?v=20260812b';
 const BITCOIN_DASHBOARD_MODULE_URL = '/src/bitcoin-dashboard-core.mjs?v=20260812a';
+const BITCOIN_HISTORY_DATA_BASE_URL = window.BITCOIN_HISTORY_DATA_BASE_URL
+    || 'https://raw.githubusercontent.com/0x00C0DE/0x00C0DE.github.io/bitcoin-data/bitcoindata';
+const BITCOIN_HISTORY_FALLBACK_BASE_URL = '/bitcoindata';
 const BITCOIN_HISTORY_TAIL_BYTES = 262144;
 const BITCOIN_HISTORY_MAX_POINTS = 512;
 const TURNSTILE_SITE_KEY = window.TURNSTILE_SITE_KEY || '0x4AAAAAAC85Zivt0Tn6Fqp9';
@@ -2574,8 +2577,7 @@ function loadBitcoinDashboardCore() {
     return bitcoinDashboardCorePromise;
 }
 
-async function fetchBitcoinIntervalHistory(core, interval) {
-    const historyUrl = `/bitcoindata/${encodeURIComponent(interval.filename)}?v=${Date.now()}`;
+async function fetchBitcoinHistoryUrl(core, historyUrl) {
     let response = await fetch(historyUrl, {
         cache: 'no-store',
         headers: {
@@ -2599,6 +2601,26 @@ async function fetchBitcoinIntervalHistory(core, interval) {
         throw new Error('history did not contain any valid snapshots');
     }
     return history;
+}
+
+async function fetchBitcoinIntervalHistory(core, interval) {
+    const encodedFilename = encodeURIComponent(interval.filename);
+    const cacheBuster = Date.now();
+    const historyUrls = [
+        `${BITCOIN_HISTORY_DATA_BASE_URL.replace(/\/$/, '')}/${encodedFilename}?v=${cacheBuster}`,
+        `${BITCOIN_HISTORY_FALLBACK_BASE_URL}/${encodedFilename}?v=${cacheBuster}`
+    ].filter((url, index, urls) => urls.indexOf(url) === index);
+    const failures = [];
+
+    for (const historyUrl of historyUrls) {
+        try {
+            return await fetchBitcoinHistoryUrl(core, historyUrl);
+        } catch (error) {
+            failures.push(error instanceof Error ? error.message : String(error));
+        }
+    }
+
+    throw new Error(`all Bitcoin history sources failed: ${failures.join('; ')}`);
 }
 
 function getBitcoinCommandUsage(core) {
