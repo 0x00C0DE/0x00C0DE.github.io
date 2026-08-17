@@ -103,6 +103,9 @@ test('bitcoin command renders repository analytics and interval detail in the li
     t.after(() => browser.close());
 
     const context = await browser.newContext();
+    await context.addInitScript(baseUrl => {
+        window.BITCOIN_HISTORY_DATA_BASE_URL = `${baseUrl}/bitcoindata`;
+    }, server.origin);
     await context.route(`${VISITOR_API_ROOT}**`, route => route.fulfill({
         body: JSON.stringify({ onSite: 1, uniqueVisitors: 1, visits: 1 }),
         contentType: 'application/json',

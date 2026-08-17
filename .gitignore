@@ -1,4 +1,9 @@
 backend/node_modules/
 backend/.env
+__pycache__/
+*.pyc
+node_modules/
+tmp/
+worker/node_modules/
 worker/.dev.vars
 worker/.wrangler/

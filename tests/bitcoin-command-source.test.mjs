@@ -27,10 +27,12 @@ test('bitcoin analytics is registered as a terminal command and documented in he
     assert.match(readme, /bitcoin-dashboard-core\.mjs/);
 });
 
-test('bitcoin command loads only repository data and requests bounded file tails', async () => {
+test('bitcoin command loads the snapshot branch with a same-origin fallback and bounded tails', async () => {
     const commands = await readFile(commandsUrl, 'utf8');
 
-    assert.match(commands, /\/bitcoindata\//);
+    assert.match(commands, /raw\.githubusercontent\.com\/0x00C0DE\/0x00C0DE\.github\.io\/bitcoin-data\/bitcoindata/);
+    assert.match(commands, /BITCOIN_HISTORY_FALLBACK_BASE_URL = '\/bitcoindata'/);
+    assert.match(commands, /BITCOIN_HISTORY_DATA_BASE_URL/);
     assert.match(commands, /Range/);
     assert.match(commands, /bytes=-/);
     assert.match(commands, /response\.status === 416/);
