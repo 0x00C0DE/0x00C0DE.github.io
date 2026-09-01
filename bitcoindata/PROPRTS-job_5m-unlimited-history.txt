@@ -5261,3 +5261,5 @@
 {"timestamp": 1788266336.3126101, "price": 77786.55393035, "bid": 77064.04, "ask": 78509.0678607, "spread_bps": 185.768334973919, "bid_size": 0.0, "ask_size": 0.0, "liquidity_volume": 0.019494677970563336, "liquidity_is_proxy": true}
 {"timestamp": 1788266642.690281, "price": 77927.69182865, "bid": 77207.27, "ask": 78648.1136573, "spread_bps": 184.89494857209007, "bid_size": 0.0, "ask_size": 0.0, "liquidity_volume": 0.02030392024525715, "liquidity_is_proxy": true}
 {"timestamp": 1788266948.1102772, "price": 77979.7584822, "bid": 77260.37, "ask": 78699.1469644, "spread_bps": 184.50646583221064, "bid_size": 0.0, "ask_size": 0.0, "liquidity_volume": 0.019118787167501317, "liquidity_is_proxy": true}
+{"timestamp": 1788267256.9666371, "price": 77969.25885305, "bid": 77243.97, "ask": 78694.5477061, "spread_bps": 186.04482426002355, "bid_size": 0.0, "ask_size": 0.0, "liquidity_volume": 0.018739127997550203, "liquidity_is_proxy": true}
+{"timestamp": 1788267561.7061982, "price": 77962.1381634, "bid": 77238.32, "ask": 78685.9563268, "spread_bps": 185.6845336599047, "bid_size": 0.0, "ask_size": 0.0, "liquidity_volume": 0.01865978025244233, "liquidity_is_proxy": true}
