@@ -16,6 +16,7 @@ import {
     getBinaryRainColumnFrame,
     shouldUseRootTerminalVisuals
 } from './terminal-visuals-core.mjs';
+import { normalizeTrustedMediaSource } from './media-source-policy.mjs';
 
 const MONO_FONT_FAMILY = '"Courier New", Courier, monospace';
 const TEXT_FILES = Object.freeze([
@@ -1615,8 +1616,9 @@ function updateAnimatedMediaEntries(timestamp) {
 }
 
 function getMediaEntry(src, type = 'image', options = {}) {
-    const cacheKey = `${type}:${src}`;
-    const mimeType = inferMediaMimeType(src, options.mimeType);
+    const trustedSrc = normalizeTrustedMediaSource(src, window.location.href);
+    const cacheKey = `${type}:${trustedSrc || 'blocked'}`;
+    const mimeType = inferMediaMimeType(trustedSrc, options.mimeType);
     if (app.mediaCache.has(cacheKey)) {
         const existing = app.mediaCache.get(cacheKey);
         if (!existing.mimeType && mimeType) {
@@ -1635,9 +1637,14 @@ function getMediaEntry(src, type = 'image', options = {}) {
         intrinsicWidth: null,
         mimeType,
         ready: false,
-        src,
+        src: trustedSrc,
         type
     };
+
+    if (!trustedSrc) {
+        app.mediaCache.set(cacheKey, entry);
+        return entry;
+    }
 
     if (type === 'video') {
         const video = document.createElement('video');
@@ -1645,7 +1652,7 @@ function getMediaEntry(src, type = 'image', options = {}) {
         video.muted = true;
         video.playsInline = true;
         video.preload = 'metadata';
-        video.src = src;
+        video.src = trustedSrc;
         video.addEventListener('loadedmetadata', () => {
             if (video.videoWidth > 0 && video.videoHeight > 0) {
                 entry.intrinsicWidth = video.videoWidth;
@@ -1663,7 +1670,7 @@ function getMediaEntry(src, type = 'image', options = {}) {
         const image = new Image();
         image.decoding = 'async';
         image.crossOrigin = 'anonymous';
-        image.src = src;
+        image.src = trustedSrc;
         image.addEventListener('load', () => {
             if (image.naturalWidth > 0 && image.naturalHeight > 0) {
                 entry.intrinsicWidth = image.naturalWidth;
