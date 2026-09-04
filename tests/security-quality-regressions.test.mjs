@@ -87,6 +87,7 @@ test('CodeQL scans code changes with current actions and ignores data-only pushe
         'utf8'
     );
 
+    assert.match(workflow, /actions\/checkout@v7/);
     assert.match(workflow, /github\/codeql-action\/init@v4/);
     assert.match(workflow, /github\/codeql-action\/analyze@v4/);
     assert.match(workflow, /security-events:\s*write/);
