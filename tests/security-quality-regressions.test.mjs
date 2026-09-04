@@ -81,6 +81,48 @@ test('canvas media loading validates sources before browser URL sinks', async ()
     assert.doesNotMatch(source, /(?:image|video)\.src = src/);
 });
 
+test('Worker normalization avoids backtracking suffix expressions on configuration', async () => {
+    const source = await readFile(new URL('worker/src/index.js', repositoryRoot), 'utf8');
+
+    assert.equal(source.includes(".replace(/=+$/g, '')"), false);
+    assert.equal(source.includes(".replace(/\\/+$/g, '')"), false);
+});
+
+test('vendored Pretext text parsing avoids the reported polynomial expressions', async () => {
+    const [
+        manifestText,
+        vendorManifestText,
+        richInlineSource,
+        measurementSource,
+        syncScriptSource
+    ] = await Promise.all([
+        readFile(new URL('package.json', repositoryRoot), 'utf8'),
+        readFile(new URL('vendor/pretext/package.json', repositoryRoot), 'utf8'),
+        readFile(new URL('vendor/pretext/rich-inline.js', repositoryRoot), 'utf8'),
+        readFile(new URL('vendor/pretext/measurement.js', repositoryRoot), 'utf8'),
+        readFile(new URL('scripts/sync-pretext-package.mjs', repositoryRoot), 'utf8')
+    ]);
+    const manifest = JSON.parse(manifestText);
+    const vendorManifest = JSON.parse(vendorManifestText);
+
+    assert.equal(manifest.dependencies?.['@chenglou/pretext'], `^${vendorManifest.version}`);
+    assert.match(syncScriptSource, /applySecurityPatches\(\)/);
+    assert.equal(
+        richInlineSource.includes("const LEADING_COLLAPSIBLE_BOUNDARY_RE = /^[ \\t\\n\\f\\r]+/;"),
+        false
+    );
+    assert.equal(
+        richInlineSource.includes("const TRAILING_COLLAPSIBLE_BOUNDARY_RE = /[ \\t\\n\\f\\r]+$/;"),
+        false
+    );
+    assert.equal(measurementSource.includes("font.match(/(\\d+(?:\\.\\d+)?)\\s*px/)"), false);
+
+    const { parseFontSize } = await import('../vendor/pretext/measurement.js');
+    assert.equal(parseFontSize('600 12.5px Courier New'), 12.5);
+    assert.equal(parseFontSize('normal 14 px serif'), 14);
+    assert.equal(parseFontSize('inherit'), 16);
+});
+
 test('CodeQL scans code changes with current actions and ignores data-only pushes', async () => {
     const workflow = await readFile(
         new URL('.github/workflows/codeql.yml', repositoryRoot),

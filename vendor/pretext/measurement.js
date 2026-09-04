@@ -77,9 +77,35 @@ export function getEngineProfile() {
     };
     return cachedEngineProfile;
 }
+function isAsciiDigit(character) {
+    return character >= '0' && character <= '9';
+}
+function isCssWhitespace(character) {
+    return character === ' ' || character === '\t' || character === '\n' || character === '\f' || character === '\r';
+}
 export function parseFontSize(font) {
-    const m = font.match(/(\d+(?:\.\d+)?)\s*px/);
-    return m ? parseFloat(m[1]) : 16;
+    const source = String(font ?? '');
+    let index = 0;
+    while (index < source.length) {
+        if (!isAsciiDigit(source[index])) {
+            index++;
+            continue;
+        }
+        const numberStart = index;
+        while (index < source.length && isAsciiDigit(source[index]))
+            index++;
+        if (source[index] === '.' && isAsciiDigit(source[index + 1])) {
+            index++;
+            while (index < source.length && isAsciiDigit(source[index]))
+                index++;
+        }
+        const numberEnd = index;
+        while (index < source.length && isCssWhitespace(source[index]))
+            index++;
+        if (source[index]?.toLowerCase() === 'p' && source[index + 1]?.toLowerCase() === 'x')
+            return Number.parseFloat(source.slice(numberStart, numberEnd));
+    }
+    return 16;
 }
 function getSharedGraphemeSegmenter() {
     if (sharedGraphemeSegmenter === null) {

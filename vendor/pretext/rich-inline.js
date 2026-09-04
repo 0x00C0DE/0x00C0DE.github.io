@@ -1,8 +1,23 @@
 import { materializeLineRange, measureNaturalWidth, prepareWithSegments, } from './layout.js';
 import { layoutNextLineRange as stepPreparedLineRange, stepPreparedLineGeometry, } from './line-break.js';
-const COLLAPSIBLE_BOUNDARY_RE = /[ \t\n\f\r]+/;
-const LEADING_COLLAPSIBLE_BOUNDARY_RE = /^[ \t\n\f\r]+/;
-const TRAILING_COLLAPSIBLE_BOUNDARY_RE = /[ \t\n\f\r]+$/;
+const COLLAPSIBLE_BOUNDARY_CHARACTERS = new Set([' ', '\t', '\n', '\f', '\r']);
+function trimCollapsibleBoundaries(text) {
+    const hasLeadingWhitespace = text.length > 0 && COLLAPSIBLE_BOUNDARY_CHARACTERS.has(text[0]);
+    const hasTrailingWhitespace = text.length > 0 && COLLAPSIBLE_BOUNDARY_CHARACTERS.has(text[text.length - 1]);
+    let start = 0;
+    while (start < text.length && COLLAPSIBLE_BOUNDARY_CHARACTERS.has(text[start]))
+        start++;
+    let end = text.length;
+    while (end > start && COLLAPSIBLE_BOUNDARY_CHARACTERS.has(text[end - 1]))
+        end--;
+    return {
+        hasLeadingWhitespace,
+        hasTrailingWhitespace,
+        trimmedText: text.slice(start, end),
+    };
+}
+
+
 const EMPTY_LAYOUT_CURSOR = { segmentIndex: 0, graphemeIndex: 0 };
 const RICH_INLINE_START_CURSOR = {
     itemIndex: 0,
@@ -51,13 +66,11 @@ export function prepareRichInline(items) {
     let pendingGapWidth = 0;
     for (let index = 0; index < items.length; index++) {
         const item = items[index];
-        const hasLeadingWhitespace = LEADING_COLLAPSIBLE_BOUNDARY_RE.test(item.text);
-        const hasTrailingWhitespace = TRAILING_COLLAPSIBLE_BOUNDARY_RE.test(item.text);
-        const trimmedText = item.text
-            .replace(LEADING_COLLAPSIBLE_BOUNDARY_RE, '')
-            .replace(TRAILING_COLLAPSIBLE_BOUNDARY_RE, '');
+        const boundaryTrim = trimCollapsibleBoundaries(item.text);
+        const { hasLeadingWhitespace, hasTrailingWhitespace, trimmedText } = boundaryTrim;
+
         if (trimmedText.length === 0) {
-            if (COLLAPSIBLE_BOUNDARY_RE.test(item.text) && pendingGapWidth === 0) {
+            if (hasLeadingWhitespace && pendingGapWidth === 0) {
                 pendingGapWidth = getCollapsedSpaceWidth(item.font, collapsedSpaceWidthCache);
             }
             continue;

@@ -19,9 +19,9 @@ test('root package and vendored browser copy stay aligned to @chenglou/pretext',
     const vendorPackage = await readJson(path.join('vendor', 'pretext', 'package.json'));
 
     assert.equal(vendorPackage.name, '@chenglou/pretext');
-    assert.match(
+    assert.equal(
         rootPackage.dependencies['@chenglou/pretext'],
-        new RegExp(vendorPackage.version.replace(/\./g, '\\.'))
+        `^${vendorPackage.version}`
     );
 
     await access(path.join(repoRoot, 'vendor', 'pretext', 'layout.js'));
