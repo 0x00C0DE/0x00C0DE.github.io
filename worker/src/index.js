@@ -1,3 +1,8 @@
+import {
+    stripLeadingCharacter,
+    stripTrailingCharacter
+} from './linear-string-normalization.js';
+
 export default {
     async fetch(request, env) {
         const url = new URL(request.url);
@@ -1710,10 +1715,12 @@ export async function verifyTotpCode(base32Secret, candidate, timestampMs = Date
 }
 
 function decodeTotpBase32(secret) {
-    const normalized = String(secret || '')
-        .toUpperCase()
-        .replace(/[\s-]+/g, '')
-        .replace(/=+$/g, '');
+    const normalized = stripTrailingCharacter(
+        String(secret || '')
+            .toUpperCase()
+            .replace(/[\s-]+/g, ''),
+        '='
+    );
     if (!normalized) {
         throw new Error('TOTP secret is empty');
     }
@@ -2017,7 +2024,11 @@ async function handleDeleteEntry(request, env) {
 async function handleHostedBlogMedia(request, env) {
     try {
         const url = new URL(request.url);
-        const pathSegments = url.pathname.replace(/^\/+|\/+$/g, '').split('/');
+        const normalizedPath = stripLeadingCharacter(
+            stripTrailingCharacter(url.pathname, '/'),
+            '/'
+        );
+        const pathSegments = normalizedPath.split('/');
         if (pathSegments.length < 5) {
             return new Response('not found', {
                 status: 404,
@@ -3158,14 +3169,19 @@ async function recordB2DeleteUsage(env, storageKey, bytes = 0) {
 }
 
 function blogMediaBaseUrl(env) {
-    return String(env.BLOG_MEDIA_BASE_URL || DEFAULT_BLOG_MEDIA_BASE_URL).trim().replace(/\/+$/g, '');
+    return stripTrailingCharacter(
+        String(env.BLOG_MEDIA_BASE_URL || DEFAULT_BLOG_MEDIA_BASE_URL).trim(),
+        '/'
+    );
 }
 
 function encodeBase64Url(value) {
-    return encodeBase64(value)
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=+$/g, '');
+    return stripTrailingCharacter(
+        encodeBase64(value)
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_'),
+        '='
+    );
 }
 
 function decodeBase64Url(value) {
@@ -4791,11 +4807,14 @@ function githubContentsUrl(env) {
 }
 
 function githubFilePath(env) {
-    return String(env.GITHUB_BLOG_PATH || 'blog.txt').trim().replace(/^\/+/g, '') || 'blog.txt';
+    return stripLeadingCharacter(
+        String(env.GITHUB_BLOG_PATH || 'blog.txt').trim(),
+        '/'
+    ) || 'blog.txt';
 }
 
 function publishedBlogUrl(env) {
-    const origin = String(env.ALLOWED_ORIGIN || '').trim().replace(/\/+$/g, '');
+    const origin = stripTrailingCharacter(String(env.ALLOWED_ORIGIN || '').trim(), '/');
     const path = githubFilePath(env);
     if (!origin || !/^https?:\/\//i.test(origin)) {
         return '';
