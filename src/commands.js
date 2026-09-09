@@ -104,7 +104,7 @@ let prefetchedFortunePromise = null;
 let bitcoinAnalyticsCorePromise = null;
 let bitcoinDashboardCorePromise = null;
 const BITCOIN_ANALYTICS_MODULE_URL = '/src/bitcoin-analytics-core.mjs?v=20260812b';
-const BITCOIN_DASHBOARD_MODULE_URL = '/src/bitcoin-dashboard-core.mjs?v=20260812a';
+const BITCOIN_DASHBOARD_MODULE_URL = '/src/bitcoin-dashboard-core.mjs?v=20260908a';
 const BITCOIN_HISTORY_DATA_BASE_URL = window.BITCOIN_HISTORY_DATA_BASE_URL
     || 'https://raw.githubusercontent.com/0x00C0DE/0x00C0DE.github.io/bitcoin-data/bitcoindata';
 const BITCOIN_HISTORY_FALLBACK_BASE_URL = '/bitcoindata';

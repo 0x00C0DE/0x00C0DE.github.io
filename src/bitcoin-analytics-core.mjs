@@ -32,6 +32,38 @@ function finiteNumber(value, fallback = 0) {
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+export function normalizeBitcoinTimestamp(value) {
+    if (value instanceof Date) {
+        const milliseconds = value.getTime();
+        return Number.isFinite(milliseconds) ? milliseconds / 1000 : NaN;
+    }
+
+    const numericValue = typeof value === 'number'
+        ? value
+        : typeof value === 'string' && value.trim() !== ''
+            ? Number(value)
+            : NaN;
+    if (Number.isFinite(numericValue)) {
+        return Math.abs(numericValue) >= 100_000_000_000
+            ? numericValue / 1000
+            : numericValue;
+    }
+
+    if (typeof value !== 'string') {
+        return NaN;
+    }
+    const source = value.trim();
+    if (!source) {
+        return NaN;
+    }
+    const isoLike = source.includes(' ') && !source.includes('T')
+        ? source.replace(' ', 'T')
+        : source;
+    const hasExplicitZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(isoLike);
+    const milliseconds = Date.parse(hasExplicitZone ? isoLike : `${isoLike}Z`);
+    return Number.isFinite(milliseconds) ? milliseconds / 1000 : NaN;
+}
+
 function average(values) {
     return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 }
@@ -261,7 +293,7 @@ function normalizeSnapshot(payload) {
     if (!payload || typeof payload !== 'object') {
         return null;
     }
-    const timestamp = finiteNumber(payload.timestamp, NaN);
+    const timestamp = normalizeBitcoinTimestamp(payload.timestamp);
     const price = finiteNumber(payload.price, NaN);
     if (!Number.isFinite(timestamp) || timestamp <= 0 || !Number.isFinite(price) || price <= 0) {
         return null;

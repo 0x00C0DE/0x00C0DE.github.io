@@ -4,7 +4,15 @@ import assert from 'node:assert/strict';
 import {
     BITCOIN_DASHBOARD_COLORS,
     buildBitcoinDashboardViewModel,
-    createBitcoinDashboardLayout
+    createBitcoinDateTimeTicks,
+    createBitcoinDashboardLayout,
+    createBitcoinDashboardPanelGeometry,
+    createBitcoinTimeScale,
+    findNearestBitcoinPoint,
+    formatBitcoinAxisTimestamp,
+    formatBitcoinDashboardTooltip,
+    formatBitcoinTooltipTimestamp,
+    inspectBitcoinDashboardPoint
 } from '../src/bitcoin-dashboard-core.mjs';
 import {
     BITCOIN_INTERVALS,
@@ -106,6 +114,13 @@ test('dashboard layout uses compact two-column panels and stacks safely on narro
     assert.ok(wide.panelRects.every(rect => rect.x >= 0 && rect.x + rect.width <= wide.width));
     assert.ok(narrow.panelRects.every(rect => rect.x === 0 && rect.width === narrow.width));
 
+    const panel = buildBitcoinDashboardViewModel([buildEntry()]).panels[0];
+    const geometry = createBitcoinDashboardPanelGeometry(panel, wide.panelRects[0]);
+    assert.ok(
+        geometry.axisTitleY - geometry.axisTickY >= 12,
+        'expected the datetime axis title to remain separated from tick labels'
+    );
+
     for (let index = 1; index < narrow.panelRects.length; index += 1) {
         assert.ok(narrow.panelRects[index].y >= narrow.panelRects[index - 1].y + narrow.panelRects[index - 1].height);
     }
@@ -128,4 +143,102 @@ test('dashboard exposes differentiated colors for prices, triggers, projection, 
 
     requiredKeys.forEach(key => assert.match(BITCOIN_DASHBOARD_COLORS[key], /^#|^rgba\(/));
     assert.equal(new Set(requiredKeys.map(key => BITCOIN_DASHBOARD_COLORS[key])).size, requiredKeys.length);
+});
+
+test('datetime scale preserves irregular observation spacing and maps X coordinates back to time', () => {
+    const points = [
+        { timestamp: 100, mid: 1 },
+        { timestamp: 110, mid: 2 },
+        { timestamp: 1_000, mid: 3 }
+    ];
+    const scale = createBitcoinTimeScale(points, 10, 910);
+
+    assert.equal(scale.timestampToX(100), 10);
+    assert.equal(scale.timestampToX(110), 20);
+    assert.equal(scale.timestampToX(1_000), 910);
+    assert.equal(scale.xToTimestamp(20), 110);
+    assert.equal(findNearestBitcoinPoint(points, scale.xToTimestamp(410)), points[1]);
+    assert.deepEqual(createBitcoinDateTimeTicks(points, 3), [100, 110, 1_000]);
+});
+
+test('nearest-point lookup handles empty, single-point, and large timestamp-sorted datasets', () => {
+    assert.equal(findNearestBitcoinPoint([], 100), null);
+    const onlyPoint = { timestamp: 200, mid: 42 };
+    assert.equal(findNearestBitcoinPoint([onlyPoint], 9_999), onlyPoint);
+
+    const large = Array.from({ length: 100_000 }, (_, index) => ({
+        timestamp: 1_700_000_000 + (index * 7),
+        mid: index
+    }));
+    const target = large[73_421];
+    assert.equal(findNearestBitcoinPoint(large, target.timestamp + 2), target);
+
+    const singleScale = createBitcoinTimeScale([onlyPoint], 10, 90);
+    assert.equal(singleScale.timestampToX(onlyPoint.timestamp), 50);
+    assert.equal(singleScale.xToTimestamp(10), onlyPoint.timestamp);
+    assert.ok(Number.isNaN(createBitcoinTimeScale([], 0, 100).xToTimestamp(50)));
+});
+
+test('datetime labels adapt across intraday, multi-day, midnight, and DST boundaries', () => {
+    const timeZone = 'America/Los_Angeles';
+    const timestamp = Date.parse('2026-09-09T02:42:18Z') / 1000;
+
+    assert.equal(formatBitcoinAxisTimestamp(timestamp, { rangeSeconds: 3_600, timeZone }), '7:42 PM');
+    assert.equal(formatBitcoinAxisTimestamp(timestamp, { rangeSeconds: 172_800, timeZone }), 'Sep 8, 7:42 PM');
+    assert.equal(formatBitcoinTooltipTimestamp(timestamp, { timeZone }), 'Sep 8, 2026, 7:42:18 PM PDT');
+
+    const beforeMidnight = Date.parse('2026-09-09T06:59:59Z') / 1000;
+    const afterMidnight = Date.parse('2026-09-09T07:00:00Z') / 1000;
+    assert.equal(
+        formatBitcoinAxisTimestamp(afterMidnight, { includeDate: true, rangeSeconds: 60, timeZone }),
+        'Sep 9, 12:00 AM'
+    );
+    assert.match(formatBitcoinTooltipTimestamp(beforeMidnight, { timeZone }), /Sep 8, 2026, 11:59:59 PM PDT/);
+    assert.match(formatBitcoinTooltipTimestamp(afterMidnight, { timeZone }), /Sep 9, 2026, 12:00:00 AM PDT/);
+
+    const beforeFallback = Date.parse('2026-11-01T08:30:00Z') / 1000;
+    const afterFallback = Date.parse('2026-11-01T09:30:00Z') / 1000;
+    assert.match(formatBitcoinTooltipTimestamp(beforeFallback, { timeZone }), /1:30:00 AM PDT/);
+    assert.match(formatBitcoinTooltipTimestamp(afterFallback, { timeZone }), /1:30:00 AM PST/);
+});
+
+test('dashboard inspection snaps to underlying observations and formats exact plotted values', () => {
+    const dashboard = buildBitcoinDashboardViewModel([buildEntry()], {
+        generatedAt: 1_800_010_000_000,
+        timeZone: 'America/Los_Angeles'
+    });
+    const layout = createBitcoinDashboardLayout(900, 1);
+    const panel = dashboard.panels[0];
+    const geometry = createBitcoinDashboardPanelGeometry(panel, layout.panelRects[0]);
+    const expectedPoint = panel.history[23];
+    const inspection = inspectBitcoinDashboardPoint(
+        dashboard,
+        layout,
+        geometry.timestampToX(expectedPoint.timestamp) + 0.4,
+        geometry.chartTop + (geometry.chartHeight / 2)
+    );
+
+    assert.equal(inspection.panelIndex, 0);
+    assert.equal(inspection.kind, 'historical');
+    assert.equal(inspection.timestamp, expectedPoint.timestamp);
+    assert.equal(inspection.mid, expectedPoint.mid);
+    assert.equal(inspection.bid, expectedPoint.bid);
+    assert.equal(inspection.ask, expectedPoint.ask);
+    assert.equal(inspection.referencePrice, panel.referencePrice);
+    assert.match(formatBitcoinDashboardTooltip(inspection, { timeZone: dashboard.timeZone }), /BTC \$60,046\.00/);
+    assert.match(formatBitcoinDashboardTooltip(inspection, { timeZone: dashboard.timeZone }), /Bid \$60,040\.00/);
+
+    const forecastPoint = panel.forecast[0];
+    const forecastInspection = inspectBitcoinDashboardPoint(
+        dashboard,
+        layout,
+        geometry.timestampToX(forecastPoint.timestamp),
+        geometry.chartTop + (geometry.chartHeight / 2)
+    );
+    const forecastTooltip = formatBitcoinDashboardTooltip(forecastInspection, { timeZone: dashboard.timeZone });
+    assert.equal(forecastInspection.kind, 'prediction');
+    assert.equal(forecastInspection.projectedPrice, forecastPoint.projectedPrice);
+    assert.match(forecastTooltip, /Prediction \$/);
+    assert.match(forecastTooltip, /80% range/);
+    assert.equal(inspectBitcoinDashboardPoint({ panels: [] }, createBitcoinDashboardLayout(900, 0), 10, 10), null);
 });

@@ -1,8 +1,10 @@
 import { splitBannerWaveGlyphs } from './banner-wave-core.mjs';
 import {
     createBitcoinDashboardLayout,
+    createBitcoinDashboardPanelGeometry,
+    inspectBitcoinDashboardPoint,
     renderBitcoinDashboard
-} from './bitcoin-dashboard-core.mjs';
+} from './bitcoin-dashboard-core.mjs?v=20260908a';
 import * as pretext from './pretext-browser.mjs';
 import {
     layoutPreparedTerminalEditorialText,
@@ -2429,13 +2431,27 @@ function layoutBitcoinDashboard(block, width, metrics, context = {}) {
         ? block.data.dashboard
         : { panels: [] };
     const dashboardLayout = createBitcoinDashboardLayout(width, dashboard.panels?.length || 0);
+    const dashboardPanelGeometries = dashboardLayout.panelRects.map((rect, index) => (
+        dashboard.panels?.[index]?.available
+            ? createBitcoinDashboardPanelGeometry(dashboard.panels[index], rect)
+            : null
+    ));
     const baseLayout = {
         dashboardLayout,
+        dashboardPanelGeometries,
         height: dashboardLayout.height,
-        hitRegions: [],
+        hitRegions: [{
+            action: 'bitcoin-dashboard-inspect',
+            data: { blockId: block.id },
+            height: dashboardLayout.height,
+            width: dashboardLayout.width,
+            x: 0,
+            y: 0
+        }],
         render(ctx, originX, originY, palette) {
             try {
                 renderBitcoinDashboard(ctx, dashboard, dashboardLayout, {
+                    inspection: block.bitcoinDashboardInspection || null,
                     originX,
                     originY,
                     palette
@@ -3372,6 +3388,9 @@ export function setupTerminal() {
     app.blocks = [];
     app.inputValue = '';
     app.interactiveRegions = [];
+    if (app.canvas) {
+        app.canvas.style.cursor = '';
+    }
     stopScrollGlide();
     app.scrollTop = 0;
     syncTextInputProxyValue();
@@ -3881,6 +3900,105 @@ function hitTest(clientX, clientY) {
     )) || null;
 }
 
+function clearBitcoinDashboardInspections(includeLocked = false) {
+    let cleared = false;
+    app.blocks.forEach(block => {
+        if (
+            block.data?.type === 'bitcoin-dashboard'
+            && block.bitcoinDashboardInspection
+            && (includeLocked || !block.bitcoinDashboardInspection.locked)
+        ) {
+            block.bitcoinDashboardInspection = null;
+            cleared = true;
+        }
+    });
+    if (cleared && includeLocked) {
+        app.canvas.style.cursor = '';
+    }
+    return cleared;
+}
+
+function getBitcoinDashboardPointerTarget(clientX, clientY, expectedBlockId = null) {
+    ensureLayoutCurrent();
+    const region = hitTest(clientX, clientY);
+    if (
+        region?.action !== 'bitcoin-dashboard-inspect'
+        || (expectedBlockId !== null && region.data?.blockId !== expectedBlockId)
+    ) {
+        return null;
+    }
+    const block = app.blocks.find(item => item.id === region.data?.blockId);
+    if (!block?.layout?.dashboardLayout || !block.data?.dashboard) {
+        return null;
+    }
+    const canvasRect = app.canvas.getBoundingClientRect();
+    const canvasX = clientX - canvasRect.left;
+    const viewportY = clientY - canvasRect.top;
+    const contentY = viewportY + app.scrollTop;
+    const inspection = inspectBitcoinDashboardPoint(
+        block.data.dashboard,
+        block.layout.dashboardLayout,
+        canvasX - region.x,
+        contentY - region.y,
+        { panelGeometries: block.layout.dashboardPanelGeometries }
+    );
+    return inspection ? { block, inspection, region } : null;
+}
+
+function updateBitcoinDashboardHover(event) {
+    if (app.viewer || isTouchLikePointer(event)) {
+        return false;
+    }
+    const target = getBitcoinDashboardPointerTarget(event.clientX, event.clientY);
+    const lockedBlock = app.blocks.find(block => block.bitcoinDashboardInspection?.locked);
+    if (lockedBlock) {
+        app.canvas.style.cursor = target ? 'crosshair' : '';
+        return Boolean(target);
+    }
+    clearBitcoinDashboardInspections(false);
+    if (!target) {
+        app.canvas.style.cursor = '';
+        return false;
+    }
+    target.block.bitcoinDashboardInspection = {
+        ...target.inspection,
+        locked: false
+    };
+    app.canvas.style.cursor = 'crosshair';
+    return true;
+}
+
+function lockBitcoinDashboardInspection(event, blockId) {
+    const target = getBitcoinDashboardPointerTarget(event.clientX, event.clientY, blockId);
+    if (!target) {
+        return false;
+    }
+    const current = target.block.bitcoinDashboardInspection;
+    if (
+        current?.locked
+        && current.panelIndex === target.inspection.panelIndex
+        && current.timestamp === target.inspection.timestamp
+    ) {
+        target.block.bitcoinDashboardInspection = null;
+        app.canvas.style.cursor = '';
+        return true;
+    }
+    clearBitcoinDashboardInspections(true);
+    target.block.bitcoinDashboardInspection = {
+        ...target.inspection,
+        locked: true
+    };
+    app.canvas.style.cursor = 'crosshair';
+    return true;
+}
+
+function onPointerLeave() {
+    if (!app.blocks.some(block => block.bitcoinDashboardInspection?.locked)) {
+        clearBitcoinDashboardInspections(false);
+        app.canvas.style.cursor = '';
+    }
+}
+
 function isTouchLikePointer(event) {
     return Boolean(
         event?.pointerType === 'touch'
@@ -4031,6 +4149,8 @@ function onPointerMove(event) {
         return;
     }
 
+    updateBitcoinDashboardHover(event);
+
     if (!app.pointerDrag || app.pointerDrag.pointerId !== event.pointerId) {
         return;
     }
@@ -4172,6 +4292,9 @@ function onPointerUp(event) {
     }
 
     switch (drag.region.action) {
+    case 'bitcoin-dashboard-inspect':
+        lockBitcoinDashboardInspection(event, drag.region.data?.blockId);
+        break;
     case 'delete-entry':
         handleDeleteEntry(drag.region.data).catch(error => {
             console.error('delete entry failed', error);
@@ -4350,6 +4473,11 @@ function onKeyDown(event) {
         return;
     }
 
+    if (event.key === 'Escape' && clearBitcoinDashboardInspections(true)) {
+        event.preventDefault();
+        return;
+    }
+
     switch (event.key) {
     case 'Enter': {
         submitTextInputProxyCommand();
@@ -4420,6 +4548,7 @@ function bindEvents() {
     app.canvas.addEventListener('pointerdown', onPointerDown);
     app.canvas.addEventListener('click', onCanvasClick);
     app.canvas.addEventListener('pointermove', onPointerMove);
+    app.canvas.addEventListener('pointerleave', onPointerLeave);
     app.canvas.addEventListener('pointerup', onPointerUp);
     app.canvas.addEventListener('pointercancel', onPointerCancel);
     ensureTextInputProxy();
@@ -4521,6 +4650,37 @@ function syncLocalTestHooks() {
         getBitcoinDashboardBlock() {
             ensureLayoutCurrent();
             return describeTerminalBlock(app.blocks.find(block => block.data?.type === 'bitcoin-dashboard'));
+        },
+        getBitcoinDashboardInspection() {
+            ensureLayoutCurrent();
+            const block = app.blocks.find(item => item.data?.type === 'bitcoin-dashboard');
+            return block?.bitcoinDashboardInspection
+                ? { ...block.bitcoinDashboardInspection }
+                : null;
+        },
+        getBitcoinDashboardInteractionTarget(panelIndex = 0, historyIndex = 0) {
+            ensureLayoutCurrent();
+            const block = app.blocks.find(item => item.data?.type === 'bitcoin-dashboard');
+            const panel = block?.data?.dashboard?.panels?.[panelIndex];
+            const panelRect = block?.layout?.dashboardLayout?.panelRects?.[panelIndex];
+            const region = app.interactiveRegions.find(item => (
+                item.action === 'bitcoin-dashboard-inspect'
+                && item.data?.blockId === block?.id
+            ));
+            if (!block || !panel?.available || !panelRect || !region || !panel.history?.length) {
+                return null;
+            }
+            const index = clamp(Math.floor(historyIndex), 0, panel.history.length - 1);
+            const point = panel.history[index];
+            const geometry = block.layout.dashboardPanelGeometries?.[panelIndex]
+                || createBitcoinDashboardPanelGeometry(panel, panelRect);
+            const canvasRect = app.canvas.getBoundingClientRect();
+            return {
+                clientX: canvasRect.left + region.x + geometry.timestampToX(point.timestamp),
+                clientY: canvasRect.top + region.y - app.scrollTop + geometry.chartTop + (geometry.chartHeight / 2),
+                mid: point.mid,
+                timestamp: point.timestamp
+            };
         },
         getScrollbarLayout() {
             ensureLayoutCurrent();
