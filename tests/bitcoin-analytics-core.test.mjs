@@ -11,6 +11,7 @@ import {
     formatBitcoinBacktest,
     formatBitcoinForecast,
     formatBitcoinIntervalDetail,
+    normalizeBitcoinTimestamp,
     parseBitcoinHistory
 } from '../src/bitcoin-analytics-core.mjs';
 
@@ -46,6 +47,34 @@ test('parseBitcoinHistory ignores malformed rows, sorts timestamps, deduplicates
     assert.deepEqual(parsed.map(point => point.timestamp), [1, 3, 4]);
     assert.equal(parsed[1].price, 104, 'expected the newest duplicate timestamp to win');
     assert.ok(parsed.every(point => Number.isFinite(point.spread_bps)));
+});
+
+test('Bitcoin timestamps normalize Unix seconds, Unix milliseconds, ISO strings, and Python datetime strings', () => {
+    const expected = Date.parse('2026-09-08T19:42:18Z') / 1000;
+
+    assert.equal(normalizeBitcoinTimestamp(expected), expected);
+    assert.equal(normalizeBitcoinTimestamp(expected * 1000), expected);
+    assert.equal(normalizeBitcoinTimestamp('2026-09-08T19:42:18Z'), expected);
+    assert.equal(normalizeBitcoinTimestamp('2026-09-08 19:42:18+00:00'), expected);
+    assert.equal(normalizeBitcoinTimestamp('2026-09-08 19:42:18'), expected);
+    assert.equal(normalizeBitcoinTimestamp(new Date('2026-09-08T19:42:18Z')), expected);
+    assert.ok(Number.isNaN(normalizeBitcoinTimestamp('not-a-timestamp')));
+});
+
+test('parseBitcoinHistory retains normalized source timestamps without index-based spacing', () => {
+    const input = [
+        JSON.stringify({ timestamp: '2026-09-08T19:42:18Z', price: 100 }),
+        JSON.stringify({ timestamp: '2026-09-08T19:42:23.500Z', price: 101 }),
+        JSON.stringify({ timestamp: Date.parse('2026-09-08T20:00:00Z'), price: 102 })
+    ].join('\n');
+
+    const parsed = parseBitcoinHistory(input);
+
+    assert.deepEqual(parsed.map(point => point.timestamp), [
+        Date.parse('2026-09-08T19:42:18Z') / 1000,
+        Date.parse('2026-09-08T19:42:23.500Z') / 1000,
+        Date.parse('2026-09-08T20:00:00Z') / 1000
+    ]);
 });
 test('parseBitcoinHistory drops a partial first row from ranged responses', () => {
     const parsed = parseBitcoinHistory([

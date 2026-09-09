@@ -198,6 +198,83 @@ test('bitcoin command renders repository analytics and interval detail in the li
         assert.ok(count > 2, `expected rendered ${series} chart pixels`);
     });
 
+    const hoverTarget = await page.evaluate(() => (
+        window.__terminalCanvasTestHooks.getBitcoinDashboardInteractionTarget(0, 23)
+    ));
+    await page.dispatchEvent('#terminal-canvas', 'pointermove', {
+        clientX: hoverTarget.clientX,
+        clientY: hoverTarget.clientY,
+        pointerId: 71,
+        pointerType: 'mouse'
+    });
+    const hoveredInspection = await page.evaluate(() => (
+        window.__terminalCanvasTestHooks.getBitcoinDashboardInspection()
+    ));
+    assert.equal(hoveredInspection.timestamp, hoverTarget.timestamp);
+    assert.equal(hoveredInspection.mid, hoverTarget.mid);
+    assert.equal(hoveredInspection.locked, false);
+
+    await page.dispatchEvent('#terminal-canvas', 'pointerdown', {
+        button: 0,
+        clientX: hoverTarget.clientX,
+        clientY: hoverTarget.clientY,
+        pointerId: 72,
+        pointerType: 'mouse'
+    });
+    await page.dispatchEvent('#terminal-canvas', 'pointerup', {
+        button: 0,
+        clientX: hoverTarget.clientX,
+        clientY: hoverTarget.clientY,
+        pointerId: 72,
+        pointerType: 'mouse'
+    });
+    const lockedInspection = await page.evaluate(() => (
+        window.__terminalCanvasTestHooks.getBitcoinDashboardInspection()
+    ));
+    assert.equal(lockedInspection.timestamp, hoverTarget.timestamp);
+    assert.equal(lockedInspection.locked, true);
+
+    const otherTarget = await page.evaluate(() => (
+        window.__terminalCanvasTestHooks.getBitcoinDashboardInteractionTarget(0, 47)
+    ));
+    await page.dispatchEvent('#terminal-canvas', 'pointermove', {
+        clientX: otherTarget.clientX,
+        clientY: otherTarget.clientY,
+        pointerId: 73,
+        pointerType: 'mouse'
+    });
+    assert.equal(
+        await page.evaluate(() => window.__terminalCanvasTestHooks.getBitcoinDashboardInspection().timestamp),
+        hoverTarget.timestamp,
+        'locked inspection should not move with hover'
+    );
+
+    await page.dispatchEvent('#terminal-canvas', 'pointerdown', {
+        button: 0,
+        clientX: otherTarget.clientX,
+        clientY: otherTarget.clientY,
+        pointerId: 74,
+        pointerType: 'mouse'
+    });
+    await page.dispatchEvent('#terminal-canvas', 'pointerup', {
+        button: 0,
+        clientX: otherTarget.clientX,
+        clientY: otherTarget.clientY,
+        pointerId: 74,
+        pointerType: 'mouse'
+    });
+    const movedLock = await page.evaluate(() => (
+        window.__terminalCanvasTestHooks.getBitcoinDashboardInspection()
+    ));
+    assert.equal(movedLock.timestamp, otherTarget.timestamp);
+    assert.equal(movedLock.locked, true);
+
+    await page.keyboard.press('Escape');
+    assert.equal(
+        await page.evaluate(() => window.__terminalCanvasTestHooks.getBitcoinDashboardInspection()),
+        null
+    );
+
     await page.setViewportSize({ width: 430, height: 900 });
     await page.evaluate(() => window.executeCommand('clear'));
     await page.evaluate(() => window.executeCommand('bitcoin dashboard'));
