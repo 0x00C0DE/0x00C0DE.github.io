@@ -1,0 +1,30 @@
+name: Dependency security
+
+on:
+  push:
+    branches: [main, 'codex/**']
+    paths-ignore: ['bitcoindata/**']
+  pull_request:
+    branches: [main]
+    paths-ignore: ['bitcoindata/**']
+  schedule:
+    - cron: '17 10 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Audit all dependency lockfiles
+        run: npm run test:security
+      - name: Verify security and Bitcoin calculations
+        run: node --test tests/security-quality-regressions.test.mjs tests/bitcoin-risk-core.test.mjs tests/bitcoin-analytics-core.test.mjs tests/bitcoin-dashboard-core.test.mjs tests/bitcoin-command-source.test.mjs

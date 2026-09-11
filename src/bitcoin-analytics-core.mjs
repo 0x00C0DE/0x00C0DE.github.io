@@ -1,3 +1,6 @@
+import { formatBitcoinRiskSummary } from './bitcoin-risk-core.mjs';
+export { formatBitcoinRiskReport } from './bitcoin-risk-core.mjs';
+
 export const BITCOIN_INTERVALS = Object.freeze([
     Object.freeze({ id: '1m', label: '1M', seconds: 60, filename: 'PROPRTS-job_1m-unlimited-history.txt' }),
     Object.freeze({ id: '2m', label: '2M', seconds: 120, filename: 'PROPRTS-job_2m-unlimited-history.txt' }),
@@ -937,8 +940,9 @@ export function formatBitcoinIntervalDetail(analysis) {
         `Liquidity ${analysis.liquidityQuality}${analysis.liquidityRatio === null ? '' : ` | latest/baseline ${analysis.liquidityRatio.toFixed(2)}x`}`,
         `Data coverage ${analysis.dataQuality.coveragePct.toFixed(1)}% (${analysis.sampleCount}/${analysis.dataQuality.expectedSamples}) | missing ${analysis.dataQuality.missingIntervals} | irregular ${analysis.dataQuality.irregularIntervals} | return outliers ${analysis.dataQuality.outlierReturns}`,
         `Price path ${analysis.sparkline}`,
+        ...formatBitcoinRiskSummary(analysis),
         '',
-        `Explore: bitcoin forecast ${analysis.interval.id} | bitcoin backtest ${analysis.interval.id}`,
+        `Explore: bitcoin risk ${analysis.interval.id} | bitcoin forecast ${analysis.interval.id} | bitcoin backtest ${analysis.interval.id}`,
         'This is informational analysis of repository history, not financial or trading advice.'
     ];
 }

@@ -1,4 +1,5 @@
 import { normalizeBitcoinTimestamp } from './bitcoin-analytics-core.mjs';
+import { buildBitcoinRiskReport } from './bitcoin-risk-core.mjs';
 
 const DASHBOARD_FONT_FAMILY = '"Courier New", Courier, monospace';
 
@@ -362,7 +363,11 @@ function buildAvailablePanel(entry) {
         && performance.directionalAccuracyPct >= 50
         && performance.skillVsNaivePct > 0
     );
-    const qualifiedStatus = signal.status === 'HOLD' || evidenceQualified ? signal.status : 'HOLD';
+    const risk = buildBitcoinRiskReport(analysis);
+    const dataQualified = risk?.status === 'ready';
+    const qualifiedStatus = evidenceQualified && dataQualified ? signal.status : 'HOLD';
+    const signalReason = !dataQualified ? 'Data not ready: inspect bitcoin risk'
+        : !evidenceQualified ? 'Backtest evidence insufficient' : 'Data and backtest checks passed';
 
     return {
         available: true,
@@ -398,6 +403,8 @@ function buildAvailablePanel(entry) {
         spreadBps: finiteNumber(analysis.latestSpreadBps),
         spreadShockBps: finiteNumber(analysis.latestSpreadBps) - finiteNumber(analysis.medianSpreadBps),
         status: qualifiedStatus,
+        risk,
+        signalReason,
         updatedTimestamp: finiteNumber(analysis.latestTimestamp),
         volatilityBps: finiteNumber(analysis.volatilityBps),
         volatilityClass: classifyVolatility(analysis.volatilityBps)
@@ -439,7 +446,7 @@ export function createBitcoinDashboardLayout(width, panelCount) {
     const columns = safeWidth >= 860 && count > 1 ? 2 : 1;
     const gap = safeWidth < 520 ? 10 : 12;
     const headerHeight = safeWidth < 560 ? 142 : 88;
-    const panelHeight = columns === 2 ? 304 : safeWidth < 560 ? 360 : 324;
+    const panelHeight = columns === 2 ? 336 : safeWidth < 560 ? 392 : 356;
     const panelWidth = columns === 1 ? safeWidth : (safeWidth - gap) / 2;
     const panelRects = Array.from({ length: count }, (_, index) => ({
         height: panelHeight,
@@ -473,7 +480,7 @@ export function createBitcoinDashboardPanelGeometry(panel, rect, options = {}) {
     const smallFont = compact ? 10 : 11;
     const titleFont = compact ? 12 : 13;
     const lineHeight = smallFont + 5;
-    const summaryBottom = y + padding + titleFont + 7 + (6 * lineHeight);
+    const summaryBottom = y + padding + titleFont + 7 + (8 * lineHeight);
     const performanceHeight = compact ? 34 : 30;
     const chartTop = summaryBottom + 6;
     const chartBottom = y + height - performanceHeight - 34;
@@ -883,6 +890,8 @@ function drawAvailablePanel(ctx, panel, rect, originX, originY, options = {}) {
         `Return ${formatSigned(panel.changePct, 2, '%')} | Proj ${formatSigned(panel.projectedReturnPct, 3, '%')} C${panel.forecastConfidence.toFixed(2)} | Updated ${formatTimestamp(panel.updatedTimestamp, true, timeZone)}`,
         `Momentum ${panel.momentum} | Vol ${panel.volatilityClass} ${panel.volatilityBps.toFixed(1)} bps | ${panel.projectionDirection} | N ${panel.sampleCount}`,
         `Condition ${panel.marketCondition} | Pattern ${panel.historicalPattern} | Coverage ${panel.dataCoveragePct.toFixed(1)}%`,
+        `Data ${panel.risk.status.toUpperCase()} | VaR95 ${panel.risk.valueAtRisk95Pct === null ? '--' : panel.risk.valueAtRisk95Pct.toFixed(3) + '%'} | Coverage ${panel.dataCoveragePct.toFixed(1)}%`,
+        panel.signalReason,
         `Buy Signal ${panel.buySignal ? 'ACTIVE' : 'WAIT'} | Sell Signal ${panel.sellSignal ? 'ACTIVE' : 'WAIT'} | RSI ${panel.rsi === null ? '--' : panel.rsi.toFixed(1)} | MACD-H ${formatSigned(panel.macdHistogram, 2)}`
     ];
     ctx.font = `${smallFont}px ${DASHBOARD_FONT_FAMILY}`;

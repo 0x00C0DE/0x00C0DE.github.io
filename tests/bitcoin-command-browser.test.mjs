@@ -144,6 +144,17 @@ test('bitcoin command renders repository analytics and interval detail in the li
         standaloneDashboard[0].dashboard.panels[0].latestPrice
     );
 
+    const risk = await page.evaluate(() => window.bitcoin_command(['risk', '1m']));
+    assert.match(risk.join('\n'), /BITCOIN 1M RISK REPORT/);
+    assert.match(risk.join('\n'), /Historical 95% VaR/);
+    assert.match(risk.join('\n'), /Bollinger/);
+    assert.doesNotMatch(risk.join('\n'), /NaN|Infinity/);
+    const defaultRisk = await page.evaluate(() => window.bitcoin_command(['risk']));
+    assert.match(defaultRisk.join('\n'), /BITCOIN 1M RISK REPORT/);
+    const invalidRisk = await page.evaluate(() => window.bitcoin_command(['risk', '3m']));
+    assert.match(invalidRisk.join('\n'), /unsupported interval/);
+    const extraRisk = await page.evaluate(() => window.bitcoin_command(['risk', '1m', 'extra']));
+    assert.match(extraRisk.join('\n'), /Usage:/);
     const forecast = await page.evaluate(() => window.bitcoin_command(['forecast', '1m']));
     assert.match(forecast.join('\n'), /BITCOIN 1M FORECAST/);
     assert.match(forecast.join('\n'), /estimated 80% range/i);

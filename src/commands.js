@@ -103,8 +103,8 @@ const FORTUNE_FALLBACKS = [
 let prefetchedFortunePromise = null;
 let bitcoinAnalyticsCorePromise = null;
 let bitcoinDashboardCorePromise = null;
-const BITCOIN_ANALYTICS_MODULE_URL = '/src/bitcoin-analytics-core.mjs?v=20260812b';
-const BITCOIN_DASHBOARD_MODULE_URL = '/src/bitcoin-dashboard-core.mjs?v=20260908a';
+const BITCOIN_ANALYTICS_MODULE_URL = '/src/bitcoin-analytics-core.mjs?v=20260911a';
+const BITCOIN_DASHBOARD_MODULE_URL = '/src/bitcoin-dashboard-core.mjs?v=20260911a';
 const BITCOIN_HISTORY_DATA_BASE_URL = window.BITCOIN_HISTORY_DATA_BASE_URL
     || 'https://raw.githubusercontent.com/0x00C0DE/0x00C0DE.github.io/bitcoin-data/bitcoindata';
 const BITCOIN_HISTORY_FALLBACK_BASE_URL = '/bitcoindata';
@@ -1041,6 +1041,7 @@ function help_command() {
         ['bitcoin dashboard [interval]', 'Open the responsive multi-panel Bitcoin chart dashboard (all intervals by default)'],
         ['bitcoin forecast [interval]', 'Project probabilistic price ranges across multiple horizons (defaults to 1m data)'],
         ['bitcoin backtest [interval]', 'Walk-forward test the forecast against repository history (defaults to 1m data)'],
+        ['bitcoin risk [interval]', 'Inspect historical loss risk, drawdown, Bollinger bands, and data readiness (defaults to 1m)'],
         ['cat', 'Display file contents'],
         ['clear', 'Clear the terminal screen'],
         ['date', 'Display current date and time'],
@@ -2629,9 +2630,10 @@ function getBitcoinCommandUsage(core) {
         '       bitcoin dashboard [interval]',
         '       bitcoin forecast [interval]',
         '       bitcoin backtest [interval]',
+        '       bitcoin risk [interval]',
         `Intervals: ${core.BITCOIN_INTERVALS.map(interval => interval.id).join(', ')}`,
         'Run without an interval for the multi-timeframe analytics dashboard.',
-        'Dashboard defaults to all intervals; forecast and backtest default to the 1m dataset.'
+        'Dashboard defaults to all intervals; forecast, backtest, and risk default to the 1m dataset.'
     ];
 }
 
@@ -2704,7 +2706,7 @@ async function bitcoin_command(args) {
             ];
         }
 
-        if (requested === 'forecast' || requested === 'backtest') {
+        if (requested === 'forecast' || requested === 'backtest' || requested === 'risk') {
             if (args?.length > 2) {
                 return getBitcoinCommandUsage(core);
             }
@@ -2715,6 +2717,9 @@ async function bitcoin_command(args) {
             }
             const history = await fetchBitcoinIntervalHistory(core, interval);
             const analysis = core.analyzeBitcoinHistory(history, interval);
+            if (requested === 'risk') {
+                return core.formatBitcoinRiskReport(analysis);
+            }
             if (requested === 'forecast') {
                 const forecast = core.buildBitcoinForecast(analysis);
                 return core.formatBitcoinForecast(analysis, forecast);

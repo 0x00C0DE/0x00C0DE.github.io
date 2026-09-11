@@ -135,3 +135,17 @@ test('CodeQL scans code changes with current actions and ignores data-only pushe
     assert.match(workflow, /security-events:\s*write/);
     assert.match(workflow, /paths-ignore:\s*[\s\S]*bitcoindata\/\*\*/);
 });
+
+test('Worker image decoder resolves only patched Sharp and bundled libvips builds', async () => {
+    const lock = JSON.parse(await readFile(new URL('worker/package-lock.json', repositoryRoot), 'utf8'));
+    const sharpEntries = Object.entries(lock.packages).filter(([name]) => name.endsWith('/sharp'));
+    assert.ok(sharpEntries.length > 0);
+    for (const [name, entry] of sharpEntries) {
+        assert.ok(versionAtLeast(entry.version, '0.35.4'), `${name} ${entry.version} exposes vulnerable libheif`);
+    }
+    const bundles = Object.entries(lock.packages).filter(([name]) => name.includes('/@img/sharp-libvips-'));
+    assert.ok(bundles.length > 0);
+    for (const [name, entry] of bundles) {
+        assert.ok(versionAtLeast(entry.version, '1.3.3'), `${name} must contain the patched libheif build`);
+    }
+});

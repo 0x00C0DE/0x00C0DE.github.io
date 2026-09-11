@@ -4,7 +4,7 @@ import {
     createBitcoinDashboardPanelGeometry,
     inspectBitcoinDashboardPoint,
     renderBitcoinDashboard
-} from './bitcoin-dashboard-core.mjs?v=20260908a';
+} from './bitcoin-dashboard-core.mjs?v=20260911a';
 import * as pretext from './pretext-browser.mjs';
 import {
     layoutPreparedTerminalEditorialText,

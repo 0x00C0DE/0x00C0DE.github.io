@@ -268,6 +268,7 @@ The terminal command map routes each shell verb to its handler, with most comman
 | `bitcoin [interval]` | Analyzes the repository's `bitcoindata` history across all intervals, or drills into `1m`, `2m`, `5m`, `10m`, `15m`, `30m`, `1h`, or `2h` with trend/pattern classification, SMA, EMA, RSI, MACD, volatility, momentum, support/resistance, drawdown, spread, liquidity, freshness, and data-quality metrics |
 | `bitcoin dashboard [interval]` | Renders the responsive visual chart dashboard for all timeframes, or a single selected timeframe, using the newest stored repository observations |
 | `bitcoin forecast [interval]` | Builds multi-horizon probabilistic estimates from the selected repository dataset, including expected returns, estimated 80% ranges, and explicit model-prediction versus speculative-projection labels; defaults to `1m` |
+| `bitcoin risk [interval]` | Reports historical loss risk, Bollinger bands, drawdown and data readiness; defaults to `1m` |
 | `bitcoin backtest [interval]` | Runs expanding-window historical evaluation with MAE, RMSE, MAPE, directional accuracy, range coverage, and skill against an unchanged-price baseline; defaults to `1m` |
 | `cat <file>` | Fetches a `.txt` file and streams it to the terminal |
 | `clear` | Clears terminal output and rebuilds the prompt |
@@ -306,6 +307,29 @@ The visual dashboard follows a compact two-column layout at desktop widths and s
 The dashboard uses the existing Canvas 2D terminal runtime and adds no runtime dependency, API key, account data, average-cost configuration, or Worker deployment requirement. Numeric Unix timestamps in seconds or milliseconds, timezone-qualified ISO timestamps, serialized Python datetime strings, and JavaScript `Date` objects are normalized to an absolute Unix timestamp while retaining sub-second precision. Timezone-naive datetime strings are interpreted as UTC; the dashboard then displays every axis label and tooltip in the browser's named local IANA time zone, shown in the dashboard header. This keeps midnight and daylight-saving transitions tied to the original observation instant. Because this repository has no portfolio cost basis, the purple **Reference** line is the arithmetic mean of the displayed historical window, not an account average cost. Re-run `bitcoin` or `bitcoin dashboard` to fetch and render the newest stored observations.
 
 `bitcoin forecast [interval]` uses a lightweight ensemble of median historical log-return drift, fitted log-price trend, EMA separation, recent momentum, and a small mean-reversion component. Extrapolation is damped as the horizon grows, while estimated 80% prediction ranges widen from observed return and regression-residual dispersion. A horizon is shown under **MODEL PREDICTIONS** only when its distance fits within the available historical evidence window; longer horizons are separated under **SPECULATIVE PROJECTIONS**. `bitcoin backtest [interval]` refits the model using only data available before each historical target and reports MAE, RMSE, MAPE, directional accuracy, estimated-range coverage, naive persistence MAE, and relative skill. These estimates assume recent historical relationships remain approximately stable, are limited by the repository's small and uneven sample depth, exclude external news and market microstructure, and are never guaranteed outcomes, financial advice, or trading instructions.
+
+### Bitcoin risk diagnostics
+
+Run `bitcoin risk [interval]` (defaults to `1m`) for historical 95% value at risk,
+expected shortfall, downside deviation, best/worst interval returns, positive-return
+frequency, current drawdown, time since the window peak, and Bollinger (20, 2) bands.
+Interval detail includes a compact risk summary; chart panels show risk-data readiness
+and VaR. The report includes UTC observation bounds, freshness, coverage, and method notes.
+
+Returns use consecutive stored prices and simple percentage changes. Transitions more
+than 20% away from the requested interval spacing are excluded, and a gap resets the
+20-observation Bollinger window. VaR uses the nearest-rank 95th percentile of losses;
+expected shortfall averages the worst ceil(5% × N) returns. Both loss estimates are
+floored at zero and require at least 20 regular returns. Downside deviation is the root
+mean square of negative returns with a zero-return target. No annualization is applied.
+%B is unavailable for flat bands and may otherwise extend outside 0–100%.
+
+READY requires fresh data, at least 60 regular returns, no excluded gaps, and no flagged
+return outliers. LIMITED or STALE data suppresses dashboard BUY/SELL diagnostics to HOLD,
+even when the backtest passes. These are transparent data checks, not a statistical
+certification: even 60 returns provide only three observations in the 5% tail. Stored
+history can miss extreme events; these estimates are not future loss limits and exclude
+fees, slippage, and portfolio exposure. The tool does not place orders.
 
 ### `bitcoin-analytics-core.mjs` — Historical Analytics and Forecasting
 
@@ -525,7 +549,7 @@ Current checks:
 
 ```bash
 node --test tests/terminal-session-core.test.mjs tests/terminal-visuals-core.test.mjs tests/terminal-pretext-core.test.mjs tests/pretext-lab-core.test.mjs tests/pretext-package-sync.test.mjs
-node --test tests/bitcoin-analytics-core.test.mjs tests/bitcoin-dashboard-core.test.mjs tests/bitcoin-command-source.test.mjs tests/bitcoin-command-browser.test.mjs
+node --test tests/bitcoin-risk-core.test.mjs tests/bitcoin-analytics-core.test.mjs tests/bitcoin-dashboard-core.test.mjs tests/bitcoin-command-source.test.mjs tests/bitcoin-command-browser.test.mjs
 node --check src/commands.js
 node --check src/term.js
 node --check src/banner-wave-core.mjs
@@ -593,6 +617,7 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
   bitcoin dashboard          Responsive visual dashboard for every supported timeframe
   bitcoin dashboard 1m       Focused visual dashboard for the 1-minute repository history
   bitcoin forecast 1m        Multi-horizon probabilistic estimates with widening 80% ranges
+  bitcoin risk 1m            Historical loss risk, Bollinger bands, drawdown, and data readiness
   bitcoin backtest 1m        Walk-forward forecast errors, coverage, direction, and naive skill
   fortune                    Random quote
 post [text] ... [image] ... Append to blog.txt; omit [image] for text-only posts or use one selected png/jpg/jpeg/webp/gif/mp4 file per placeholder (up to 10). Uploads are signature-checked and staged uploads expire/rate-limit before commit. When enabled, Turnstile verification runs right before submit. Example: post first [image] second [image] third
@@ -647,3 +672,15 @@ Full text: [LICENSE](./LICENSE)
 *Built without frameworks. Rendered without DOM reflow. Documented without databases.*
 
 </div>
+
+### Dependency security verification
+
+From the repository root in PowerShell, run `npm.cmd run test:security` to audit
+all three lockfiles (root, Worker, backend). The Worker now requires Wrangler
+`^4.131.0`, whose dependency tree supplies Sharp `0.35.4` with patched prebuilt
+libheif `1.23.2`; see [GHSA-rgj7-g3m4-5g8c](https://github.com/advisories/GHSA-rgj7-g3m4-5g8c).
+Use Node.js 24 LTS and `npm.cmd --prefix worker ci` for a reproducible install.
+The lockfile regression test rejects Sharp versions below the patched release.
+The dependency-security workflow audits on code pushes and weekly, and runs the
+Bitcoin/security regression tests. This update changes development tooling and
+requires no Worker deployment.

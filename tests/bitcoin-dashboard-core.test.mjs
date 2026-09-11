@@ -242,3 +242,18 @@ test('dashboard inspection snaps to underlying observations and formats exact pl
     assert.match(forecastTooltip, /80% range/);
     assert.equal(inspectBitcoinDashboardPoint({ panels: [] }, createBitcoinDashboardLayout(900, 0), 10, 10), null);
 });
+
+test('dashboard withholds directional signals when data is stale or sample evidence is limited', () => {
+    for (const freshness of ['stale', 'delayed']) {
+        const entry = buildEntry();
+        entry.analysis.freshness = freshness;
+        const panel = buildBitcoinDashboardViewModel([entry]).panels[0];
+        assert.equal(panel.status, 'HOLD');
+        assert.equal(panel.buySignal, false);
+        assert.equal(panel.sellSignal, false);
+        assert.match(panel.signalReason, /data/i);
+    }
+    const panel = buildBitcoinDashboardViewModel([buildEntry({ count: 30 })]).panels[0];
+    assert.equal(panel.status, 'HOLD');
+    assert.equal(panel.risk.status, 'limited');
+});
