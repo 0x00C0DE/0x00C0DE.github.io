@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
+    "test": "node --test proxy-trust.test.mjs",
     "dev": "node --watch server.js"
   },
   "dependencies": {
@@ -14,6 +15,6 @@
     "express-rate-limit": "^7.4.1"
   },
   "overrides": {
-    "qs": "6.16.0"
+    "qs": "6.17.1"
   }
 }

@@ -2,6 +2,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
+import { configureProxyTrust } from './proxy-trust.mjs';
 
 dotenv.config();
 
@@ -22,7 +23,7 @@ if (!githubOwner || !githubRepo || !githubPat) {
 
 app.use(cors({ origin: allowedOrigin }));
 app.use(express.json({ limit: '16kb' }));
-app.set('trust proxy', true);
+configureProxyTrust(app, process.env.TRUSTED_PROXIES);
 app.use(rateLimit({
     windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 3600000),
     max: Number(process.env.RATE_LIMIT_MAX || 10),

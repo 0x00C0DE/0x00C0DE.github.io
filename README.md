@@ -676,11 +676,16 @@ Full text: [LICENSE](./LICENSE)
 ### Dependency security verification
 
 From the repository root in PowerShell, run `npm.cmd run test:security` to audit
-all three lockfiles (root, Worker, backend). The Worker now requires Wrangler
-`^4.131.0`, whose dependency tree supplies Sharp `0.35.4` with patched prebuilt
-libheif `1.23.2`; see [GHSA-rgj7-g3m4-5g8c](https://github.com/advisories/GHSA-rgj7-g3m4-5g8c).
+all three lockfiles (root, Worker, backend), including low-severity advisories.
+The Worker overrides Miniflare's pinned dependencies with Undici `7.30.1` and
+Sharp `0.35.5` to address the current HTTP-client and image-decoder advisories.
+Sharp retains the earlier libheif fix and adds the librsvg fix; see
+[GHSA-wq5f-xc86-pv6w](https://github.com/advisories/GHSA-wq5f-xc86-pv6w).
+The Express fallback resolves patched `proxy-addr` and `body-parser`, with
+`qs` overridden to `6.17.1`. Reassess overrides when upgrading their parent packages.
 Use Node.js 24 LTS and `npm.cmd --prefix worker ci` for a reproducible install.
 The lockfile regression test rejects Sharp versions below the patched release.
 The dependency-security workflow audits on code pushes and weekly, and runs the
-Bitcoin/security regression tests. This update changes development tooling and
-requires no Worker deployment.
+Bitcoin/security and backend proxy-trust regression tests. The Worker dependency
+changes require no Worker deployment. Existing Express fallback installations need
+`npm.cmd --prefix backend ci` and a restart; see [backend proxy configuration](backend/README.md).

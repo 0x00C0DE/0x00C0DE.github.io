@@ -26,5 +26,14 @@ jobs:
           package-manager-cache: false
       - name: Audit all dependency lockfiles
         run: npm run test:security
+      - name: Verify backend proxy trust
+        run: |
+          npm --prefix backend ci --ignore-scripts
+          npm --prefix backend test
+      - name: Verify Worker dependency compatibility
+        run: |
+          npm --prefix worker ci
+          npm --prefix worker run check
+          npm --prefix worker test
       - name: Verify security and Bitcoin calculations
         run: node --test tests/security-quality-regressions.test.mjs tests/bitcoin-risk-core.test.mjs tests/bitcoin-analytics-core.test.mjs tests/bitcoin-dashboard-core.test.mjs tests/bitcoin-command-source.test.mjs

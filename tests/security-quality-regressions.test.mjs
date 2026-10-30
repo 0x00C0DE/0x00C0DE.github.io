@@ -6,6 +6,27 @@ import { normalizeTrustedMediaSource } from '../src/media-source-policy.mjs';
 
 const repositoryRoot = new URL('../', import.meta.url);
 
+for (const [folder, dependency, minimum] of [
+    ['worker', 'undici', '7.30.1'],
+    ['backend', 'proxy-addr', '2.0.8'], ['backend', 'body-parser', '1.20.9']
+]) {
+    test(`${folder} resolves patched ${dependency} throughout its dependency tree`, async () => {
+        const lock = JSON.parse(await readFile(new URL(`${folder}/package-lock.json`, repositoryRoot), 'utf8'));
+        const entries = Object.entries(lock.packages).filter(([name]) => name.endsWith(`/${dependency}`));
+        assert.ok(entries.length > 0);
+        for (const [name, entry] of entries) {
+            assert.ok(versionAtLeast(entry.version, minimum), `${name} ${entry.version} remains vulnerable`);
+        }
+    });
+}
+
+test('security audits fail for low severity vulnerabilities in all three dependency trees', async () => {
+    const manifest = JSON.parse(await readFile(new URL('package.json', repositoryRoot), 'utf8'));
+    const audits = manifest.scripts['test:security'].split('&&');
+    assert.equal(audits.length, 3);
+    for (const audit of audits) assert.match(audit, /audit --audit-level=low\b/);
+});
+
 function parseVersion(version) {
     return String(version).split('.').map(part => Number.parseInt(part, 10));
 }
@@ -31,9 +52,9 @@ test('backend pins qs to the patched release throughout the dependency tree', as
     const lockfile = JSON.parse(lockfileText);
     const installedVersion = lockfile.packages?.['node_modules/qs']?.version;
 
-    assert.equal(manifest.overrides?.qs, '6.16.0');
+    assert.equal(manifest.overrides?.qs, '6.17.1');
     assert.ok(installedVersion, 'expected qs in backend/package-lock.json');
-    assert.ok(versionAtLeast(installedVersion, '6.16.0'), `qs ${installedVersion} remains vulnerable`);
+    assert.ok(versionAtLeast(installedVersion, '6.17.1'), `qs ${installedVersion} remains vulnerable`);
 });
 
 test('media policy permits intended sources and rejects attacker-controlled URLs', () => {
@@ -141,7 +162,7 @@ test('Worker image decoder resolves only patched Sharp and bundled libvips build
     const sharpEntries = Object.entries(lock.packages).filter(([name]) => name.endsWith('/sharp'));
     assert.ok(sharpEntries.length > 0);
     for (const [name, entry] of sharpEntries) {
-        assert.ok(versionAtLeast(entry.version, '0.35.4'), `${name} ${entry.version} exposes vulnerable libheif`);
+        assert.ok(versionAtLeast(entry.version, '0.35.5'), `${name} ${entry.version} exposes vulnerable image libraries`);
     }
     const bundles = Object.entries(lock.packages).filter(([name]) => name.includes('/@img/sharp-libvips-'));
     assert.ok(bundles.length > 0);
