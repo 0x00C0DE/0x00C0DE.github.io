@@ -296,10 +296,12 @@ The terminal command map routes each shell verb to its handler, with most comman
 | `whoami` | Prints the current simulated terminal username |
 | `youtube` | Opens YouTube in a new tab |
 
-The résumé opening plays the ten-second Fallen Down scene as a native video
-served from `assets/resume-cinematic.mp4`. Select **Skip to resume** or press
-Escape to open the PDF immediately. Reduced motion and playback failures go
-straight to the PDF. [Footage source](https://tenor.com/view/overlord-i-fallen-down-ainz-ooal-gown-gif-26743987)
+The résumé opening plays a subtitle-free scene from the Ainz–Shalltear duel,
+upscaled from a 1080p Blu-ray excerpt to 2160p. Use **Sound** to toggle the
+original audio. If the browser blocks autoplay with sound, the cutscene starts
+muted. Select **Skip to resume** or press Escape to open the PDF immediately.
+Reduced motion and playback failures go straight to the PDF.
+[Footage source](https://animesolution.com/2020/09/18/overlord-blu-ray-media-review-episode-12/)
 
 Commands that require async I/O (`bitcoin`, `cat`, `post`, `fortune`, `video`, `userpic`, `qr-totp`, `visitors`) return Promises and can be aborted mid-execution.
 

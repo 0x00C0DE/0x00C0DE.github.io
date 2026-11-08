@@ -15,11 +15,16 @@ body {
     object-position: center;
 }
 
-#resume-pdf {
+.cinematic-actions {
     position: fixed;
     z-index: 1;
     top: max(18px, env(safe-area-inset-top));
     right: max(18px, env(safe-area-inset-right));
+    display: flex;
+    gap: 8px;
+}
+
+#resume-pdf, #cinematic-sound {
     padding: .8em 1.15em;
     border: 1px solid #ffffff60;
     border-radius: 999px;
@@ -29,6 +34,8 @@ body {
     font: 600 .78rem/1.4 system-ui, sans-serif;
 }
 
+#cinematic-sound { cursor: pointer; }
+#cinematic-sound[aria-pressed="true"] { background: #392455; }
 #resume-pdf span { margin-left: .35em; }
-#resume-pdf:hover { background: #2c1942; }
-#resume-pdf:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
+#resume-pdf:hover, #cinematic-sound:hover { background: #2c1942; }
+#resume-pdf:focus-visible, #cinematic-sound:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }

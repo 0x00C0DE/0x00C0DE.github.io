@@ -5,19 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#06050a">
     <title>Nazarick | Resume</title>
-    <link rel="stylesheet" href="resume-intro.css">
+    <link rel="stylesheet" href="resume-intro.css?v=4k">
 </head>
 <body>
-    <main aria-label="Ainz Ooal Gown casts Fallen Down">
+    <main aria-label="Ainz Ooal Gown duels Shalltear">
         <video id="cinematic" muted playsinline preload="none" aria-hidden="true"
-               data-src="/assets/resume-cinematic.mp4"></video>
-        <a id="resume-pdf" href="/assets/resume.pdf?v=20260810a">
-            Skip to resume <span aria-hidden="true">↗</span>
-        </a>
+               data-src="/assets/resume-cinematic-4k.mp4"></video>
+        <div class="cinematic-actions">
+            <button type="button" id="cinematic-sound" aria-pressed="false" hidden>Sound</button>
+            <a id="resume-pdf" href="/assets/resume.pdf?v=20260810a">
+                Skip to resume <span aria-hidden="true">↗</span>
+            </a>
+        </div>
     </main>
     <script type="module">
         const video = document.querySelector('#cinematic');
         const resume = document.querySelector('#resume-pdf');
+        const sound = document.querySelector('#cinematic-sound');
         const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
         let deadline;
 
@@ -37,7 +41,14 @@
             video.addEventListener('ended', openResume, { once: true });
             video.addEventListener('error', openResume, { once: true });
             video.addEventListener('waiting', allowPlaybackTime);
-            video.addEventListener('playing', () => clearTimeout(deadline));
+            video.addEventListener('playing', () => {
+                clearTimeout(deadline);
+                sound.hidden = false;
+            });
+            video.addEventListener('volumechange', () => {
+                sound.setAttribute('aria-pressed', String(!video.muted));
+            });
+            sound.addEventListener('click', () => { video.muted = !video.muted; });
             reducedMotion.addEventListener('change', event => {
                 if (event.matches) openResume();
             });
@@ -53,7 +64,15 @@
             });
             allowPlaybackTime();
             video.src = video.dataset.src;
-            video.play().catch(openResume);
+            video.muted = false;
+            video.play().catch(error => {
+                if (error.name !== 'NotAllowedError') {
+                    openResume();
+                    return;
+                }
+                video.muted = true;
+                video.play().catch(openResume);
+            });
         }
     </script>
 </body>

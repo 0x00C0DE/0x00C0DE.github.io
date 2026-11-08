@@ -144,7 +144,7 @@ test('the resume command plays the full-viewport Nazarick cutscene and opens the
     const origin = 'https://resume.test';
     const introUrl = `${origin}/pages/resume-intro.html`;
     const pdfUrl = `${origin}/assets/resume.pdf?v=20260810a`;
-    const videoPath = '/assets/resume-cinematic.mp4';
+    const videoPath = '/assets/resume-cinematic-4k.mp4';
     let videoRequests = 0;
 
     const serveLocalFiles = async route => {
@@ -182,6 +182,13 @@ test('the resume command plays the full-viewport Nazarick cutscene and opens the
     assert.deepEqual(await video.boundingBox(), { x: 0, y: 0, ...viewport });
     assert.equal(await video.evaluate(element => getComputedStyle(element).objectFit), 'cover');
     assert.equal(await page.locator('iframe').count(), 0);
+    assert.deepEqual(await video.evaluate(element =>
+        [element.videoWidth, element.videoHeight, element.textTracks.length]
+    ), [3840, 2160, 0]);
+    const sound = page.getByRole('button', { name: 'Sound', exact: true });
+    const initiallyMuted = await video.evaluate(element => element.muted);
+    await sound.click();
+    assert.equal(await video.evaluate(element => element.muted), !initiallyMuted);
     await video.evaluate(element => { element.currentTime = element.duration - .25; });
     await page.waitForURL(pdfUrl);
     await page.goBack();
