@@ -1,8 +1,8 @@
-:root { color-scheme: dark; }
+:root { color-scheme: light; }
 
 body {
     margin: 0;
-    background: #06050a;
+    background: #f6f3ef;
 }
 
 #cinematic {
@@ -24,7 +24,7 @@ body {
     gap: 8px;
 }
 
-#resume-pdf, #cinematic-sound {
+#resume-skip, #cinematic-sound {
     padding: .8em 1.15em;
     border: 1px solid #ffffff60;
     border-radius: 999px;
@@ -36,39 +36,70 @@ body {
 
 #cinematic-sound { cursor: pointer; }
 #cinematic-sound[aria-pressed="true"] { background: #392455; }
-#resume-pdf span { margin-left: .35em; }
-#resume-pdf:hover, #cinematic-sound:hover { background: #2c1942; }
-#resume-pdf:focus-visible, #cinematic-sound:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
+#resume-skip span { margin-left: .35em; }
+#resume-skip:hover, #cinematic-sound:hover { background: #2c1942; }
+#resume-skip:focus-visible, #cinematic-sound:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
 
-body.resume-handoff { background: #fff; }
-.resume-handoff #cinematic, .resume-handoff #cinematic-sound { visibility: hidden; }
 
-.resume-preview {
-    position: fixed;
-    inset: 0;
-    display: none;
-    place-items: center;
+body.cinematic-active { overflow: hidden; background: #06050a; }
+.cinematic-active #resume { visibility: hidden; }
+#cinematic { background: #06050a; }
+
+#resume {
+    min-height: 100svh;
+    padding: clamp(12px, 4vw, 48px);
+    box-sizing: border-box;
+    outline: none;
 }
 
-.resume-handoff .resume-preview { display: grid; }
-
-#resume-page {
-    display: block;
-    max-width: calc(100vw - 24px);
-    max-height: calc(100svh - 32px);
-    object-fit: contain;
+.resume-page {
+    box-sizing: border-box;
+    max-width: 860px;
+    margin-inline: auto;
+    padding: clamp(20px, 5vw, 56px);
+    background: #fff;
+    border: 1px solid #ded8d0;
+    color: #211c27;
+    font: 400 1rem/1.62 system-ui, sans-serif;
+    overflow-wrap: anywhere;
 }
 
-.resume-handoff #resume-page {
-    animation: resume-focus .85s cubic-bezier(.2, .7, .25, 1) both;
+.resume-page h1 {
+    margin: 0;
+    font: 500 clamp(2rem, 7vw, 3.65rem)/1.05 Georgia, serif;
+    letter-spacing: -.04em;
 }
+
+.resume-contact { margin-block: .65rem 1.35rem; color: #5b5262; }
+.resume-page section { margin-top: 2rem; }
+.resume-page h2 {
+    margin: 0 0 .75rem;
+    padding-bottom: .35rem;
+    border-bottom: 1px solid #ded8d0;
+    font: 500 1.55rem/1.25 Georgia, serif;
+}
+.resume-page h3 { margin-block: 1.1rem .4rem; font-size: 1rem; }
+.resume-page ul { padding-inline-start: 1.3rem; margin-block: .4rem .9rem; }
+.resume-page li + li { margin-top: .25rem; }
+.resume-page a { color: #573589; }
+
+.resume-handoff { animation: resume-focus .85s cubic-bezier(.2, .7, .25, 1) both; }
 
 @keyframes resume-focus {
-    from { opacity: 0; filter: blur(24px); transform: scale(1.035); }
-    22% { opacity: .9; }
+    from { background: #fff; }
+    to { background: #f6f3ef; }
+}
+
+.resume-handoff .resume-page {
+    animation: resume-page-focus .85s cubic-bezier(.2, .7, .25, 1) both;
+}
+
+@keyframes resume-page-focus {
+    from { opacity: 0; filter: blur(24px); transform: scale(1.02); }
+    25% { opacity: .9; }
     to { opacity: 1; filter: blur(0); transform: scale(1); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .resume-handoff #resume-page { animation: none; }
+    .resume-handoff, .resume-handoff .resume-page { animation: none; }
 }

@@ -289,7 +289,7 @@ The terminal command map routes each shell verb to its handler, with most comman
 | `projects` | Opens the dedicated projects terminal page |
 | `pwd` | Prints the simulated working directory |
 | `qr-totp ...` | Browser-side QR enrollment, Base32-backed TOTP generation/verification, and optional authenticator provisioning for `su godlike` |
-| `resume` | Plays the full-viewport Overlord cutscene, then opens `assets/resume.pdf` in the same tab |
+| `resume` | Plays the full-viewport Overlord cutscene, then reveals the HTML résumé on the same page |
 | `su` / `su guest` / `su godlike` | Switches to `root`, back to `guest`, or into TOTP-protected `godlike` using concatenated password + six-digit OTP credentials |
 | `userpic [w h]` | Converts an uploaded `png/jpg/jpeg/webp/gif` image to ASCII art with raster-only picker rules plus `8 MB` and `4096x4096` source caps |
 | `visitors` | Renders the live visitor stats widget |
@@ -297,12 +297,13 @@ The terminal command map routes each shell verb to its handler, with most comman
 | `youtube` | Opens YouTube in a new tab |
 
 The résumé opening plays 26 seconds of Ainz casting Fallen Down. The spell
-fades into white and the first page of the PDF comes into focus before the
-full document opens. The subtitle-free clip is upscaled from a
+fades into white and the scrollable HTML résumé comes into focus on the same
+page. The page uses PDF.js to read the published résumé's text into HTML, so
+updates to the source PDF also update the web view. The subtitle-free clip is upscaled from a
 1080p Blu-ray excerpt to 2160p. Use **Sound** to toggle the
 original audio. If the browser blocks autoplay with sound, the cutscene starts
-muted. Select **Skip to resume** or press Escape to open the PDF immediately.
-Reduced motion and playback failures go straight to the PDF.
+muted. Select **Skip to resume** or press Escape to show the HTML résumé immediately.
+Reduced motion and playback failures also go straight to the HTML résumé.
 [Footage source](https://animesolution.com/2020/09/26/overlord-blu-ray-media-review-episode-13/)
 
 Commands that require async I/O (`bitcoin`, `cat`, `post`, `fortune`, `video`, `userpic`, `qr-totp`, `visitors`) return Promises and can be aborted mid-execution.

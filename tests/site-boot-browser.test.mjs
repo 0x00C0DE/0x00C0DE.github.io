@@ -138,20 +138,19 @@ test('site boot loads the vendored pretext generated assets without module failu
     );
 });
 
-test('the resume command plays the full-viewport Nazarick cutscene and opens the PDF', { timeout: 65000 }, async t => {
+test('the resume command reveals the HTML resume in place after the Nazarick cutscene', { timeout: 65000 }, async t => {
     const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
     t.after(() => browser.close());
     const origin = 'https://resume.test';
     const introUrl = `${origin}/pages/resume-intro.html`;
-    const pdfUrl = `${origin}/assets/resume.pdf?v=20260810a`;
     const videoPath = '/assets/resume-fallen-down-4k.mp4';
     let videoRequests = 0;
+    let pdfNavigations = 0;
 
     const serveLocalFiles = async route => {
         const { pathname } = new URL(route.request().url());
         if (pathname === '/assets/resume.pdf' && route.request().isNavigationRequest()) {
-            await route.fulfill({ body: 'Resume PDF destination' });
-            return;
+            pdfNavigations++;
         }
         if (pathname === videoPath) videoRequests++;
         const file = pathname === '/' ? '/index.html' : pathname;
@@ -191,13 +190,21 @@ test('the resume command plays the full-viewport Nazarick cutscene and opens the
     await sound.click();
     assert.equal(await video.evaluate(element => element.muted), !initiallyMuted);
     await page.waitForFunction(() => {
-        const canvas = document.querySelector('.resume-handoff #resume-page');
-        return canvas?.width > 300 && canvas.getAnimations().some(animation => {
+        const article = document.querySelector('.resume-handoff .resume-page');
+        return article?.querySelector('h2') && article.getAnimations().some(animation => {
             const frames = animation.effect.getKeyframes();
             return frames[0].filter === 'blur(24px)' && frames.at(-1).filter === 'blur(0px)';
         });
     }, null, { timeout: 40000 });
-    await page.waitForURL(pdfUrl);
+    const education = page.getByRole('heading', { name: 'Education', exact: true });
+    await education.waitFor();
+    assert.equal(await page.locator('.resume-page section').count(), 5);
+    assert.equal(await page.locator('.resume-page h3').count(), 9);
+    assert.equal(await page.locator('.resume-page a').count(), 5);
+    assert.equal(await page.locator('.resume-page li').filter({ hasText: /improve operational efficiency/ }).count(), 1);
+    await education.scrollIntoViewIfNeeded();
+    assert.equal(page.url(), introUrl);
+    assert.equal(await page.locator('#intro').isHidden(), true);
     await page.goBack();
     await page.waitForURL(`${origin}/`);
 
@@ -205,23 +212,27 @@ test('the resume command plays the full-viewport Nazarick cutscene and opens the
     const skip = page.getByRole('link', { name: 'Skip to resume' });
     await skip.focus();
     await skip.press('Enter');
-    await page.waitForURL(pdfUrl);
+    await education.waitFor();
+    assert.equal(page.url(), introUrl);
 
     await context.route(`${origin}${videoPath}`, route => route.fulfill({ status: 404 }));
     await page.goto(introUrl, { waitUntil: 'commit' });
-    await page.waitForURL(pdfUrl);
+    await education.waitFor();
+    assert.equal(page.url(), introUrl);
     await context.unroute(`${origin}${videoPath}`);
 
     const beforeReducedMotion = videoRequests;
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto(introUrl, { waitUntil: 'commit' });
-    await page.waitForURL(pdfUrl);
+    await education.waitFor();
+    assert.equal(page.url(), introUrl);
     assert.equal(videoRequests, beforeReducedMotion);
+    assert.equal(pdfNavigations, 0);
 
     const staticContext = await browser.newContext({ javaScriptEnabled: false });
     await staticContext.route(`${origin}/**`, serveLocalFiles);
     const staticIntro = await staticContext.newPage();
     await staticIntro.goto(introUrl);
-    assert.equal(await staticIntro.getByRole('link', { name: 'Skip to resume' })
-        .getAttribute('href'), '/assets/resume.pdf?v=20260810a');
+    assert.equal(await staticIntro.locator('#intro').isHidden(), true);
+    assert.equal(await staticIntro.locator('noscript').innerText(), 'Enable JavaScript to display the HTML résumé.');
 });

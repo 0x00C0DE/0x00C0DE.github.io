@@ -3,110 +3,96 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#06050a">
-    <title>Nazarick | Resume</title>
-    <link rel="stylesheet" href="resume-intro.css?v=fallen-down-reveal">
+    <meta name="theme-color" content="#f6f3ef">
+    <title>Résumé</title>
+    <link rel="stylesheet" href="resume-intro.css?v=html-resume">
 </head>
 <body>
-    <main aria-label="Ainz Ooal Gown casts Fallen Down">
+    <div id="intro" hidden>
         <video id="cinematic" muted playsinline preload="none" aria-hidden="true"
                data-src="/assets/resume-fallen-down-4k.mp4"></video>
-        <div class="resume-preview" aria-hidden="true">
-            <canvas id="resume-page"></canvas>
-        </div>
         <div class="cinematic-actions">
             <button type="button" id="cinematic-sound" aria-pressed="false" hidden>Sound</button>
-            <a id="resume-pdf" href="/assets/resume.pdf?v=20260810a">
-                Skip to resume <span aria-hidden="true">↗</span>
-            </a>
+            <a id="resume-skip" href="#resume">Skip to resume <span aria-hidden="true">↗</span></a>
         </div>
+    </div>
+    <main id="resume" tabindex="-1" aria-label="Résumé">
+        <article class="resume-page" aria-label="Professional résumé">
+            <h1>Résumé</h1>
+            <p id="resume-status" role="status">Loading résumé…</p>
+            <noscript><p>Enable JavaScript to display the HTML résumé.</p></noscript>
+        </article>
     </main>
     <script type="module">
+        const intro = document.querySelector('#intro');
         const video = document.querySelector('#cinematic');
-        const resume = document.querySelector('#resume-pdf');
+        const resume = document.querySelector('#resume');
         const sound = document.querySelector('#cinematic-sound');
-        const resumePage = document.querySelector('#resume-page');
         const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
         let deadline;
-        let previewReady = false;
 
-        const openResume = () => {
+        import('./resume-content.mjs')
+            .then(({ populateResume }) => populateResume(document.querySelector('.resume-page'), '/assets/resume.pdf?v=20260810a'))
+            .catch(error => {
+                console.warn('HTML résumé could not load', error.name);
+                document.querySelector('#resume-status').textContent = 'The résumé could not load. Refresh this page to try again.';
+            });
+
+        const revealResume = (animate = false) => {
+            if (intro.hidden) return;
             clearTimeout(deadline);
-            location.replace(resume.href);
+            intro.hidden = true;
+            video.pause();
+            resume.inert = false;
+            document.body.classList.remove('cinematic-active');
+            if (animate && !reducedMotion.matches) resume.classList.add('resume-handoff');
+            resume.focus({ preventScroll: true });
         };
 
         const allowPlaybackTime = () => {
+            if (intro.hidden) return;
             clearTimeout(deadline);
-            deadline = setTimeout(openResume, 5000);
+            deadline = setTimeout(revealResume, 5000);
         };
 
-        async function renderResumePreview() {
-            const { getDocument, GlobalWorkerOptions } = await import('/vendor/pdfjs/pdf.min.mjs');
-            GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs';
-            const pdf = await getDocument({ url: resume.href, isEvalSupported: false }).promise;
-            try {
-                const page = await pdf.getPage(1);
-                const viewport = page.getViewport({ scale: 2 });
-                resumePage.width = Math.ceil(viewport.width);
-                resumePage.height = Math.ceil(viewport.height);
-                await page.render({ canvas: resumePage, viewport }).promise;
-                previewReady = true;
-            } finally {
-                await pdf.destroy();
-            }
-        }
-
-        if (reducedMotion.matches) {
-            openResume();
-        } else {
-            video.addEventListener('ended', () => {
-                clearTimeout(deadline);
-                document.body.classList.add('resume-handoff');
-                if (!previewReady) {
-                    openResume();
-                    return;
-                }
-                resumePage.addEventListener('animationend', openResume, { once: true });
-                deadline = setTimeout(openResume, 1200);
-            }, { once: true });
-            video.addEventListener('error', openResume, { once: true });
+        if (!reducedMotion.matches && location.hash !== '#resume') {
+            intro.hidden = false;
+            resume.inert = true;
+            document.body.classList.add('cinematic-active');
+            video.addEventListener('ended', () => revealResume(true), { once: true });
+            video.addEventListener('error', () => revealResume(), { once: true });
             video.addEventListener('waiting', allowPlaybackTime);
             video.addEventListener('playing', () => {
                 clearTimeout(deadline);
                 sound.hidden = false;
             });
-            video.addEventListener('playing', () => {
-                renderResumePreview().catch(error => {
-                    console.warn('Résumé preview could not render', error.name);
-                });
-            }, { once: true });
             video.addEventListener('volumechange', () => {
                 sound.setAttribute('aria-pressed', String(!video.muted));
             });
             sound.addEventListener('click', () => { video.muted = !video.muted; });
             reducedMotion.addEventListener('change', event => {
-                if (event.matches) openResume();
+                if (event.matches) revealResume();
             });
             document.addEventListener('keydown', event => {
-                if (event.key === 'Escape' && !event.defaultPrevented) openResume();
+                if (event.key === 'Escape' && !event.defaultPrevented) revealResume();
             });
-            resume.addEventListener('click', event => {
+            document.querySelector('#resume-skip').addEventListener('click', event => {
                 if (event.button === 0 && !event.ctrlKey && !event.metaKey &&
                     !event.shiftKey && !event.altKey) {
                     event.preventDefault();
-                    openResume();
+                    revealResume();
                 }
             });
             allowPlaybackTime();
             video.src = video.dataset.src;
             video.muted = false;
             video.play().catch(error => {
-                if (error.name !== 'NotAllowedError') {
-                    openResume();
+                if (error.name !== 'NotAllowedError' || intro.hidden) {
+                    revealResume();
                     return;
                 }
                 video.muted = true;
-                video.play().catch(openResume);
+                video.play().catch(() => revealResume());
             });
         }
     </script>

@@ -1059,7 +1059,7 @@ function help_command() {
         ['post [text] ... [image] ...', `Append a blog entry; omit [image] for text-only posts or use one selected media file per placeholder (${BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL}, up to ${BLOG_MAX_IMAGE_ATTACHMENTS}). Example: post first [image] second [image] third`],
         ['pwd', 'Print working directory'],
         ['qr-totp', 'Browser QR enrollment + TOTP generator for the cs370 project'],
-        ['resume', 'Play the Nazarick intro and open my resume PDF'],
+        ['resume', 'Play the Nazarick intro and reveal my web resume'],
         ['su [guest|godlike]', 'Switch to root with `su`, back to guest with `su guest`, or authenticate godlike with `su godlike`'],
         ['userpic [w h]', 'Upload or take your own picture and display it as ASCII art'],
         ['visitors', 'Display the live visitor stats widget'],
