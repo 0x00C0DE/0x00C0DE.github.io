@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#09080d">
+    <title>Nazarick Archive | Resume</title>
+    <link rel="stylesheet" href="resume-intro.css">
+</head>
+<body>
+    <main class="archive">
+        <header class="folio">
+            <span><span class="mark" aria-hidden="true">◇</span> Nazarick Archive</span>
+            <a class="skip" id="resume-pdf" href="/assets/resume.pdf?v=20260810a">Skip to resume <span aria-hidden="true">↗</span></a>
+        </header>
+        <section class="screen" aria-labelledby="clip-title">
+            <div id="player"></div>
+        </section>
+        <footer class="folio credits">
+            <h1 id="clip-title">Ainz Ooal Gown</h1>
+            <a href="https://www.youtube.com/watch?v=WxrJ_RdtLqQ&amp;t=72s"
+               target="_blank" rel="noopener">Overlord / The Sacred Kingdom ↗</a>
+        </footer>
+    </main>
+    <script type="module">
+        const clip = { videoId: 'WxrJ_RdtLqQ', startSeconds: 72, endSeconds: 82 };
+        const resume = document.querySelector('#resume-pdf');
+        const openResume = () => location.replace(resume.href);
+
+        if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            openResume();
+        } else {
+            // Fall back if the remote player is blocked, slow, or stalls during playback.
+            const startupDeadline = setTimeout(openResume, 6000);
+            let started = false;
+
+            window.onYouTubeIframeAPIReady = () => {
+                new window.YT.Player('player', {
+                    host: 'https://www.youtube-nocookie.com',
+                    playerVars: {
+                        origin: location.origin,
+                        playsinline: 1,
+                        controls: 0,
+                        rel: 0
+                    },
+                    events: {
+                        onReady({ target }) {
+                            target.getIframe().title = 'Ainz Ooal Gown in Overlord: The Sacred Kingdom';
+                            target.mute();
+                            target.loadVideoById(clip);
+                        },
+                        onStateChange({ data }) {
+                            if (data === window.YT.PlayerState.ENDED) {
+                                openResume();
+                            } else if (data === window.YT.PlayerState.PLAYING && !started) {
+                                started = true;
+                                clearTimeout(startupDeadline);
+                                setTimeout(openResume, (clip.endSeconds - clip.startSeconds + 3) * 1000);
+                            }
+                        },
+                        onAutoplayBlocked: openResume,
+                        onError: openResume
+                    }
+                });
+            };
+
+            const api = document.createElement('script');
+            api.src = 'https://www.youtube.com/iframe_api';
+            api.addEventListener('error', openResume, { once: true });
+            document.head.append(api);
+        }
+    </script>
+</body>
+</html>

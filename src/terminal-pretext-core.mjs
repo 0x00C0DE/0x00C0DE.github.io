@@ -1,4 +1,4 @@
-const TERMINAL_LINK_PATTERN = /\bhttps?:\/\/[^\s<]+|\bproject-[a-z0-9-]+\.html\b|\bprojects\.html\b|\bresume\.pdf\b|\b[A-Za-z0-9-]+\.txt\b/gi;
+const TERMINAL_LINK_PATTERN = /\bhttps?:\/\/[^\s<]+|\bproject-[a-z0-9-]+\.html\b|\bprojects\.html\b|\bresume-intro\.html\b|\bresume\.pdf\b|\b[A-Za-z0-9-]+\.txt\b/gi;
 
 let sharedGraphemeSegmenter = null;
 
@@ -57,7 +57,7 @@ function resolveTerminalLinkToken(tokenText, options = {}) {
         type: 'link',
         text: tokenText,
         href: resolveTerminalFileHref(tokenText),
-        newTab: /\.pdf$/i.test(tokenText)
+        newTab: /(?:\.pdf|^resume-intro\.html)$/i.test(tokenText)
     };
 }
 

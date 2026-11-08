@@ -137,3 +137,96 @@ test('site boot loads the vendored pretext generated assets without module failu
         'expected no boot-time module request failures'
     );
 });
+
+test('the resume command opens the Nazarick intro before the PDF', { timeout: 30000 }, async t => {
+    const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
+    t.after(() => browser.close());
+    const origin = 'https://resume.test';
+    const serveLocalFiles = async route => {
+        const { pathname } = new URL(route.request().url());
+        const file = pathname === '/' ? '/index.html' : pathname;
+        if (file === '/assets/resume.pdf') {
+            // Keep the native PDF viewer out of the test.
+            await route.fulfill({ body: 'Resume PDF destination' });
+            return;
+        }
+        await route.fulfill({ path: path.join(REPO_ROOT, file) });
+    };
+
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await context.route(`${origin}/**`, serveLocalFiles);
+    await context.route('https://www.youtube.com/iframe_api', route => route.fulfill({
+        contentType: 'application/javascript',
+        body: `
+            window.YT = {
+                PlayerState: { ENDED: 0, PLAYING: 1 },
+                Player: function (id, options) {
+                    const player = {
+                        getIframe() { return document.querySelector('#player'); },
+                        mute() { document.body.dataset.muted = 'true'; },
+                        loadVideoById(clip) {
+                            document.body.dataset.clip = JSON.stringify(clip);
+                            options.events.onStateChange({ data: 1 });
+                            window.finishClip = () => options.events.onStateChange({ data: 0 });
+                        }
+                    };
+                    queueMicrotask(() => options.events.onReady({ target: player }));
+                }
+            };
+            window.onYouTubeIframeAPIReady();
+        `
+    }));
+    const page = await context.newPage();
+    await page.goto(origin);
+    const resumeListing = (await readFile(path.join(REPO_ROOT, 'content', 'links.txt'), 'utf8'))
+        .split(/\r?\n/).find(line => line.startsWith('Resume'));
+    const link = await page.evaluate(listing => {
+        const container = document.createElement('div');
+        window.renderTerminalLineContent(container, listing);
+        const anchor = container.querySelector('a');
+        return [anchor?.href, anchor?.target];
+    }, resumeListing);
+    assert.deepEqual(link, [`${origin}/pages/resume-intro.html`, '_blank']);
+    const popupPromise = context.waitForEvent('page');
+    await page.evaluate(() => window.resume_command());
+    const intro = await popupPromise;
+    await intro.waitForURL('**/pages/resume-intro.html', { timeout: 3000 });
+    await intro.waitForFunction(() => Boolean(window.finishClip), null, { timeout: 3000 });
+    assert.equal(await intro.locator('body').getAttribute('data-muted'), 'true');
+    assert.deepEqual(JSON.parse(await intro.locator('body').getAttribute('data-clip')), {
+        videoId: 'WxrJ_RdtLqQ',
+        startSeconds: 72,
+        endSeconds: 82
+    });
+    await intro.evaluate(() => window.finishClip());
+    await intro.waitForURL('**/assets/resume.pdf?v=20260810a');
+
+    await intro.goto(`${origin}/pages/resume-intro.html`);
+    const skip = intro.getByRole('link', { name: 'Skip to resume' });
+    await skip.focus();
+    await skip.press('Enter');
+    await intro.waitForURL('**/assets/resume.pdf?v=20260810a');
+
+    await context.route('https://www.youtube.com/iframe_api', route => route.abort());
+    await intro.goto(`${origin}/pages/resume-intro.html`, { waitUntil: 'commit' });
+    await intro.waitForURL('**/assets/resume.pdf?v=20260810a');
+
+    let reducedMotionRequests = 0;
+    await context.route('https://www.youtube.com/iframe_api', route => {
+        reducedMotionRequests++;
+        return route.abort();
+    });
+    await intro.emulateMedia({ reducedMotion: 'reduce' });
+    await intro.goto(`${origin}/pages/resume-intro.html`, { waitUntil: 'commit' });
+    await intro.waitForURL('**/assets/resume.pdf?v=20260810a');
+    assert.equal(reducedMotionRequests, 0);
+
+    const staticContext = await browser.newContext({ javaScriptEnabled: false });
+    await staticContext.route(`${origin}/**`, serveLocalFiles);
+    const staticIntro = await staticContext.newPage();
+    await staticIntro.goto(`${origin}/pages/resume-intro.html`);
+    assert.equal(
+        await staticIntro.getByRole('link', { name: 'Skip to resume' }).getAttribute('href'),
+        '/assets/resume.pdf?v=20260810a'
+    );
+});

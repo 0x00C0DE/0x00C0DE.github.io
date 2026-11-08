@@ -289,12 +289,16 @@ The terminal command map routes each shell verb to its handler, with most comman
 | `projects` | Opens the dedicated projects terminal page |
 | `pwd` | Prints the simulated working directory |
 | `qr-totp ...` | Browser-side QR enrollment, Base32-backed TOTP generation/verification, and optional authenticator provisioning for `su godlike` |
-| `resume` | Opens `resume.pdf` in a new tab |
+| `resume` | Plays a short Overlord excerpt in a new tab, then opens `assets/resume.pdf` |
 | `su` / `su guest` / `su godlike` | Switches to `root`, back to `guest`, or into TOTP-protected `godlike` using concatenated password + six-digit OTP credentials |
 | `userpic [w h]` | Converts an uploaded `png/jpg/jpeg/webp/gif` image to ASCII art with raster-only picker rules plus `8 MB` and `4096x4096` source caps |
 | `visitors` | Renders the live visitor stats widget |
 | `whoami` | Prints the current simulated terminal username |
 | `youtube` | Opens YouTube in a new tab |
+
+The résumé opening plays a ten-second Overlord excerpt on YouTube. It starts
+muted and requires an internet connection. Use **Skip to resume** to open the
+PDF immediately. Reduced motion and playback failures go straight to the PDF.
 
 Commands that require async I/O (`bitcoin`, `cat`, `post`, `fortune`, `video`, `userpic`, `qr-totp`, `visitors`) return Promises and can be aborted mid-execution.
 

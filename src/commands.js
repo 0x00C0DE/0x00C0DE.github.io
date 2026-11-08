@@ -669,7 +669,7 @@ function buildTerminalLinkElement(fragment) {
 }
 
 function renderTerminalLineContentFallback(container, text) {
-    const pattern = /\bhttps?:\/\/[^\s<]+|\bproject-[a-z0-9-]+\.html\b|\bprojects\.html\b|\bresume\.pdf\b|\b[A-Za-z0-9-]+\.txt\b/gi;
+    const pattern = /\bhttps?:\/\/[^\s<]+|\bproject-[a-z0-9-]+\.html\b|\bprojects\.html\b|\bresume-intro\.html\b|\bresume\.pdf\b|\b[A-Za-z0-9-]+\.txt\b/gi;
     let lastIndex = 0;
     let match = pattern.exec(text);
 
@@ -690,7 +690,7 @@ function renderTerminalLineContentFallback(container, text) {
                 container.append(document.createTextNode(matchedText));
             }
         } else {
-            const newTab = /\.pdf$/i.test(matchedText);
+            const newTab = /(?:\.pdf|^resume-intro\.html)$/i.test(matchedText);
             appendAnchor(container, resolveTerminalFileHref(matchedText), matchedText, { newTab });
         }
 
@@ -1059,7 +1059,7 @@ function help_command() {
         ['post [text] ... [image] ...', `Append a blog entry; omit [image] for text-only posts or use one selected media file per placeholder (${BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL}, up to ${BLOG_MAX_IMAGE_ATTACHMENTS}). Example: post first [image] second [image] third`],
         ['pwd', 'Print working directory'],
         ['qr-totp', 'Browser QR enrollment + TOTP generator for the cs370 project'],
-        ['resume', 'Open my resume PDF in a new tab'],
+        ['resume', 'Play the Nazarick intro and open my resume PDF'],
         ['su [guest|godlike]', 'Switch to root with `su`, back to guest with `su guest`, or authenticate godlike with `su godlike`'],
         ['userpic [w h]', 'Upload or take your own picture and display it as ASCII art'],
         ['visitors', 'Display the live visitor stats widget'],
@@ -4019,7 +4019,7 @@ window.setTerminalSessionState = setTerminalSessionState;
 window.refreshTerminalSessionUi = refreshTerminalSessionUi;
 
 function resume_command() {
-    window.open('/assets/resume.pdf?v=20260810a', '_blank');
+    window.open('/pages/resume-intro.html', '_blank', 'noopener');
     return [];
 }
 
