@@ -296,12 +296,14 @@ The terminal command map routes each shell verb to its handler, with most comman
 | `whoami` | Prints the current simulated terminal username |
 | `youtube` | Opens YouTube in a new tab |
 
-The résumé opening plays a subtitle-free scene from the Ainz–Shalltear duel,
-upscaled from a 1080p Blu-ray excerpt to 2160p. Use **Sound** to toggle the
+The résumé opening plays 26 seconds of Ainz casting Fallen Down. The spell
+fades into white and the first page of the PDF comes into focus before the
+full document opens. The subtitle-free clip is upscaled from a
+1080p Blu-ray excerpt to 2160p. Use **Sound** to toggle the
 original audio. If the browser blocks autoplay with sound, the cutscene starts
 muted. Select **Skip to resume** or press Escape to open the PDF immediately.
 Reduced motion and playback failures go straight to the PDF.
-[Footage source](https://animesolution.com/2020/09/18/overlord-blu-ray-media-review-episode-12/)
+[Footage source](https://animesolution.com/2020/09/26/overlord-blu-ray-media-review-episode-13/)
 
 Commands that require async I/O (`bitcoin`, `cat`, `post`, `fortune`, `video`, `userpic`, `qr-totp`, `visitors`) return Promises and can be aborted mid-execution.
 

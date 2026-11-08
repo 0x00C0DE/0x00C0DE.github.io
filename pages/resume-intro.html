@@ -5,12 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#06050a">
     <title>Nazarick | Resume</title>
-    <link rel="stylesheet" href="resume-intro.css?v=4k">
+    <link rel="stylesheet" href="resume-intro.css?v=fallen-down-reveal">
 </head>
 <body>
-    <main aria-label="Ainz Ooal Gown duels Shalltear">
+    <main aria-label="Ainz Ooal Gown casts Fallen Down">
         <video id="cinematic" muted playsinline preload="none" aria-hidden="true"
-               data-src="/assets/resume-cinematic-4k.mp4"></video>
+               data-src="/assets/resume-fallen-down-4k.mp4"></video>
+        <div class="resume-preview" aria-hidden="true">
+            <canvas id="resume-page"></canvas>
+        </div>
         <div class="cinematic-actions">
             <button type="button" id="cinematic-sound" aria-pressed="false" hidden>Sound</button>
             <a id="resume-pdf" href="/assets/resume.pdf?v=20260810a">
@@ -22,8 +25,10 @@
         const video = document.querySelector('#cinematic');
         const resume = document.querySelector('#resume-pdf');
         const sound = document.querySelector('#cinematic-sound');
+        const resumePage = document.querySelector('#resume-page');
         const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
         let deadline;
+        let previewReady = false;
 
         const openResume = () => {
             clearTimeout(deadline);
@@ -35,16 +40,46 @@
             deadline = setTimeout(openResume, 5000);
         };
 
+        async function renderResumePreview() {
+            const { getDocument, GlobalWorkerOptions } = await import('/vendor/pdfjs/pdf.min.mjs');
+            GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs';
+            const pdf = await getDocument({ url: resume.href, isEvalSupported: false }).promise;
+            try {
+                const page = await pdf.getPage(1);
+                const viewport = page.getViewport({ scale: 2 });
+                resumePage.width = Math.ceil(viewport.width);
+                resumePage.height = Math.ceil(viewport.height);
+                await page.render({ canvas: resumePage, viewport }).promise;
+                previewReady = true;
+            } finally {
+                await pdf.destroy();
+            }
+        }
+
         if (reducedMotion.matches) {
             openResume();
         } else {
-            video.addEventListener('ended', openResume, { once: true });
+            video.addEventListener('ended', () => {
+                clearTimeout(deadline);
+                document.body.classList.add('resume-handoff');
+                if (!previewReady) {
+                    openResume();
+                    return;
+                }
+                resumePage.addEventListener('animationend', openResume, { once: true });
+                deadline = setTimeout(openResume, 1200);
+            }, { once: true });
             video.addEventListener('error', openResume, { once: true });
             video.addEventListener('waiting', allowPlaybackTime);
             video.addEventListener('playing', () => {
                 clearTimeout(deadline);
                 sound.hidden = false;
             });
+            video.addEventListener('playing', () => {
+                renderResumePreview().catch(error => {
+                    console.warn('Résumé preview could not render', error.name);
+                });
+            }, { once: true });
             video.addEventListener('volumechange', () => {
                 sound.setAttribute('aria-pressed', String(!video.muted));
             });

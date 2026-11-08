@@ -138,18 +138,18 @@ test('site boot loads the vendored pretext generated assets without module failu
     );
 });
 
-test('the resume command plays the full-viewport Nazarick cutscene and opens the PDF', { timeout: 30000 }, async t => {
+test('the resume command plays the full-viewport Nazarick cutscene and opens the PDF', { timeout: 65000 }, async t => {
     const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
     t.after(() => browser.close());
     const origin = 'https://resume.test';
     const introUrl = `${origin}/pages/resume-intro.html`;
     const pdfUrl = `${origin}/assets/resume.pdf?v=20260810a`;
-    const videoPath = '/assets/resume-cinematic-4k.mp4';
+    const videoPath = '/assets/resume-fallen-down-4k.mp4';
     let videoRequests = 0;
 
     const serveLocalFiles = async route => {
         const { pathname } = new URL(route.request().url());
-        if (pathname === '/assets/resume.pdf') {
+        if (pathname === '/assets/resume.pdf' && route.request().isNavigationRequest()) {
             await route.fulfill({ body: 'Resume PDF destination' });
             return;
         }
@@ -185,11 +185,18 @@ test('the resume command plays the full-viewport Nazarick cutscene and opens the
     assert.deepEqual(await video.evaluate(element =>
         [element.videoWidth, element.videoHeight, element.textTracks.length]
     ), [3840, 2160, 0]);
+    assert.ok(await video.evaluate(element => element.duration >= 26));
     const sound = page.getByRole('button', { name: 'Sound', exact: true });
     const initiallyMuted = await video.evaluate(element => element.muted);
     await sound.click();
     assert.equal(await video.evaluate(element => element.muted), !initiallyMuted);
-    await video.evaluate(element => { element.currentTime = element.duration - .25; });
+    await page.waitForFunction(() => {
+        const canvas = document.querySelector('.resume-handoff #resume-page');
+        return canvas?.width > 300 && canvas.getAnimations().some(animation => {
+            const frames = animation.effect.getKeyframes();
+            return frames[0].filter === 'blur(24px)' && frames.at(-1).filter === 'blur(0px)';
+        });
+    }, null, { timeout: 40000 });
     await page.waitForURL(pdfUrl);
     await page.goBack();
     await page.waitForURL(`${origin}/`);

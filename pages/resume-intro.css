@@ -39,3 +39,36 @@ body {
 #resume-pdf span { margin-left: .35em; }
 #resume-pdf:hover, #cinematic-sound:hover { background: #2c1942; }
 #resume-pdf:focus-visible, #cinematic-sound:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
+
+body.resume-handoff { background: #fff; }
+.resume-handoff #cinematic, .resume-handoff #cinematic-sound { visibility: hidden; }
+
+.resume-preview {
+    position: fixed;
+    inset: 0;
+    display: none;
+    place-items: center;
+}
+
+.resume-handoff .resume-preview { display: grid; }
+
+#resume-page {
+    display: block;
+    max-width: calc(100vw - 24px);
+    max-height: calc(100svh - 32px);
+    object-fit: contain;
+}
+
+.resume-handoff #resume-page {
+    animation: resume-focus .85s cubic-bezier(.2, .7, .25, 1) both;
+}
+
+@keyframes resume-focus {
+    from { opacity: 0; filter: blur(24px); transform: scale(1.035); }
+    22% { opacity: .9; }
+    to { opacity: 1; filter: blur(0); transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .resume-handoff #resume-page { animation: none; }
+}
