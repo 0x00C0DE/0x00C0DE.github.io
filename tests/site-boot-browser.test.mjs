@@ -143,7 +143,7 @@ test('the resume command reveals the HTML resume in place after the Nazarick cut
     t.after(() => browser.close());
     const origin = 'https://resume.test';
     const introUrl = `${origin}/pages/resume-intro.html`;
-    const videoPath = '/assets/resume-initial-flash-4k.mp4';
+    const videoPath = '/assets/resume-crystal-whiteout-4k.mp4';
     let videoRequests = 0;
     let pdfNavigations = 0;
 
@@ -196,7 +196,7 @@ test('the resume command reveals the HTML resume in place after the Nazarick cut
         });
     }, null, { timeout: 40000 });
     const handoffTime = await video.evaluate(element => element.currentTime);
-    assert.ok(handoffTime >= 11.78 && handoffTime < 12, `Expected the initial Fallen Down flash, got ${handoffTime}s`);
+    assert.ok(handoffTime >= 4.75 && handoffTime < 5.05, `Expected the full Fallen Down whiteout, got ${handoffTime}s`);
     const education = page.locator('.resume-text-layer').getByText('Education', { exact: true });
     await education.waitFor();
     const sheet = page.getByRole('region', { name: 'Résumé page 1 of 1' });
