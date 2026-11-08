@@ -191,17 +191,20 @@ test('the resume command reveals the HTML resume in place after the Nazarick cut
     assert.equal(await video.evaluate(element => element.muted), !initiallyMuted);
     await page.waitForFunction(() => {
         const article = document.querySelector('.resume-handoff .resume-page');
-        return article?.querySelector('h2') && article.getAnimations().some(animation => {
+        return article?.querySelector('canvas') && article.getAnimations().some(animation => {
             const frames = animation.effect.getKeyframes();
             return frames[0].filter === 'blur(24px)' && frames.at(-1).filter === 'blur(0px)';
         });
     }, null, { timeout: 40000 });
-    const education = page.getByRole('heading', { name: 'Education', exact: true });
+    const education = page.locator('.resume-text-layer').getByText('Education', { exact: true });
     await education.waitFor();
-    assert.equal(await page.locator('.resume-page section').count(), 5);
-    assert.equal(await page.locator('.resume-page h3').count(), 9);
-    assert.equal(await page.locator('.resume-page a').count(), 5);
-    assert.equal(await page.locator('.resume-page li').filter({ hasText: /improve operational efficiency/ }).count(), 1);
+    const sheet = page.getByRole('region', { name: 'Résumé page 1 of 1' });
+    assert.deepEqual(await sheet.locator('canvas').evaluate(canvas => [canvas.width, canvas.height]), [1224, 1584]);
+    const box = await sheet.boundingBox();
+    assert.ok(box.width <= viewport.width);
+    assert.ok(Math.abs(box.width / box.height - 612 / 792) < .01);
+    assert.ok(await sheet.getByRole('link').count() > 0);
+    assert.ok(await education.evaluate(element => parseFloat(getComputedStyle(element).fontSize) > 0));
     await education.scrollIntoViewIfNeeded();
     assert.equal(page.url(), introUrl);
     assert.equal(await page.locator('#intro').isHidden(), true);

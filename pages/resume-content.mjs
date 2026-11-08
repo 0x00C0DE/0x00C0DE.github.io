@@ -1,102 +1,83 @@
-import { getDocument, GlobalWorkerOptions } from '/vendor/pdfjs/pdf.min.mjs';
+import { getDocument, GlobalWorkerOptions, TextLayer } from '/vendor/pdfjs/pdf.min.mjs';
 
 GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs';
 
-const sectionNames = new Set([
-    'Technical Highlights', 'Skills', 'Professional Experience', 'Technical Projects', 'Education'
-]);
+function addLinks(sheet, viewport, annotations) {
+    const [a, b, c, d, e, f] = viewport.transform;
+    for (const { subtype, url, rect } of annotations) {
+        if (subtype !== 'Link' || !rect || !/^(https?:|mailto:|tel:)/i.test(url ?? '')) continue;
 
-function appendText(parent, tag, text) {
-    const element = document.createElement(tag);
-    element.textContent = text;
-    parent.append(element);
-    return element;
-}
-
-function readLines(items) {
-    const lines = [];
-    let text = '';
-    let left;
-    let bulletLeft;
-    for (const item of items) {
-        if (left === undefined && item.str.trim()) left = item.transform[4];
-        text += item.str;
-        if (!item.hasEOL && item !== items.at(-1)) continue;
-
-        const line = text.trim();
-        if (line.startsWith('- ')) {
-            lines.push(line);
-            bulletLeft = left;
-        } else if (line && bulletLeft !== undefined && left > bulletLeft + 4) {
-            lines[lines.length - 1] += ' ' + line;
-        } else if (line) {
-            lines.push(line);
-            bulletLeft = undefined;
-        }
-        text = '';
-        left = undefined;
+        const [left, bottom, right, top] = rect;
+        const x1 = a * left + c * bottom + e;
+        const y1 = b * left + d * bottom + f;
+        const x2 = a * right + c * top + e;
+        const y2 = b * right + d * top + f;
+        const link = document.createElement('a');
+        link.className = 'resume-link';
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.setAttribute('aria-label', url);
+        link.style.left = `${100 * Math.min(x1, x2) / viewport.width}%`;
+        link.style.top = `${100 * Math.min(y1, y2) / viewport.height}%`;
+        link.style.width = `${100 * Math.abs(x2 - x1) / viewport.width}%`;
+        link.style.height = `${100 * Math.abs(y2 - y1) / viewport.height}%`;
+        sheet.append(link);
     }
-    return lines;
 }
 
 export async function populateResume(container, pdfUrl) {
     const loadingTask = getDocument({ url: pdfUrl, isEvalSupported: false });
-    let lines;
+    const content = document.createDocumentFragment();
+    const sizes = new Map();
+
     try {
         const pdf = await loadingTask.promise;
-        const pages = await Promise.all(Array.from({ length: pdf.numPages }, async (_, index) => {
-            const page = await pdf.getPage(index + 1);
-            const { items } = await page.getTextContent();
-            return readLines(items);
-        }));
-        lines = pages.flat();
+        for (let number = 1; number <= pdf.numPages; number++) {
+            const page = await pdf.getPage(number);
+            const viewport = page.getViewport({ scale: 1 });
+            const rasterViewport = page.getViewport({ scale: 2 });
+            const sheet = document.createElement('section');
+            sheet.className = 'resume-sheet';
+            sheet.setAttribute('aria-label', `Résumé page ${number} of ${pdf.numPages}`);
+            sheet.style.width = `${viewport.width * 4 / 3}px`;
+            sheet.style.aspectRatio = `${viewport.width} / ${viewport.height}`;
+            sheet.style.setProperty('--total-scale-factor', '1');
+
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.ceil(rasterViewport.width);
+            canvas.height = Math.ceil(rasterViewport.height);
+            canvas.setAttribute('aria-hidden', 'true');
+
+            const text = document.createElement('div');
+            text.className = 'resume-text-layer';
+            const layer = new TextLayer({
+                textContentSource: page.streamTextContent(),
+                container: text,
+                viewport
+            });
+
+            sheet.append(canvas, text);
+            await Promise.all([
+                page.render({ canvas, viewport: rasterViewport }).promise,
+                layer.render()
+            ]);
+            addLinks(sheet, viewport, await page.getAnnotations({ intent: 'display' }));
+            content.append(sheet);
+            sizes.set(sheet, viewport.width);
+        }
     } finally {
         await loadingTask.destroy();
     }
 
-    if (lines.length < 3) throw new Error('Résumé text is missing');
-
-    const [name, contact, ...body] = lines;
-    const content = document.createDocumentFragment();
-    const header = document.createElement('header');
-    appendText(header, 'h1', name).tabIndex = -1;
-    appendText(header, 'p', contact).className = 'resume-contact';
-    content.append(header);
-
-    let section = content;
-    let heading = '';
-    let list;
-    let previousText;
-    for (const line of body) {
-        if (sectionNames.has(line)) {
-            heading = line;
-            section = document.createElement('section');
-            appendText(section, 'h2', line);
-            content.append(section);
-            list = undefined;
-            previousText = undefined;
-        } else if (line.startsWith('- ')) {
-            if (!list) {
-                list = document.createElement('ul');
-                section.append(list);
-            }
-            previousText = appendText(list, 'li', line.slice(2));
-        } else if (/^https?:\/\/\S+$/i.test(line)) {
-            const link = appendText(section, 'a', line);
-            link.href = line;
-            list = undefined;
-            previousText = undefined;
-        } else if (heading === 'Education' || heading === 'Professional Experience' ||
-                   heading === 'Technical Projects') {
-            appendText(section, 'h3', line);
-            list = undefined;
-            previousText = undefined;
-        } else if (previousText) {
-            previousText.append(' ', line);
-        } else {
-            previousText = appendText(section, 'p', line);
-        }
-    }
-
     container.replaceChildren(content);
+    const resize = new ResizeObserver(entries => {
+        for (const { target, contentRect } of entries) {
+            target.style.setProperty('--total-scale-factor', String(contentRect.width / sizes.get(target)));
+        }
+    });
+    for (const [sheet, width] of sizes) {
+        sheet.style.setProperty('--total-scale-factor', String(sheet.getBoundingClientRect().width / width));
+        resize.observe(sheet);
+    }
 }

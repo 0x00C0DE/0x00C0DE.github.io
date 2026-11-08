@@ -53,35 +53,48 @@ body.cinematic-active { overflow: hidden; background: #06050a; }
 }
 
 .resume-page {
-    box-sizing: border-box;
-    max-width: 860px;
-    margin-inline: auto;
-    padding: clamp(20px, 5vw, 56px);
-    background: #fff;
-    border: 1px solid #ded8d0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    justify-items: center;
+    font: 1rem/1.5 system-ui, sans-serif;
     color: #211c27;
-    font: 400 1rem/1.62 system-ui, sans-serif;
-    overflow-wrap: anywhere;
 }
 
-.resume-page h1 {
-    margin: 0;
-    font: 500 clamp(2rem, 7vw, 3.65rem)/1.05 Georgia, serif;
-    letter-spacing: -.04em;
+.resume-sheet {
+    position: relative;
+    max-width: 100%;
+    background: #fff;
+    box-shadow: 0 0 0 1px #ded8d0, 0 6px 24px #211c2714;
 }
 
-.resume-contact { margin-block: .65rem 1.35rem; color: #5b5262; }
-.resume-page section { margin-top: 2rem; }
-.resume-page h2 {
-    margin: 0 0 .75rem;
-    padding-bottom: .35rem;
-    border-bottom: 1px solid #ded8d0;
-    font: 500 1.55rem/1.25 Georgia, serif;
+.resume-sheet canvas {
+    display: block;
+    width: 100%;
+    height: auto;
 }
-.resume-page h3 { margin-block: 1.1rem .4rem; font-size: 1rem; }
-.resume-page ul { padding-inline-start: 1.3rem; margin-block: .4rem .9rem; }
-.resume-page li + li { margin-top: .25rem; }
-.resume-page a { color: #573589; }
+
+.resume-text-layer {
+    position: absolute;
+    inset: 0;
+    overflow: clip;
+    line-height: 1;
+    text-size-adjust: none;
+}
+
+.resume-text-layer :is(span, br) {
+    position: absolute;
+    color: transparent;
+    white-space: pre;
+    cursor: text;
+    transform-origin: top left;
+    font-size: calc(var(--total-scale-factor) * var(--font-height, 0px));
+    transform: rotate(var(--rotate, 0deg)) scaleX(var(--scale-x, 1));
+}
+
+.resume-text-layer ::selection { color: transparent; background: #58388b45; }
+.resume-link { position: absolute; }
+.resume-link:focus-visible { outline: 2px solid #573589; outline-offset: 1px; }
 
 .resume-handoff { animation: resume-focus .85s cubic-bezier(.2, .7, .25, 1) both; }
 

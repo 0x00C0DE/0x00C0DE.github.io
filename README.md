@@ -297,9 +297,9 @@ The terminal command map routes each shell verb to its handler, with most comman
 | `youtube` | Opens YouTube in a new tab |
 
 The résumé opening plays 26 seconds of Ainz casting Fallen Down. The spell
-fades into white and the scrollable HTML résumé comes into focus on the same
-page. The page uses PDF.js to read the published résumé's text into HTML, so
-updates to the source PDF also update the web view. The subtitle-free clip is upscaled from a
+fades into white and the résumé comes into focus on the same HTML page.
+PDF.js renders the source PDF's original layout with selectable text and
+clickable links. The subtitle-free clip is upscaled from a
 1080p Blu-ray excerpt to 2160p. Use **Sound** to toggle the
 original audio. If the browser blocks autoplay with sound, the cutscene starts
 muted. Select **Skip to resume** or press Escape to show the HTML résumé immediately.
