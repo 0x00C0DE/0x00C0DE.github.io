@@ -143,7 +143,7 @@ test('the resume command reveals the HTML resume in place after the Nazarick cut
     t.after(() => browser.close());
     const origin = 'https://resume.test';
     const introUrl = `${origin}/pages/resume-intro.html`;
-    const videoPath = '/assets/resume-fallen-down-4k.mp4';
+    const videoPath = '/assets/resume-whiteout-4k.mp4';
     let videoRequests = 0;
     let pdfNavigations = 0;
 
@@ -184,7 +184,6 @@ test('the resume command reveals the HTML resume in place after the Nazarick cut
     assert.deepEqual(await video.evaluate(element =>
         [element.videoWidth, element.videoHeight, element.textTracks.length]
     ), [3840, 2160, 0]);
-    assert.ok(await video.evaluate(element => element.duration >= 26));
     const sound = page.getByRole('button', { name: 'Sound', exact: true });
     const initiallyMuted = await video.evaluate(element => element.muted);
     await sound.click();
@@ -196,6 +195,8 @@ test('the resume command reveals the HTML resume in place after the Nazarick cut
             return frames[0].filter === 'blur(24px)' && frames.at(-1).filter === 'blur(0px)';
         });
     }, null, { timeout: 40000 });
+    const handoffTime = await video.evaluate(element => element.currentTime);
+    assert.ok(handoffTime >= 12.18 && handoffTime < 12.65, `Expected the complete whiteout, got ${handoffTime}s`);
     const education = page.locator('.resume-text-layer').getByText('Education', { exact: true });
     await education.waitFor();
     const sheet = page.getByRole('region', { name: 'Résumé page 1 of 1' });

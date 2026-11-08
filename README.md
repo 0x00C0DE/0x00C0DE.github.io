@@ -296,8 +296,9 @@ The terminal command map routes each shell verb to its handler, with most comman
 | `whoami` | Prints the current simulated terminal username |
 | `youtube` | Opens YouTube in a new tab |
 
-The résumé opening plays 26 seconds of Ainz casting Fallen Down. The spell
-fades into white and the résumé comes into focus on the same HTML page.
+The résumé opening plays Ainz casting Fallen Down through the complete
+whiteout at about 12.3 seconds. The résumé then comes into focus on the same
+HTML page.
 PDF.js renders the source PDF's original layout with selectable text and
 clickable links. The subtitle-free clip is upscaled from a
 1080p Blu-ray excerpt to 2160p. Use **Sound** to toggle the
