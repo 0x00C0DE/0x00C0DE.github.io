@@ -138,44 +138,29 @@ test('site boot loads the vendored pretext generated assets without module failu
     );
 });
 
-test('the resume command opens the Nazarick intro before the PDF', { timeout: 30000 }, async t => {
+test('the resume command plays the full-viewport Nazarick cutscene and opens the PDF', { timeout: 30000 }, async t => {
     const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
     t.after(() => browser.close());
     const origin = 'https://resume.test';
+    const introUrl = `${origin}/pages/resume-intro.html`;
+    const pdfUrl = `${origin}/assets/resume.pdf?v=20260810a`;
+    const videoPath = '/assets/resume-cinematic.mp4';
+    let videoRequests = 0;
+
     const serveLocalFiles = async route => {
         const { pathname } = new URL(route.request().url());
-        const file = pathname === '/' ? '/index.html' : pathname;
-        if (file === '/assets/resume.pdf') {
-            // Keep the native PDF viewer out of the test.
+        if (pathname === '/assets/resume.pdf') {
             await route.fulfill({ body: 'Resume PDF destination' });
             return;
         }
+        if (pathname === videoPath) videoRequests++;
+        const file = pathname === '/' ? '/index.html' : pathname;
         await route.fulfill({ path: path.join(REPO_ROOT, file) });
     };
 
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const viewport = { width: 390, height: 844 };
+    const context = await browser.newContext({ viewport });
     await context.route(`${origin}/**`, serveLocalFiles);
-    await context.route('https://www.youtube.com/iframe_api', route => route.fulfill({
-        contentType: 'application/javascript',
-        body: `
-            window.YT = {
-                PlayerState: { ENDED: 0, PLAYING: 1 },
-                Player: function (id, options) {
-                    const player = {
-                        getIframe() { return document.querySelector('#player'); },
-                        mute() { document.body.dataset.muted = 'true'; },
-                        loadVideoById(clip) {
-                            document.body.dataset.clip = JSON.stringify(clip);
-                            options.events.onStateChange({ data: 1 });
-                            window.finishClip = () => options.events.onStateChange({ data: 0 });
-                        }
-                    };
-                    queueMicrotask(() => options.events.onReady({ target: player }));
-                }
-            };
-            window.onYouTubeIframeAPIReady();
-        `
-    }));
     const page = await context.newPage();
     await page.goto(origin);
     const resumeListing = (await readFile(path.join(REPO_ROOT, 'content', 'links.txt'), 'utf8'))
@@ -186,47 +171,43 @@ test('the resume command opens the Nazarick intro before the PDF', { timeout: 30
         const anchor = container.querySelector('a');
         return [anchor?.href, anchor?.target];
     }, resumeListing);
-    assert.deepEqual(link, [`${origin}/pages/resume-intro.html`, '_blank']);
-    const popupPromise = context.waitForEvent('page');
+    assert.deepEqual(link, [introUrl, '']);
     await page.evaluate(() => window.resume_command());
-    const intro = await popupPromise;
-    await intro.waitForURL('**/pages/resume-intro.html', { timeout: 3000 });
-    await intro.waitForFunction(() => Boolean(window.finishClip), null, { timeout: 3000 });
-    assert.equal(await intro.locator('body').getAttribute('data-muted'), 'true');
-    assert.deepEqual(JSON.parse(await intro.locator('body').getAttribute('data-clip')), {
-        videoId: 'WxrJ_RdtLqQ',
-        startSeconds: 72,
-        endSeconds: 82
+    await page.waitForURL(introUrl);
+    const video = page.locator('video');
+    await page.waitForFunction(() => {
+        const cinematic = document.querySelector('video');
+        return cinematic?.currentTime > .1 && cinematic.videoWidth > 0;
     });
-    await intro.evaluate(() => window.finishClip());
-    await intro.waitForURL('**/assets/resume.pdf?v=20260810a');
+    assert.deepEqual(await video.boundingBox(), { x: 0, y: 0, ...viewport });
+    assert.equal(await video.evaluate(element => getComputedStyle(element).objectFit), 'cover');
+    assert.equal(await page.locator('iframe').count(), 0);
+    await video.evaluate(element => { element.currentTime = element.duration - .25; });
+    await page.waitForURL(pdfUrl);
+    await page.goBack();
+    await page.waitForURL(`${origin}/`);
 
-    await intro.goto(`${origin}/pages/resume-intro.html`);
-    const skip = intro.getByRole('link', { name: 'Skip to resume' });
+    await page.goto(introUrl);
+    const skip = page.getByRole('link', { name: 'Skip to resume' });
     await skip.focus();
     await skip.press('Enter');
-    await intro.waitForURL('**/assets/resume.pdf?v=20260810a');
+    await page.waitForURL(pdfUrl);
 
-    await context.route('https://www.youtube.com/iframe_api', route => route.abort());
-    await intro.goto(`${origin}/pages/resume-intro.html`, { waitUntil: 'commit' });
-    await intro.waitForURL('**/assets/resume.pdf?v=20260810a');
+    await context.route(`${origin}${videoPath}`, route => route.fulfill({ status: 404 }));
+    await page.goto(introUrl, { waitUntil: 'commit' });
+    await page.waitForURL(pdfUrl);
+    await context.unroute(`${origin}${videoPath}`);
 
-    let reducedMotionRequests = 0;
-    await context.route('https://www.youtube.com/iframe_api', route => {
-        reducedMotionRequests++;
-        return route.abort();
-    });
-    await intro.emulateMedia({ reducedMotion: 'reduce' });
-    await intro.goto(`${origin}/pages/resume-intro.html`, { waitUntil: 'commit' });
-    await intro.waitForURL('**/assets/resume.pdf?v=20260810a');
-    assert.equal(reducedMotionRequests, 0);
+    const beforeReducedMotion = videoRequests;
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto(introUrl, { waitUntil: 'commit' });
+    await page.waitForURL(pdfUrl);
+    assert.equal(videoRequests, beforeReducedMotion);
 
     const staticContext = await browser.newContext({ javaScriptEnabled: false });
     await staticContext.route(`${origin}/**`, serveLocalFiles);
     const staticIntro = await staticContext.newPage();
-    await staticIntro.goto(`${origin}/pages/resume-intro.html`);
-    assert.equal(
-        await staticIntro.getByRole('link', { name: 'Skip to resume' }).getAttribute('href'),
-        '/assets/resume.pdf?v=20260810a'
-    );
+    await staticIntro.goto(introUrl);
+    assert.equal(await staticIntro.getByRole('link', { name: 'Skip to resume' })
+        .getAttribute('href'), '/assets/resume.pdf?v=20260810a');
 });

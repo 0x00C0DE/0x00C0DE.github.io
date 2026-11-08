@@ -690,7 +690,7 @@ function renderTerminalLineContentFallback(container, text) {
                 container.append(document.createTextNode(matchedText));
             }
         } else {
-            const newTab = /(?:\.pdf|^resume-intro\.html)$/i.test(matchedText);
+            const newTab = /\.pdf$/i.test(matchedText);
             appendAnchor(container, resolveTerminalFileHref(matchedText), matchedText, { newTab });
         }
 
@@ -4019,7 +4019,7 @@ window.setTerminalSessionState = setTerminalSessionState;
 window.refreshTerminalSessionUi = refreshTerminalSessionUi;
 
 function resume_command() {
-    window.open('/pages/resume-intro.html', '_blank', 'noopener');
+    window.location.assign('/pages/resume-intro.html');
     return [];
 }
 

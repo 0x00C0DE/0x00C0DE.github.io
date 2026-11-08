@@ -2,72 +2,58 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#09080d">
-    <title>Nazarick Archive | Resume</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#06050a">
+    <title>Nazarick | Resume</title>
     <link rel="stylesheet" href="resume-intro.css">
 </head>
 <body>
-    <main class="archive">
-        <header class="folio">
-            <span><span class="mark" aria-hidden="true">◇</span> Nazarick Archive</span>
-            <a class="skip" id="resume-pdf" href="/assets/resume.pdf?v=20260810a">Skip to resume <span aria-hidden="true">↗</span></a>
-        </header>
-        <section class="screen" aria-labelledby="clip-title">
-            <div id="player"></div>
-        </section>
-        <footer class="folio credits">
-            <h1 id="clip-title">Ainz Ooal Gown</h1>
-            <a href="https://www.youtube.com/watch?v=WxrJ_RdtLqQ&amp;t=72s"
-               target="_blank" rel="noopener">Overlord / The Sacred Kingdom ↗</a>
-        </footer>
+    <main aria-label="Ainz Ooal Gown casts Fallen Down">
+        <video id="cinematic" muted playsinline preload="none" aria-hidden="true"
+               data-src="/assets/resume-cinematic.mp4"></video>
+        <a id="resume-pdf" href="/assets/resume.pdf?v=20260810a">
+            Skip to resume <span aria-hidden="true">↗</span>
+        </a>
     </main>
     <script type="module">
-        const clip = { videoId: 'WxrJ_RdtLqQ', startSeconds: 72, endSeconds: 82 };
+        const video = document.querySelector('#cinematic');
         const resume = document.querySelector('#resume-pdf');
-        const openResume = () => location.replace(resume.href);
+        const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+        let deadline;
 
-        if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        const openResume = () => {
+            clearTimeout(deadline);
+            location.replace(resume.href);
+        };
+
+        const allowPlaybackTime = () => {
+            clearTimeout(deadline);
+            deadline = setTimeout(openResume, 5000);
+        };
+
+        if (reducedMotion.matches) {
             openResume();
         } else {
-            // Fall back if the remote player is blocked, slow, or stalls during playback.
-            const startupDeadline = setTimeout(openResume, 6000);
-            let started = false;
-
-            window.onYouTubeIframeAPIReady = () => {
-                new window.YT.Player('player', {
-                    host: 'https://www.youtube-nocookie.com',
-                    playerVars: {
-                        origin: location.origin,
-                        playsinline: 1,
-                        controls: 0,
-                        rel: 0
-                    },
-                    events: {
-                        onReady({ target }) {
-                            target.getIframe().title = 'Ainz Ooal Gown in Overlord: The Sacred Kingdom';
-                            target.mute();
-                            target.loadVideoById(clip);
-                        },
-                        onStateChange({ data }) {
-                            if (data === window.YT.PlayerState.ENDED) {
-                                openResume();
-                            } else if (data === window.YT.PlayerState.PLAYING && !started) {
-                                started = true;
-                                clearTimeout(startupDeadline);
-                                setTimeout(openResume, (clip.endSeconds - clip.startSeconds + 3) * 1000);
-                            }
-                        },
-                        onAutoplayBlocked: openResume,
-                        onError: openResume
-                    }
-                });
-            };
-
-            const api = document.createElement('script');
-            api.src = 'https://www.youtube.com/iframe_api';
-            api.addEventListener('error', openResume, { once: true });
-            document.head.append(api);
+            video.addEventListener('ended', openResume, { once: true });
+            video.addEventListener('error', openResume, { once: true });
+            video.addEventListener('waiting', allowPlaybackTime);
+            video.addEventListener('playing', () => clearTimeout(deadline));
+            reducedMotion.addEventListener('change', event => {
+                if (event.matches) openResume();
+            });
+            document.addEventListener('keydown', event => {
+                if (event.key === 'Escape' && !event.defaultPrevented) openResume();
+            });
+            resume.addEventListener('click', event => {
+                if (event.button === 0 && !event.ctrlKey && !event.metaKey &&
+                    !event.shiftKey && !event.altKey) {
+                    event.preventDefault();
+                    openResume();
+                }
+            });
+            allowPlaybackTime();
+            video.src = video.dataset.src;
+            video.play().catch(openResume);
         }
     </script>
 </body>

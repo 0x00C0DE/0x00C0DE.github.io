@@ -57,7 +57,7 @@ function resolveTerminalLinkToken(tokenText, options = {}) {
         type: 'link',
         text: tokenText,
         href: resolveTerminalFileHref(tokenText),
-        newTab: /(?:\.pdf|^resume-intro\.html)$/i.test(tokenText)
+        newTab: /\.pdf$/i.test(tokenText)
     };
 }
 
