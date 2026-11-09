@@ -157,7 +157,6 @@ const VISITOR_HEARTBEAT_MS = 15000;
 const VISITOR_SESSION_TTL_MS = VISITOR_HEARTBEAT_MS * 3;
 const VISITOR_TRACKING_LOCK_NAME = 'site-visitor-tracking-v1';
 const VISITOR_TRACKING_CHANNEL_NAME = 'site-visitor-tracking-v1';
-const VISITOR_SESSION_STORAGE_KEY = 'siteVisitorSessionV1';
 const VISITOR_LEADER_STORAGE_KEY = 'siteVisitorLeaderV1';
 const VISITOR_LEADER_LEASE_MS = 10000;
 const VISITOR_LEADER_RENEW_MS = 4000;
@@ -184,6 +183,7 @@ const visitorCounterState = {
     visitId: null,
     visitSecret: null,
     visitRegistered: false,
+    visitExpiresAt: 0,
     stats: null,
     initialized: false,
     heartbeatId: null,
@@ -3603,44 +3603,13 @@ function writeVisitorStorageRecord(key, value) {
     }
 }
 
-function getSharedVisitorSession() {
-    const session = readVisitorStorageRecord(VISITOR_SESSION_STORAGE_KEY);
-    if (
-        typeof session?.visitId !== 'string' ||
-        !session.visitId ||
-        !/^[a-f0-9]{32}$/.test(session.visitSecret || '') ||
-        !Number.isFinite(session.expiresAt) ||
-        session.expiresAt <= Date.now()
-    ) {
-        return null;
-    }
-    return session;
-}
+function prepareVisitorSession() {
+    if (visitorCounterState.visitExpiresAt > Date.now()) return false;
 
-function refreshSharedVisitorSession() {
-    const visitId = getCurrentVisitId();
-    writeVisitorStorageRecord(VISITOR_SESSION_STORAGE_KEY, {
-        visitId,
-        visitSecret: getCurrentVisitSecret(),
-        registered: visitorCounterState.visitRegistered,
-        expiresAt: Date.now() + VISITOR_SESSION_TTL_MS
-    });
-}
-
-function prepareSharedVisitorSession() {
-    const session = getSharedVisitorSession();
-    if (session) {
-        visitorCounterState.visitId = session.visitId;
-        visitorCounterState.visitSecret = session.visitSecret;
-        visitorCounterState.visitRegistered = session.registered === true;
-        refreshSharedVisitorSession();
-        return false;
-    }
-
+    // A new tab starts its own visit when it takes over tracking.
     visitorCounterState.visitId = null;
     visitorCounterState.visitSecret = null;
     visitorCounterState.visitRegistered = false;
-    refreshSharedVisitorSession();
     return true;
 }
 
@@ -3736,7 +3705,7 @@ async function sendVisitorTrack(action = 'heartbeat') {
         }
 
         visitorCounterState.visitRegistered = true;
-        refreshSharedVisitorSession();
+        visitorCounterState.visitExpiresAt = Date.now() + VISITOR_SESSION_TTL_MS;
         visitorCounterState.stats = extractVisitorStats(payload);
         renderVisitorCounter();
         broadcastVisitorStats();
@@ -3810,7 +3779,7 @@ function becomeVisitorTrackingLeader() {
 
     visitorCounterState.isLeader = true;
     visitorCounterState.leaveSent = false;
-    const isNewSession = prepareSharedVisitorSession();
+    const isNewSession = prepareVisitorSession();
     sendVisitorTrack(isNewSession ? 'visit' : 'heartbeat').catch(error => {
         console.error('visitor tracking failed', error);
     });

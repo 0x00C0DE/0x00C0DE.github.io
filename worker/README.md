@@ -51,7 +51,7 @@ After deploying this branch, the Worker exposes:
 - `POST /api/visitors/track`
 - `POST /api/visitors/leave`
 
-The frontend creates a stable browser visitor ID in `localStorage` plus a shared per-session ID and random ownership secret. The Worker hashes the session
+The frontend creates a stable browser visitor ID in `localStorage` plus an in-memory visit ID and random ownership proof. A different tab that takes over tracking starts a new visit while retaining the same browser visitor ID. The Worker hashes the session
 identity before storing it, deduplicates recent visits, and rate-limits new visits
 and session updates. The visitor counter reports approximate public statistics.
 Clients can still create distinct sessions within the limits. The widget tracks:
