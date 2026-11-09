@@ -76,7 +76,7 @@
     "GITHUB_OWNER": "0x00C0DE",
     "GITHUB_REPO": "0x00C0DE.github.io",
     "GITHUB_BRANCH": "main",
-    "GITHUB_BLOG_PATH": "blog.txt",
+    "GITHUB_BLOG_PATH": "content/blog.txt",
     "MAX_POST_LENGTH": "500",
     "MAX_IMAGE_DATA_URL_LENGTH": "100000000",
     "RATE_LIMIT_WINDOW_MS": "3600000",

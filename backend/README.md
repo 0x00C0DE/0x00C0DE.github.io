@@ -2,7 +2,9 @@
 
 This repo now includes a Cloudflare Worker backend under [worker/](../worker), which is the recommended free hosted option for public use.
 
-The Express backend files remain as a local fallback, but you do not need to run them locally if you deploy the Worker.
+The Express backend remains a text-only fallback. It requires a Turnstile secret
+and validates both the hostname from `ALLOWED_ORIGIN` and the `blog_post` action.
+Run it from the repository checkout because it shares the Worker's verifier.
 
 Recommended production endpoint:
 

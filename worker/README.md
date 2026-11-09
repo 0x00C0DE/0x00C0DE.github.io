@@ -8,7 +8,7 @@ This Worker provides the append-only blog endpoint used by the terminal `post` c
 - Secrets stay out of the public repo
 - GitHub remains the append-only data store
 - No local server needed for public use
-- Durable Object storage keeps the visitor count exact across requests
+- Durable Object storage deduplicates recent sessions and persists aggregate counts
 
 ## Required secrets
 
@@ -21,10 +21,23 @@ wrangler secret put GITHUB_PAT
 wrangler secret put TURNSTILE_SECRET_KEY
 wrangler secret put BLOG_IMAGE_DELETE_PASSWORD
 wrangler secret put GODLIKE_TOTP_SECRET
+wrangler secret put BLOG_SIGNING_SECRET
 ```
 
-`TURNSTILE_SECRET_KEY` is optional. If omitted, Turnstile verification is skipped.
-`BLOG_IMAGE_DELETE_PASSWORD` is used by the blog deletion controls and as the password portion of `su godlike`. `GODLIKE_TOTP_SECRET` is the Base32 seed used to verify the final six digits supplied during `su godlike`; both should be set as Worker secrets and never committed.
+Posting and upload grants require Turnstile. Siteverify must return the hostname from
+`ALLOWED_ORIGIN` and action `blog_post`. The browser exchanges one successful challenge
+for a 15-minute upload grant when it has media to stage. Chunks are scoped to that
+grant, duplicate writes with different bytes are rejected, and a grant can submit
+only once. Direct posts carry a fresh Turnstile token.
+
+`BLOG_IMAGE_DELETE_PASSWORD` and `GODLIKE_TOTP_SECRET` are required for `su godlike`.
+The Worker issues a 15-minute moderation token after both factors pass. Every
+moderation endpoint requires that token. If it expires, run `su godlike` again.
+Use a separate, randomly generated `BLOG_SIGNING_SECRET` of at least 32 bytes.
+It authenticates upload grants, moderation tokens, and new hosted media metadata.
+Keep it in the secret store. Rotation invalidates active grants and old media
+proofs. Legacy or unverified attachments still render and can be unlinked, but
+their backing objects require a separate, reviewed storage reconciliation.
 
 ## Visitor counter binding
 
@@ -38,7 +51,10 @@ After deploying this branch, the Worker exposes:
 - `POST /api/visitors/track`
 - `POST /api/visitors/leave`
 
-The frontend creates a stable browser visitor ID in `localStorage` plus a per-page visit ID, so the widget can track:
+The frontend creates a stable browser visitor ID in `localStorage` plus an in-memory visit ID and random ownership proof. A different tab that takes over tracking starts a new visit while retaining the same browser visitor ID. The Worker hashes the session
+identity before storing it, deduplicates recent visits, and rate-limits new visits
+and session updates. The visitor counter reports approximate public statistics.
+Clients can still create distinct sessions within the limits. The widget tracks:
 
 - total visits
 - unique visitors
@@ -64,6 +80,8 @@ wrangler login
 wrangler secret put GITHUB_PAT
 wrangler secret put TURNSTILE_SECRET_KEY
 wrangler secret put BLOG_IMAGE_DELETE_PASSWORD
+wrangler secret put GODLIKE_TOTP_SECRET
+wrangler secret put BLOG_SIGNING_SECRET
 npm run deploy
 ```
 

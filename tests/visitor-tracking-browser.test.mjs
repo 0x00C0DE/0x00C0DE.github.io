@@ -145,6 +145,11 @@ test('multiple tabs share one visitor tracking stream', { timeout: 120000 }, asy
 
     assert.equal(calls.track.length, 1, 'expected the second tab to reuse the first tab tracking stream');
     assert.equal(calls.track[0].body.action, 'visit');
+    const ownershipProof = calls.track[0].body.visitSecret;
+    assert.match(ownershipProof, /^[a-f0-9]{32}$/);
+    assert.equal(await firstPage.evaluate(value =>
+        Object.values(localStorage).some(item => item.includes(value))
+        || Object.values(sessionStorage).some(item => item.includes(value)), ownershipProof), false);
     assert.deepEqual(
         await secondPage.evaluate(() => window.getCurrentVisitorStats()),
         VISITOR_STATS,

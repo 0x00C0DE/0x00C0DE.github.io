@@ -1,4 +1,4 @@
-let terminalCanvasCore = null;
+﻿let terminalCanvasCore = null;
 const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=20260911a')
     .then(core => {
         terminalCanvasCore = core;
@@ -24,4 +24,10 @@ window.showAsciiStill = (asciiLines, options) => withTerminalCanvasCore(core => 
 window.showImageStill = (imageUrl, options) => withTerminalCanvasCore(core => core.showImageStill(imageUrl, options));
 window.showVideo = args => withTerminalCanvasCore(core => core.showVideo(args));
 window.showMovie = args => withTerminalCanvasCore(core => core.showVideo(args));
-window.bootTerminalSite = defaultCommand => withTerminalCanvasCore(core => core.bootTerminalSite(defaultCommand));
+window.bootTerminalSite = defaultCommand => {
+    if (window.self !== window.top) {
+        document.body.hidden = true;
+        return;
+    }
+    return withTerminalCanvasCore(core => core.bootTerminalSite(defaultCommand));
+};

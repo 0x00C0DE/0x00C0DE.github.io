@@ -112,6 +112,7 @@ const BITCOIN_HISTORY_TAIL_BYTES = 262144;
 const BITCOIN_HISTORY_MAX_POINTS = 512;
 const TURNSTILE_SITE_KEY = window.TURNSTILE_SITE_KEY || '0x4AAAAAAC85Zivt0Tn6Fqp9';
 const TURNSTILE_API_URL = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+const BLOG_UPLOAD_GRANT_API_URL = window.BLOG_UPLOAD_GRANT_API_URL || new URL('./upload-grant', new URL(BLOG_POST_API_URL, location.href)).href;
 const BLOG_STAGE_IMAGE_API_URL = window.BLOG_STAGE_IMAGE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/upload-chunk';
 const BLOG_DELETE_IMAGE_API_URL = window.BLOG_DELETE_IMAGE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/delete-image';
 const BLOG_DELETE_TEXT_API_URL = window.BLOG_DELETE_TEXT_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/delete-text';
@@ -122,7 +123,7 @@ const VISITOR_TRACK_API_URL = window.VISITOR_TRACK_API_URL || 'https://0x00c0de-
 const VISITOR_LEAVE_API_URL = window.VISITOR_LEAVE_API_URL || 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors/leave';
 const BLOG_MAX_POST_LENGTH = 500;
 const BLOG_MAX_IMAGE_DATA_URL_LENGTH = 100000000;
-const BLOG_DIRECT_POST_IMAGE_DATA_URL_LENGTH = 4000000;
+const BLOG_DIRECT_POST_IMAGE_DATA_URL_LENGTH = 1000000;
 const BLOG_STAGED_IMAGE_CHUNK_LENGTH = 98304;
 const BLOG_MAX_STAGED_IMAGE_CHUNKS = 2048;
 const BLOG_MAX_IMAGE_ATTACHMENTS = 10;
@@ -156,7 +157,6 @@ const VISITOR_HEARTBEAT_MS = 15000;
 const VISITOR_SESSION_TTL_MS = VISITOR_HEARTBEAT_MS * 3;
 const VISITOR_TRACKING_LOCK_NAME = 'site-visitor-tracking-v1';
 const VISITOR_TRACKING_CHANNEL_NAME = 'site-visitor-tracking-v1';
-const VISITOR_SESSION_STORAGE_KEY = 'siteVisitorSessionV1';
 const VISITOR_LEADER_STORAGE_KEY = 'siteVisitorLeaderV1';
 const VISITOR_LEADER_LEASE_MS = 10000;
 const VISITOR_LEADER_RENEW_MS = 4000;
@@ -181,6 +181,9 @@ const TEXT_FILE_LOOKUP = new Map(TEXT_FILES.map(filename => [filename.toUpperCas
 const visitorCounterState = {
     visitorId: null,
     visitId: null,
+    visitSecret: null,
+    visitRegistered: false,
+    visitExpiresAt: 0,
     stats: null,
     initialized: false,
     heartbeatId: null,
@@ -211,7 +214,8 @@ let terminalSessionReadyPromise = null;
 let terminalSessionModule = null;
 let terminalSessionState = { ...FALLBACK_TERMINAL_SESSION };
 const terminalSessionSecrets = {
-    godlikePassword: ''
+    moderationToken: '',
+    moderationExpiresAt: 0
 };
 
 function getFallbackPromptSnapshot() {
@@ -288,22 +292,17 @@ function isCurrentUserGodlike() {
     return getTerminalSessionUsername().toLowerCase() === 'godlike';
 }
 
-function setGodlikePassword(password) {
-    terminalSessionSecrets.godlikePassword = typeof password === 'string' ? password : '';
+function clearModerationSession() {
+    terminalSessionSecrets.moderationToken = '';
+    terminalSessionSecrets.moderationExpiresAt = 0;
 }
 
-function clearGodlikePassword() {
-    terminalSessionSecrets.godlikePassword = '';
-}
-
-function getGodlikePassword() {
-    return typeof terminalSessionSecrets.godlikePassword === 'string'
-        ? terminalSessionSecrets.godlikePassword
-        : '';
+function getModerationToken() {
+    return terminalSessionSecrets.moderationExpiresAt > Date.now() ? terminalSessionSecrets.moderationToken : '';
 }
 
 function canCurrentUserManageBlogEntries() {
-    return isCurrentUserGodlike() && Boolean(getGodlikePassword());
+    return isCurrentUserGodlike() && Boolean(getModerationToken());
 }
 
 function syncTerminalDocumentTitle() {
@@ -352,7 +351,7 @@ function refreshTerminalSessionUi() {
 function setTerminalSessionState(nextState) {
     terminalSessionState = normalizeTerminalSessionState(nextState);
     if (String(terminalSessionState.user || '').toLowerCase() !== 'godlike') {
-        clearGodlikePassword();
+        clearModerationSession();
     }
     refreshTerminalSessionUi();
     return terminalSessionState;
@@ -631,6 +630,7 @@ async function requestTurnstileToken() {
         try {
             widgetId = turnstileApi.render(container, {
                 sitekey: TURNSTILE_SITE_KEY,
+                action: 'blog_post',
                 appearance: 'interaction-only',
                 execution: 'execute',
                 callback: token => {
@@ -979,7 +979,8 @@ function finalizeParsedBlogEntry(entry) {
             entryTimestamp: entry.entryTimestamp || '',
             nextImageKey,
             previousImageKey,
-            textKey: createBlogTextBlockKey(lines)
+            textKey: createBlogTextBlockKey(lines),
+            lines: lines.map(line => line.startsWith('[text-escaped]') ? line.slice('[text-escaped]'.length) : line)
         });
         textBlockIndex += 1;
     });
@@ -1649,7 +1650,7 @@ function normalizePostTextBlock(text) {
     return String(text || '').replace(/\s+/g, ' ').trim();
 }
 
-async function resolvePostContentBlocks(templateBlocks) {
+async function resolvePostContentBlocks(templateBlocks, getUploadGrant) {
     const contentBlocks = [];
     let totalTextLength = 0;
     const requestedMediaCount = templateBlocks.reduce(
@@ -1665,7 +1666,7 @@ async function resolvePostContentBlocks(templateBlocks) {
 
     let mediaAttachments = [];
     if (requestedMediaCount > 0) {
-        const selectedMedia = await selectPostMediaAttachments(requestedMediaCount);
+        const selectedMedia = await selectPostMediaAttachments(requestedMediaCount, getUploadGrant);
         if (selectedMedia.error) {
             return { error: selectedMedia.error };
         }
@@ -1739,7 +1740,7 @@ async function resolvePostContentBlocks(templateBlocks) {
 
 async function deleteBlogImageByBlockIndex(
     imageBlockIndex,
-    password,
+    moderationToken,
     imageKey = '',
     imageDataUrl = '',
     entryTimestamp = '',
@@ -1747,9 +1748,8 @@ async function deleteBlogImageByBlockIndex(
     previousTextLine = '',
     nextTextLine = ''
 ) {
-    const resolvedPassword = typeof password === 'string' && password
-        ? password
-        : (canCurrentUserManageBlogEntries() ? getGodlikePassword() : '');
+    const resolvedToken = moderationToken || getModerationToken();
+    if (!resolvedToken) return { ok: false, error: 'moderation session expired; run su godlike again' };
     const normalizedEntryTimestamp = isBlogEntryTimestampLine(entryTimestamp) ? entryTimestamp.trim() : '';
     const normalizedEntryImageIndex = Number.isInteger(entryImageIndex)
         ? entryImageIndex
@@ -1782,7 +1782,7 @@ async function deleteBlogImageByBlockIndex(
                   : null,
               previousTextLine: normalizedPreviousTextLine,
               nextTextLine: normalizedNextTextLine,
-              password: resolvedPassword
+              moderationToken: resolvedToken
           })
       });
 
@@ -1800,10 +1800,9 @@ async function deleteBlogImageByBlockIndex(
     };
 }
 
-async function deleteBlogEntryByTimestamp(entryTimestamp, password) {
-    const resolvedPassword = typeof password === 'string' && password
-        ? password
-        : (canCurrentUserManageBlogEntries() ? getGodlikePassword() : '');
+async function deleteBlogEntryByTimestamp(entryTimestamp, moderationToken) {
+    const resolvedToken = moderationToken || getModerationToken();
+    if (!resolvedToken) return { ok: false, error: 'moderation session expired; run su godlike again' };
     const normalizedEntryTimestamp = isBlogEntryTimestampLine(entryTimestamp) ? entryTimestamp.trim() : '';
     if (!normalizedEntryTimestamp) {
         return {
@@ -1819,7 +1818,7 @@ async function deleteBlogEntryByTimestamp(entryTimestamp, password) {
         },
         body: JSON.stringify({
             entryTimestamp: normalizedEntryTimestamp,
-            password: resolvedPassword
+            moderationToken: resolvedToken
         })
     });
 
@@ -1839,15 +1838,14 @@ async function deleteBlogEntryByTimestamp(entryTimestamp, password) {
 
 async function deleteBlogTextBlockByContext(
     entryTextBlockIndex,
-    password,
+    moderationToken,
     entryTimestamp = '',
     textKey = '',
     previousImageKey = '',
     nextImageKey = ''
 ) {
-    const resolvedPassword = typeof password === 'string' && password
-        ? password
-        : (canCurrentUserManageBlogEntries() ? getGodlikePassword() : '');
+    const resolvedToken = moderationToken || getModerationToken();
+    if (!resolvedToken) return { ok: false, error: 'moderation session expired; run su godlike again' };
     const normalizedEntryTimestamp = isBlogEntryTimestampLine(entryTimestamp) ? entryTimestamp.trim() : '';
     const normalizedEntryTextBlockIndex = Number.isInteger(entryTextBlockIndex)
         ? entryTextBlockIndex
@@ -1882,7 +1880,7 @@ async function deleteBlogTextBlockByContext(
             textKey: normalizedTextKey,
             previousImageKey: normalizedPreviousImageKey,
             nextImageKey: normalizedNextImageKey,
-            password: resolvedPassword
+            moderationToken: resolvedToken
         })
     });
 
@@ -2261,7 +2259,7 @@ function encodeBytesToZ85(bytes) {
     return segments.join('');
 }
 
-async function buildCompactGifImageAttachment(file) {
+async function buildCompactGifImageAttachment(file, getUploadGrant) {
     const arrayBuffer = await readFileAsArrayBuffer(file);
     const imageBytes = new Uint8Array(arrayBuffer);
     const encodedPayload = encodeBytesToZ85(imageBytes);
@@ -2272,7 +2270,7 @@ async function buildCompactGifImageAttachment(file) {
     }
 
     if (encodedPayload.length > BLOG_DIRECT_POST_IMAGE_DATA_URL_LENGTH) {
-        const staged = await stageBlogUploadPayload(encodedPayload, 'compact gif upload');
+        const staged = await stageBlogUploadPayload(encodedPayload, 'compact gif upload', getUploadGrant);
         if (!staged.ok) {
             return { error: staged.error };
         }
@@ -2295,7 +2293,7 @@ async function buildCompactGifImageAttachment(file) {
     };
 }
 
-async function buildPostMediaAttachmentFromFile(file) {
+async function buildPostMediaAttachmentFromFile(file, getUploadGrant) {
     if (!file) {
         return { error: 'post: no media selected' };
     }
@@ -2324,7 +2322,7 @@ async function buildPostMediaAttachmentFromFile(file) {
     }
 
     if (isMp4MimeType(mimeType)) {
-        const staged = await stageBlogUploadPayload(dataUrl, 'mp4 upload');
+        const staged = await stageBlogUploadPayload(dataUrl, 'mp4 upload', getUploadGrant);
         if (!staged.ok) {
             return { error: staged.error };
         }
@@ -2339,7 +2337,8 @@ async function buildPostMediaAttachmentFromFile(file) {
     if (dataUrl.length > BLOG_DIRECT_POST_IMAGE_DATA_URL_LENGTH) {
         const staged = await stageBlogUploadPayload(
             dataUrl,
-            mimeType === 'image/gif' ? 'gif upload' : 'image upload'
+            mimeType === 'image/gif' ? 'gif upload' : 'image upload',
+            getUploadGrant
         );
         if (!staged.ok) {
             return { error: staged.error };
@@ -2409,7 +2408,7 @@ async function buildUserpicImageSource(file) {
     };
 }
 
-async function selectPostMediaAttachments(requiredCount = 1) {
+async function selectPostMediaAttachments(requiredCount, getUploadGrant) {
     const normalizedCount = Number.isInteger(requiredCount) && requiredCount > 0
         ? requiredCount
         : 1;
@@ -2467,7 +2466,7 @@ async function selectPostMediaAttachments(requiredCount = 1) {
 
     const attachments = [];
     for (const file of selection.files) {
-        const attachment = await buildPostMediaAttachmentFromFile(file);
+        const attachment = await buildPostMediaAttachmentFromFile(file, getUploadGrant);
         if (attachment.error) {
             return attachment;
         }
@@ -2477,7 +2476,7 @@ async function selectPostMediaAttachments(requiredCount = 1) {
     return { attachments };
 }
 
-async function stageBlogUploadPayload(payload, payloadLabel = 'image upload') {
+async function stageBlogUploadPayload(payload, payloadLabel, getUploadGrant) {
     const normalizedPayload = typeof payload === 'string' ? payload : '';
     if (!normalizedPayload) {
         return {
@@ -2495,6 +2494,7 @@ async function stageBlogUploadPayload(payload, payloadLabel = 'image upload') {
         };
     }
 
+    const uploadGrant = await getUploadGrant();
     for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
         const chunk = normalizedPayload.slice(
             chunkIndex * BLOG_STAGED_IMAGE_CHUNK_LENGTH,
@@ -2510,6 +2510,7 @@ async function stageBlogUploadPayload(payload, payloadLabel = 'image upload') {
                 },
                 body: JSON.stringify({
                     uploadId,
+                    uploadGrant,
                     chunkIndex,
                     totalChunks,
                     chunk
@@ -2933,7 +2934,12 @@ async function authenticateGodlikeSession() {
             };
         }
 
-        setGodlikePassword(credential.slice(0, -6));
+        if (typeof payload.token !== 'string' || !payload.token || !Number.isFinite(payload.expiresAt)
+            || payload.expiresAt <= Date.now()) {
+            return { ok: false, error: 'server did not issue a valid moderation session' };
+        }
+        terminalSessionSecrets.moderationToken = payload.token;
+        terminalSessionSecrets.moderationExpiresAt = payload.expiresAt;
         return { ok: true };
     } catch (error) {
         console.error('godlike authentication failed', error);
@@ -2966,6 +2972,20 @@ async function su_command(args) {
     return [];
 }
 
+async function requestBlogUploadGrant() {
+    const turnstileToken = await requestTurnstileToken();
+    const response = await fetch(BLOG_UPLOAD_GRANT_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ turnstileToken })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || typeof result.token !== 'string' || !result.token) {
+        throw new Error(result.error || 'unable to authorize media upload');
+    }
+    return result.token;
+}
+
 async function post_command(args) {
     const { includeImage, text } = parsePostArgs(args);
     if (!text && !includeImage) {
@@ -2979,14 +2999,17 @@ async function post_command(args) {
         }
 
     try {
+        let uploadGrantRequest;
+        const getUploadGrant = () => uploadGrantRequest ||= requestBlogUploadGrant();
         const templateBlocks = parsePostTemplateBlocks(text, includeImage);
-        const resolved = await resolvePostContentBlocks(templateBlocks);
+        const resolved = await resolvePostContentBlocks(templateBlocks, getUploadGrant);
         if (resolved.error) {
             return [resolved.error];
         }
 
-        const turnstileToken = await requestTurnstileToken();
-
+        const authorization = uploadGrantRequest
+            ? { uploadGrant: await uploadGrantRequest }
+            : { turnstileToken: await requestTurnstileToken() };
         const response = await fetch(BLOG_POST_API_URL, {
             method: 'POST',
             headers: {
@@ -2994,7 +3017,7 @@ async function post_command(args) {
             },
             body: JSON.stringify({
                 contentBlocks: resolved.contentBlocks,
-                turnstileToken
+                ...authorization
             })
         });
 
@@ -3431,6 +3454,13 @@ function getCurrentVisitId() {
     return visitorCounterState.visitId;
 }
 
+function getCurrentVisitSecret() {
+    return visitorCounterState.visitSecret ||= Array.from(
+        window.crypto.getRandomValues(new Uint8Array(16)),
+        byte => byte.toString(16).padStart(2, '0')
+    ).join('');
+}
+
 function getPersistentVisitorId() {
     if (visitorCounterState.visitorId) {
         return visitorCounterState.visitorId;
@@ -3573,36 +3603,13 @@ function writeVisitorStorageRecord(key, value) {
     }
 }
 
-function getSharedVisitorSession() {
-    const session = readVisitorStorageRecord(VISITOR_SESSION_STORAGE_KEY);
-    if (
-        typeof session?.visitId !== 'string' ||
-        !session.visitId ||
-        !Number.isFinite(session.expiresAt) ||
-        session.expiresAt <= Date.now()
-    ) {
-        return null;
-    }
-    return session;
-}
+function prepareVisitorSession() {
+    if (visitorCounterState.visitExpiresAt > Date.now()) return false;
 
-function refreshSharedVisitorSession() {
-    const visitId = getCurrentVisitId();
-    writeVisitorStorageRecord(VISITOR_SESSION_STORAGE_KEY, {
-        visitId,
-        expiresAt: Date.now() + VISITOR_SESSION_TTL_MS
-    });
-}
-
-function prepareSharedVisitorSession() {
-    const session = getSharedVisitorSession();
-    if (session) {
-        visitorCounterState.visitId = session.visitId;
-        refreshSharedVisitorSession();
-        return false;
-    }
-
-    refreshSharedVisitorSession();
+    // A new tab starts its own visit when it takes over tracking.
+    visitorCounterState.visitId = null;
+    visitorCounterState.visitSecret = null;
+    visitorCounterState.visitRegistered = false;
     return true;
 }
 
@@ -3686,7 +3693,8 @@ async function sendVisitorTrack(action = 'heartbeat') {
             body: JSON.stringify({
                 visitorId: getPersistentVisitorId(),
                 visitId: getCurrentVisitId(),
-                action
+                visitSecret: getCurrentVisitSecret(),
+                action: visitorCounterState.visitRegistered ? action : 'visit'
             }),
             cache: 'no-store'
         });
@@ -3696,7 +3704,8 @@ async function sendVisitorTrack(action = 'heartbeat') {
             throw new Error(payload.error || `request failed with status ${response.status}`);
         }
 
-        refreshSharedVisitorSession();
+        visitorCounterState.visitRegistered = true;
+        visitorCounterState.visitExpiresAt = Date.now() + VISITOR_SESSION_TTL_MS;
         visitorCounterState.stats = extractVisitorStats(payload);
         renderVisitorCounter();
         broadcastVisitorStats();
@@ -3722,7 +3731,9 @@ function sendVisitorLeave() {
         renderVisitorCounter();
     }
     const payload = JSON.stringify({
-        visitId: getCurrentVisitId()
+        visitorId: getPersistentVisitorId(),
+        visitId: getCurrentVisitId(),
+        visitSecret: getCurrentVisitSecret()
     });
     let beaconSent = false;
 
@@ -3768,7 +3779,7 @@ function becomeVisitorTrackingLeader() {
 
     visitorCounterState.isLeader = true;
     visitorCounterState.leaveSent = false;
-    const isNewSession = prepareSharedVisitorSession();
+    const isNewSession = prepareVisitorSession();
     sendVisitorTrack(isNewSession ? 'visit' : 'heartbeat').catch(error => {
         console.error('visitor tracking failed', error);
     });

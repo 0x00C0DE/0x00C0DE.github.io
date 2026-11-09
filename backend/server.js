@@ -2,6 +2,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
+import { verifyTurnstile } from '../worker/src/request-security.js';
 import { configureProxyTrust } from './proxy-trust.mjs';
 
 dotenv.config();
@@ -12,13 +13,13 @@ const allowedOrigin = process.env.ALLOWED_ORIGIN || 'https://0x00c0de.github.io'
 const githubOwner = process.env.GITHUB_OWNER;
 const githubRepo = process.env.GITHUB_REPO;
 const githubBranch = process.env.GITHUB_BRANCH || 'main';
-const githubBlogPath = process.env.GITHUB_BLOG_PATH || 'blog.txt';
+const githubBlogPath = process.env.GITHUB_BLOG_PATH || 'content/blog.txt';
 const githubPat = process.env.GITHUB_PAT;
 const maxPostLength = Number(process.env.MAX_POST_LENGTH || 500);
 const turnstileSecretKey = process.env.TURNSTILE_SECRET_KEY || '';
 
-if (!githubOwner || !githubRepo || !githubPat) {
-    throw new Error('Missing GitHub configuration. Set GITHUB_OWNER, GITHUB_REPO, and GITHUB_PAT.');
+if (!githubOwner || !githubRepo || !githubPat || !turnstileSecretKey) {
+    throw new Error('Missing GitHub configuration. Set GITHUB_OWNER, GITHUB_REPO, GITHUB_PAT, and TURNSTILE_SECRET_KEY.');
 }
 
 app.use(cors({ origin: allowedOrigin }));
@@ -51,11 +52,11 @@ app.post('/api/blog/append', async (request, response) => {
             return response.status(400).json({ error: 'text contains unsupported control characters' });
         }
 
-        if (turnstileSecretKey) {
-            const verified = await verifyTurnstile(turnstileSecretKey, turnstileToken, request.ip);
-            if (!verified) {
-                return response.status(400).json({ error: 'turnstile verification failed' });
-            }
+        if (!await verifyTurnstile(turnstileSecretKey, turnstileToken, request.ip, allowedOrigin, 'blog_post')) {
+            return response.status(400).json({ error: 'turnstile verification failed' });
+        }
+        if (text.split(/\r?\n/).some(line => /^\s*\[/.test(line))) {
+            return response.status(400).json({ error: 'text contains a reserved blog marker' });
         }
 
         const githubFile = await fetchGithubFile();
@@ -79,33 +80,6 @@ app.listen(port, () => {
 
 function containsControlCharacters(value) {
     return /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(value);
-}
-
-async function verifyTurnstile(secret, token, ip) {
-    if (!token) {
-        return false;
-    }
-
-    const body = new URLSearchParams({
-        secret,
-        response: token,
-        remoteip: ip || ''
-    });
-
-    const turnstileResponse = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body
-    });
-
-    if (!turnstileResponse.ok) {
-        return false;
-    }
-
-    const payload = await turnstileResponse.json();
-    return Boolean(payload.success);
 }
 
 async function fetchGithubFile() {

@@ -94,7 +94,7 @@ async function stubTerminalApis(page) {
         status: 200
     }));
     await page.route('https://0x00c0de-blog-append.0x00c0de.workers.dev/api/terminal/su', route => route.fulfill({
-        body: JSON.stringify({ ok: true }),
+        body: JSON.stringify({ ok: true, token: 'fixture-moderation-token', expiresAt: Date.now() + 60_000 }),
         contentType: 'application/json',
         status: 200
     }));
