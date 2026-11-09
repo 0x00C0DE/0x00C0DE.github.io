@@ -1,7 +1,36 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import blogWorker, { B2QuotaGuard, BlogUploadSession, R2QuotaGuard, VisitorCounter, appendBlogEntry, createBlogImageKey, createBlogTextBlockKey, generateTotpCode, handleFortune, handleTerminalSu, removeBlogEntry, removeImageBlock, removeTextBlock, verifyTotpCode } from './index.js';
+import worker, { B2QuotaGuard, BlogUploadSession, R2QuotaGuard, RateLimiter, VisitorCounter, appendBlogEntry, createBlogImageKey, createBlogTextBlockKey, generateTotpCode, handleFortune, handleTerminalSu, removeBlogEntry, removeImageBlock, removeTextBlock, verifyTotpCode } from './index.js';
+
+import { issueGrant, readGrant, signValue } from './request-security.js';
+
+const FIXTURE_SIGNING_KEY = 'test-only-signing-key';
+const fixtureUploadGrants = new WeakMap();
+const blogWorker = {
+    async fetch(request, env) {
+        const path = new URL(request.url).pathname;
+        const bindings = {
+            GITHUB_BLOG_PATH: 'blog.txt',
+            TURNSTILE_SECRET_KEY: 'fixture-turnstile',
+            GODLIKE_TOTP_SECRET: 'JBSWY3DPEHPK3PXP',
+            BLOG_SIGNING_SECRET: FIXTURE_SIGNING_KEY,
+            ...env
+        };
+        if (path === '/api/blog/append' || path === '/api/blog/upload-chunk' || path.startsWith('/api/blog/delete-')) {
+            const body = await request.json();
+            if (path.startsWith('/api/blog/delete-')) {
+                body.moderationToken = (await issueGrant(FIXTURE_SIGNING_KEY, 'moderation', 60_000)).token;
+                delete body.password;
+            } else {
+                if (!fixtureUploadGrants.has(env)) fixtureUploadGrants.set(env, await issueGrant(FIXTURE_SIGNING_KEY, 'upload', 60_000));
+                body.uploadGrant = fixtureUploadGrants.get(env).token;
+            }
+            return worker.fetch(new Request(request, { body: JSON.stringify(body) }), bindings);
+        }
+        return worker.fetch(request, bindings);
+    }
+};
 
 // Billing-guardrail records are only counted when their charge period falls in
 // the current UTC month (see billingRecordBelongsToMonth in index.js). Endpoint
@@ -60,6 +89,10 @@ class FakeStorage {
             }
         }
         return result;
+    }
+
+    async transaction(callback) {
+        return callback();
     }
 
     async setAlarm(timestamp) {
@@ -383,16 +416,20 @@ test('terminal su endpoint authenticates godlike with concatenated password and 
         ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
         BLOG_IMAGE_DELETE_PASSWORD: 'delete-me',
         GODLIKE_TOTP_SECRET: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',
+        BLOG_SIGNING_SECRET: FIXTURE_SIGNING_KEY,
         RATE_LIMITER: createAlwaysAllowRateLimiter()
     }, {
         now: () => 59000
     });
 
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), {
-        ok: true,
-        user: 'godlike'
-    });
+    const payload = await response.json();
+    assert.equal(payload.user, 'godlike');
+    assert.equal(payload.ok, true);
+    assert.equal(payload.expiresAt, 59000 + 15 * 60_000);
+    assert.ok(await readGrant(FIXTURE_SIGNING_KEY, 'moderation', payload.token, 59000));
+    assert.equal(await readGrant(FIXTURE_SIGNING_KEY, 'upload', payload.token, 59000), null);
+    assert.equal(await readGrant(FIXTURE_SIGNING_KEY, 'moderation', payload.token, payload.expiresAt), null);
 });
 
 test('terminal su endpoint rejects password-only access when TOTP is configured', async () => {
@@ -409,6 +446,7 @@ test('terminal su endpoint rejects password-only access when TOTP is configured'
         ALLOWED_ORIGIN: 'https://0x00c0de.github.io',
         BLOG_IMAGE_DELETE_PASSWORD: 'delete-me',
         GODLIKE_TOTP_SECRET: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ',
+        BLOG_SIGNING_SECRET: FIXTURE_SIGNING_KEY,
         RATE_LIMITER: createAlwaysAllowRateLimiter()
     }, {
         now: () => 59000
@@ -3414,6 +3452,7 @@ test('delete endpoint removes hosted B2 gif blocks from blog.txt and deletes the
     let githubUpdateBody = null;
     let b2DeleteBody = null;
     const mediaUrl = 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media/b2/b2-file-id-123';
+    const mediaProof = await signValue(FIXTURE_SIGNING_KEY, 'media', ['b2', 'blog-gifs/uploaded.gif', 'b2-file-id-123', mediaUrl, 'image/gif', 0]);
 
     t.after(() => {
         globalThis.fetch = originalFetch;
@@ -3452,6 +3491,7 @@ test('delete endpoint removes hosted B2 gif blocks from blog.txt and deletes the
                     'provider:b2',
                     'storage-key:blog-gifs/uploaded.gif',
                     'storage-file-id:b2-file-id-123',
+                    'storage-proof:' + mediaProof,
                     '[/image-url]',
                     ''
                 ].join('\n'), 'utf8').toString('base64')
@@ -3476,6 +3516,7 @@ test('delete endpoint removes hosted B2 gif blocks from blog.txt and deletes the
                 'provider:b2',
                 'storage-key:blog-gifs/uploaded.gif',
                 'storage-file-id:b2-file-id-123',
+                    'storage-proof:' + mediaProof,
                 '[/image-url]',
                 ''
             ].join('\n'), {
@@ -3557,6 +3598,8 @@ test('delete entry endpoint removes one post and cascades hosted gif cleanup acr
     const r2StorageKey = 'blog-gifs/r2-post.gif';
     const r2MediaUrl = `https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media/r2/${Buffer.from(r2StorageKey, 'utf8').toString('base64url')}`;
     const b2MediaUrl = 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/media/b2/b2-file-id-456';
+    const r2Proof = await signValue(FIXTURE_SIGNING_KEY, 'media', ['r2', r2StorageKey, '', r2MediaUrl, 'image/gif', 0]);
+    const b2Proof = await signValue(FIXTURE_SIGNING_KEY, 'media', ['b2', 'blog-gifs/b2-post.gif', 'b2-file-id-456', b2MediaUrl, 'image/gif', 0]);
 
     await r2Bucket.put(r2StorageKey, Buffer.from('GIF89a', 'utf8'), {
         httpMetadata: {
@@ -3606,6 +3649,7 @@ test('delete entry endpoint removes one post and cascades hosted gif cleanup acr
                     'mime:image/gif',
                     'provider:r2',
                     `storage-key:${r2StorageKey}`,
+                    'storage-proof:' + r2Proof,
                     '[/image-url]',
                     '[image-url]',
                     `src:${b2MediaUrl}`,
@@ -3613,6 +3657,7 @@ test('delete entry endpoint removes one post and cascades hosted gif cleanup acr
                     'provider:b2',
                     'storage-key:blog-gifs/b2-post.gif',
                     'storage-file-id:b2-file-id-456',
+                    'storage-proof:' + b2Proof,
                     '[/image-url]',
                     '',
                     '[2026-04-03T03:00:00.000Z]',
@@ -3645,6 +3690,7 @@ test('delete entry endpoint removes one post and cascades hosted gif cleanup acr
                 'mime:image/gif',
                 'provider:r2',
                 `storage-key:${r2StorageKey}`,
+                    'storage-proof:' + r2Proof,
                 '[/image-url]',
                 '[image-url]',
                 `src:${b2MediaUrl}`,
@@ -3652,6 +3698,7 @@ test('delete entry endpoint removes one post and cascades hosted gif cleanup acr
                 'provider:b2',
                 'storage-key:blog-gifs/b2-post.gif',
                 'storage-file-id:b2-file-id-456',
+                    'storage-proof:' + b2Proof,
                 '[/image-url]',
                 '',
                 '[2026-04-03T03:00:00.000Z]',
@@ -4047,4 +4094,209 @@ test('delete endpoint blocks writes while the live site is still deploying the p
         error: 'site is still deploying previous changes; wait for blog.txt to go live before posting or deleting again'
     });
     assert.equal(githubUpdateCalls, 0);
+});
+
+test('security: rejected posting must not write media, even when the request has valid GIF bytes', async () => {
+    const writes = [];
+    const response = await worker.fetch(new Request('https://example.com/api/blog/append', {
+        method: 'POST',
+        body: JSON.stringify({ imageDataUrl: TEST_GIF_DATA_URL })
+    }), {
+        TURNSTILE_SECRET_KEY: 'fixture-turnstile',
+        BLOG_SIGNING_SECRET: FIXTURE_SIGNING_KEY,
+        ALLOWED_ORIGIN: 'https://example.com',
+        RATE_LIMITER: createAlwaysAllowRateLimiter(),
+        BLOG_GIF_R2_BUCKET: { put: async key => writes.push(key) }
+    });
+    assert.equal(response.status, 400);
+    assert.deepEqual(writes, []);
+});
+
+test('security: a password alone cannot authorize any moderation endpoint', async () => {
+    for (const route of ['delete-entry', 'delete-image', 'delete-text']) {
+        const response = await worker.fetch(new Request('https://example.com/api/blog/' + route, {
+            method: 'POST',
+            body: JSON.stringify({ password: 'fixture-password' })
+        }), {
+            BLOG_IMAGE_DELETE_PASSWORD: 'fixture-password',
+            BLOG_SIGNING_SECRET: 'fixture-signing-key',
+            GODLIKE_TOTP_SECRET: 'JBSWY3DPEHPK3PXP',
+            RATE_LIMITER: createAlwaysAllowRateLimiter()
+        });
+        assert.equal(response.status, 403);
+    }
+});
+
+test('security: repeated visitor events for one session count as one visit', async () => {
+    const { counter } = createCounter();
+    await counter.trackVisitor('visitor-replay', 'visit-replay', 'visit');
+    const stats = await counter.trackVisitor('visitor-replay', 'visit-replay', 'visit');
+    assert.equal(stats.visits, 1);
+});
+
+test('security: public text cannot create a trusted hosted attachment record', async () => {
+    const timestamp = '[2026-01-02T03:04:05.000Z]';
+    const text = [
+        '[image-url]', 'src:https://example.com/api/blog/media/r2/fixture.gif',
+        'mime:image/gif', 'provider:r2', 'storage-key:other-fixture', '[/image-url]'
+    ];
+    const content = appendBlogEntry('Test blog', text.map(line => ({ type: 'text', text: line })), timestamp);
+    const result = removeBlogEntry(content, { targetEntryTimestamp: timestamp });
+    assert.equal(result.removed, true);
+    assert.ok(result.removedEntry.blocks.every(block => block.type === 'text'));
+});
+
+test('security: unauthenticated upload staging cannot reach its Durable Object', async () => {
+    let lookedUp = false;
+    const response = await worker.fetch(new Request('https://example.com/api/blog/upload-chunk', {
+        method: 'POST',
+        body: JSON.stringify({ uploadId: 'fixture', totalChunks: 1, chunkIndex: 0, chunk: 'payload' })
+    }), {
+        BLOG_SIGNING_SECRET: 'fixture-signing-key',
+        RATE_LIMITER: createAlwaysAllowRateLimiter(),
+        BLOG_UPLOAD_SESSION: { idFromName() { lookedUp = true; return 'fixture'; }, get: () => ({
+            fetch: async () => Response.json({ staged: true })
+        }) }
+    });
+    assert.equal(response.status, 403);
+    assert.equal(lookedUp, false);
+});
+
+
+
+function securityRequest(path, body) {
+    return new Request('https://example.com/api/' + path, { method: 'POST', body: JSON.stringify(body) });
+}
+
+function realFixtureRateLimiter() {
+    const instances = new Map();
+    return {
+        idFromName: name => name,
+        get(name) {
+            if (!instances.has(name)) instances.set(name, new RateLimiter({ storage: new FakeStorage() }));
+            return { fetch: (url, options) => instances.get(name).fetch(new Request(url, options)) };
+        }
+    };
+}
+
+test('security: Turnstile grants require the expected hostname and action, isolate chunks, and only authorize one append', async t => {
+    const originalFetch = globalThis.fetch;
+    t.after(() => { globalThis.fetch = originalFetch; });
+    const env = {
+        ALLOWED_ORIGIN: 'https://example.com',
+        BLOG_SIGNING_SECRET: FIXTURE_SIGNING_KEY,
+        TURNSTILE_SECRET_KEY: 'fixture-turnstile',
+        RATE_LIMITER: realFixtureRateLimiter(),
+        BLOG_UPLOAD_SESSION: createUploadSessionBinding(),
+        GITHUB_OWNER: 'fixture', GITHUB_REPO: 'fixture', GITHUB_PAT: 'fixture'
+    };
+    let challenge = { success: true, hostname: 'other.example', action: 'blog_post' };
+    let commits = 0;
+    globalThis.fetch = async (url, options = {}) => {
+        const parsed = new URL(url);
+        if (parsed.hostname === 'challenges.cloudflare.com') return Response.json(challenge);
+        if (parsed.hostname === 'example.com') return new Response('Fixture blog');
+        assert.equal(parsed.hostname, 'api.github.com');
+        if (options.method === 'PUT') {
+            commits += 1;
+            return Response.json({ commit: { sha: 'fixture' } });
+        }
+        return Response.json({ sha: 'fixture', content: Buffer.from('Fixture blog').toString('base64') });
+    };
+    const grant = () => worker.fetch(securityRequest('blog/upload-grant', { turnstileToken: 'fixture' }), env);
+    assert.equal((await grant()).status, 400);
+    challenge = { ...challenge, hostname: 'example.com', action: 'other' };
+    assert.equal((await grant()).status, 400);
+    challenge = { ...challenge, action: 'blog_post' };
+    const first = await grant();
+    assert.equal(first.status, 200);
+    const { token } = await first.json();
+    const stage = (uploadGrant, chunk) => worker.fetch(securityRequest('blog/upload-chunk', {
+        uploadGrant, uploadId: 'shared-id', chunkIndex: 0, totalChunks: 1, chunk
+    }), env);
+    assert.equal((await stage(token, TEST_PNG_DATA_URL)).status, 200);
+    assert.equal((await stage(token, TEST_PNG_DATA_URL)).status, 200);
+    assert.equal((await stage(token, 'different')).status, 409);
+    const append = (uploadGrant) => worker.fetch(securityRequest('blog/append', {
+        uploadGrant, contentBlocks: [{ type: 'image', stagedUploadToken: 'shared-id' }]
+    }), env);
+    const other = (await (await grant()).json()).token;
+    assert.equal((await append(other)).status, 400);
+    assert.equal((await append(token)).status, 201);
+    assert.equal((await append(token)).status, 409);
+    assert.equal(commits, 1);
+});
+
+test('security: a streamed oversized stage request is rejected before storage lookup', async () => {
+    let lookedUp = false;
+    const response = await worker.fetch(new Request('https://example.com/api/blog/upload-chunk', {
+        method: 'POST', duplex: 'half',
+        body: new ReadableStream({ start(controller) {
+            controller.enqueue(new Uint8Array(128 * 1024 + 1));
+            controller.close();
+        } })
+    }), {
+        RATE_LIMITER: createAlwaysAllowRateLimiter(),
+        BLOG_UPLOAD_SESSION: { idFromName() { lookedUp = true; } }
+    });
+    assert.equal(response.status, 413);
+    assert.equal(lookedUp, false);
+});
+
+test('security: unsigned legacy attachment can be unlinked without deleting its backing object', async t => {
+    const originalFetch = globalThis.fetch;
+    t.after(() => { globalThis.fetch = originalFetch; });
+    const timestamp = '[2026-01-02T03:04:05.000Z]';
+    const content = [
+        timestamp, '[image-url]', 'src:https://example.com/api/blog/media/r2/fixture.gif',
+        'mime:image/gif', 'provider:r2', 'storage-key:other-fixture', '[/image-url]'
+    ].join('\n');
+    const deletions = [];
+    globalThis.fetch = async (url, options = {}) => {
+        if (new URL(url).hostname === 'example.com') return new Response(content);
+        if (options.method === 'PUT') return Response.json({ commit: { sha: 'fixture' } });
+        return Response.json({ sha: 'fixture', content: Buffer.from(content).toString('base64') });
+    };
+    const response = await blogWorker.fetch(securityRequest('blog/delete-entry', { entryTimestamp: timestamp }), {
+        ALLOWED_ORIGIN: 'https://example.com',
+        RATE_LIMITER: createAlwaysAllowRateLimiter(),
+        BLOG_GIF_R2_BUCKET: { delete: async key => deletions.push(key) }
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(deletions, []);
+});
+
+test('security: visitor leave requires matching visit ownership and replay is idempotent', async () => {
+    const { counter } = createCounter();
+    const env = {
+        RATE_LIMITER: createAlwaysAllowRateLimiter(),
+        VISITOR_COUNTER: {
+            idFromName: name => name,
+            get: () => ({ fetch: (url, options) => counter.fetch(new Request(url, options)) })
+        }
+    };
+    const visit = { visitorId: 'visitor', visitId: 'visit', visitSecret: 'a'.repeat(32), action: 'visit' };
+    const post = async (operation, body) => (await worker.fetch(securityRequest('visitors/' + operation, body), env)).json();
+    assert.equal((await post('track', visit)).visits, 1);
+    assert.equal((await post('track', visit)).visits, 1);
+    assert.equal((await post('leave', { ...visit, visitSecret: 'b'.repeat(32) })).onSite, 1);
+    assert.equal((await post('leave', visit)).onSite, 0);
+    assert.equal((await post('track', visit)).visits, 1);
+});
+
+
+test('security: a successful TOTP cannot be reused to mint another moderation session', async () => {
+    const env = {
+        BLOG_SIGNING_SECRET: FIXTURE_SIGNING_KEY,
+        BLOG_IMAGE_DELETE_PASSWORD: 'fixture-password',
+        GODLIKE_TOTP_SECRET: 'JBSWY3DPEHPK3PXP',
+        RATE_LIMITER: realFixtureRateLimiter()
+    };
+    const now = Date.now();
+    const code = await generateTotpCode(env.GODLIKE_TOTP_SECRET, now);
+    const login = () => handleTerminalSu(securityRequest('terminal/su', {
+        target: 'godlike', password: env.BLOG_IMAGE_DELETE_PASSWORD + code
+    }), env, { now: () => now });
+    assert.equal((await login()).status, 200);
+    assert.equal((await login()).status, 403);
 });

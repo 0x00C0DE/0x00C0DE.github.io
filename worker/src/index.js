@@ -2,6 +2,15 @@ import {
     stripLeadingCharacter,
     stripTrailingCharacter
 } from './linear-string-normalization.js';
+import { digestVisitId, issueGrant, readGrant, signValue, verifyTurnstile, verifyValue } from './request-security.js';
+
+const UPLOAD_GRANT_MS = 15 * 60_000;
+const MODERATION_GRANT_MS = 15 * 60_000;
+const POST_BODY_LIMIT = 12 * 1024 * 1024;
+const SMALL_JSON_LIMIT = 16 * 1024;
+const TURNSTILE_ACTION = 'blog_post';
+const RECENT_VISIT_LIMIT = 1000;
+
 
 export default {
     async fetch(request, env) {
@@ -36,6 +45,10 @@ export default {
 
         if (request.method === 'POST' && url.pathname === '/api/blog/append') {
             return handleAppend(request, env);
+        }
+
+        if (request.method === 'POST' && url.pathname === '/api/blog/upload-grant') {
+            return handleUploadGrant(request, env);
         }
 
         if (request.method === 'POST' && url.pathname === '/api/blog/upload-chunk') {
@@ -128,10 +141,27 @@ function parseAstrologyFortunes(source) {
     return fortunes;
 }
 
+class BodyLimitError extends Error {}
+
+async function readJsonLimited(request, maximumBytes = SMALL_JSON_LIMIT) {
+    try {
+        return JSON.parse(await readResponseTextLimited(request, maximumBytes));
+    } catch (error) {
+        if (error instanceof BodyLimitError) throw error;
+        return null;
+    }
+}
+
+function rejectOversizedBody(error, env) {
+    return error instanceof BodyLimitError
+        ? jsonResponse({ error: 'request body is too large' }, 413, env.ALLOWED_ORIGIN)
+        : null;
+}
+
 async function readResponseTextLimited(response, maximumBytes) {
     const declaredLength = Number(response.headers.get('Content-Length') || 0);
     if (declaredLength > maximumBytes) {
-        throw new Error('fortune source response is too large');
+        throw new BodyLimitError('body is too large');
     }
     if (!response.body) {
         return '';
@@ -149,7 +179,7 @@ async function readResponseTextLimited(response, maximumBytes) {
         receivedBytes += value.byteLength;
         if (receivedBytes > maximumBytes) {
             await reader.cancel();
-            throw new Error('fortune source response is too large');
+            throw new BodyLimitError('body is too large');
         }
         result += decoder.decode(value, { stream: true });
     }
@@ -239,9 +269,15 @@ export class VisitorCounter {
 
         let forceFlush = false;
 
-        if (action === 'visit') {
+        if (action === 'visit' && !Object.hasOwn(this.snapshot.recentVisits, visitId)) {
+            if (Object.keys(this.snapshot.recentVisits).length >= RECENT_VISIT_LIMIT) return this.getCountResponse();
+            this.snapshot.recentVisits[visitId] = now;
             this.snapshot.visits += 1;
             forceFlush = true;
+        }
+
+        if (action === 'heartbeat' && !Object.hasOwn(this.snapshot.recentVisits, visitId)) {
+            return this.getCountResponse();
         }
 
         const visitorKey = `visitor:${visitorId}`;
@@ -263,6 +299,7 @@ export class VisitorCounter {
 
         const previousSeen = Number(this.snapshot.activeSessions[visitId] || 0);
         this.snapshot.activeSessions[visitId] = now;
+        this.snapshot.recentVisits[visitId] = now;
 
         const shouldPersistHeartbeat =
             action === 'heartbeat' &&
@@ -341,7 +378,12 @@ export class VisitorCounter {
     }
 
     pruneActiveSessionsInMemory(now = Date.now()) {
-        const nextSessions = {};
+        const nextSessions = Object.create(null);
+        for (const [visitId, seenAt] of Object.entries(this.snapshot.recentVisits)) {
+            if (seenAt + 30 * 60_000 <= now && !Object.hasOwn(this.snapshot.activeSessions, visitId)) {
+                delete this.snapshot.recentVisits[visitId];
+            }
+        }
 
         for (const [visitId, lastSeen] of Object.entries(this.snapshot.activeSessions || {})) {
             if (Number(lastSeen) + VISITOR_ONSITE_WINDOW_MS > now) {
@@ -365,6 +407,22 @@ export class RateLimiter {
 
     async fetch(request) {
         const url = new URL(request.url);
+
+        if (request.method === 'POST' && url.pathname === '/claim') {
+            const { expiresAt } = await request.json();
+            const now = Date.now();
+            if (!Number.isFinite(expiresAt) || expiresAt <= now || expiresAt > now + UPLOAD_GRANT_MS) {
+                return Response.json({ allowed: false });
+            }
+            const storage = this.state.storage;
+            const allowed = await storage.transaction(async () => {
+                if (Number(await storage.get('claimedUntil')) > now) return false;
+                await storage.put('claimedUntil', expiresAt);
+                await storage.setAlarm(expiresAt);
+                return true;
+            });
+            return Response.json({ allowed });
+        }
 
         if (request.method !== 'POST' || url.pathname !== '/consume') {
             return new Response(JSON.stringify({ error: 'not found' }), {
@@ -412,6 +470,12 @@ export class RateLimiter {
             }
         });
     }
+
+    async alarm() {
+        const expiresAt = Number(await this.state.storage.get('claimedUntil'));
+        if (expiresAt && expiresAt <= Date.now()) await this.state.storage.delete('claimedUntil');
+    }
+
 }
 
 export class BlogUploadSession {
@@ -450,6 +514,10 @@ export class BlogUploadSession {
                 return this.jsonErrorResponse('upload chunk count mismatch', 409);
             }
 
+            const previousChunk = await this.state.storage.get('chunk:' + chunkIndex);
+            if (typeof previousChunk === 'string' && previousChunk !== chunk) {
+                return this.jsonErrorResponse('upload chunk already exists', 409);
+            }
             const expiresAt = Date.now() + this.getSessionTtlMs();
             await this.state.storage.put({
                 meta: {
@@ -1513,6 +1581,7 @@ function normalizeSnapshot(snapshot) {
     return {
         visits: Number(snapshot?.visits || 0),
         uniqueVisitors: Number(snapshot?.uniqueVisitors || 0),
+        recentVisits: Object.assign(Object.create(null), snapshot?.recentVisits),
         activeSessions: snapshot?.activeSessions && typeof snapshot.activeSessions === 'object'
             ? snapshot.activeSessions
             : {}
@@ -1530,37 +1599,62 @@ async function handleVisitorCount(env) {
 }
 
 async function handleVisitorTrack(request, env) {
-    if (!env.VISITOR_COUNTER) {
-        return jsonResponse({ error: 'visitor counter binding not configured' }, 500, env.ALLOWED_ORIGIN);
-    }
-
-    const body = await request.text();
-    const stub = getVisitorCounterStub(env);
-    const response = await stub.fetch('https://visitor-counter/track', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body
-    });
-    return proxyJsonResponse(response, env.ALLOWED_ORIGIN);
+    return handleVisitorWrite(request, env, 'track');
 }
 
 async function handleVisitorLeave(request, env) {
-    if (!env.VISITOR_COUNTER) {
-        return jsonResponse({ error: 'visitor counter binding not configured' }, 500, env.ALLOWED_ORIGIN);
-    }
+    return handleVisitorWrite(request, env, 'leave');
+}
 
-    const body = await request.text();
-    const stub = getVisitorCounterStub(env);
-    const response = await stub.fetch('https://visitor-counter/leave', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body
-    });
-    return proxyJsonResponse(response, env.ALLOWED_ORIGIN);
+async function handleVisitorWrite(request, env, operation) {
+    if (!env.VISITOR_COUNTER || !env.RATE_LIMITER) {
+        return jsonResponse({ error: 'visitor tracking unavailable' }, 503, env.ALLOWED_ORIGIN);
+    }
+    try {
+        const body = await readJsonLimited(request, 2048);
+        const visitId = sanitizeVisitId(body?.visitId);
+        const visitSecret = body?.visitSecret;
+        const visitorId = sanitizeVisitorId(body?.visitorId);
+        if (!visitId || typeof visitSecret !== 'string' || !/^[a-f0-9]{32}$/.test(visitSecret)
+            || !visitorId) {
+            return jsonResponse({ error: 'invalid visitor session' }, 400, env.ALLOWED_ORIGIN);
+        }
+        const action = body?.action === 'visit' ? 'visit' : 'heartbeat';
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rate = await enforceRateLimit(ip, env, {
+            namespace: operation === 'track' && action === 'visit' ? 'visitor-new' : 'visitor-session',
+            defaultMax: operation === 'track' && action === 'visit' ? 30 : 360,
+            windowMsEnv: 'VISITOR_RATE_LIMIT_WINDOW_MS',
+            maxEnv: operation === 'track' && action === 'visit' ? 'VISITOR_NEW_RATE_LIMIT_MAX' : 'VISITOR_SESSION_RATE_LIMIT_MAX'
+        });
+        if (!rate.allowed) return jsonResponse({ error: 'rate limit exceeded' }, 429, env.ALLOWED_ORIGIN, rate.headers);
+        const stub = getVisitorCounterStub(env);
+        const response = await stub.fetch('https://visitor-counter/' + operation, {
+            method: 'POST',
+            body: JSON.stringify({ visitorId, visitId: await digestVisitId(visitorId, visitId, visitSecret), action })
+        });
+        return proxyJsonResponse(response, env.ALLOWED_ORIGIN);
+    } catch (error) {
+        return rejectOversizedBody(error, env) || jsonResponse({ error: 'visitor tracking unavailable' }, 503, env.ALLOWED_ORIGIN);
+    }
+}
+
+async function handleUploadGrant(request, env) {
+    try {
+        if (!env.BLOG_SIGNING_SECRET || !env.TURNSTILE_SECRET_KEY || !env.ALLOWED_ORIGIN) {
+            return jsonResponse({ error: 'blog posting unavailable' }, 503, env.ALLOWED_ORIGIN);
+        }
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rate = await enforceRateLimit(ip, env, { namespace: 'upload-grant' });
+        if (!rate.allowed) return jsonResponse({ error: 'rate limit exceeded' }, 429, env.ALLOWED_ORIGIN, rate.headers);
+        const body = await readJsonLimited(request);
+        if (!await verifyTurnstile(env.TURNSTILE_SECRET_KEY, body?.turnstileToken, ip, env.ALLOWED_ORIGIN, TURNSTILE_ACTION)) {
+            return jsonResponse({ error: 'turnstile verification failed' }, 400, env.ALLOWED_ORIGIN);
+        }
+        return jsonResponse(await issueGrant(env.BLOG_SIGNING_SECRET, 'upload', UPLOAD_GRANT_MS), 200, env.ALLOWED_ORIGIN, { 'Cache-Control': 'no-store' });
+    } catch (error) {
+        return rejectOversizedBody(error, env) || jsonResponse({ error: 'unable to authorize upload' }, 503, env.ALLOWED_ORIGIN);
+    }
 }
 
 async function handleStageImageChunk(request, env) {
@@ -1581,13 +1675,20 @@ async function handleStageImageChunk(request, env) {
             return jsonResponse({ error: 'blog upload session binding not configured' }, 500, env.ALLOWED_ORIGIN);
         }
 
-        const body = await request.json().catch(() => null);
+        const body = await readJsonLimited(request, 128 * 1024);
+        const grant = await readGrant(env.BLOG_SIGNING_SECRET, 'upload', body?.uploadGrant);
+        if (!grant) return jsonResponse({ error: 'upload authorization required' }, 403, env.ALLOWED_ORIGIN);
+        const grantRate = await enforceRateLimit(grant.id, env, {
+            namespace: 'upload-chunks', defaultWindowMs: UPLOAD_GRANT_MS, defaultMax: MAX_STAGED_IMAGE_CHUNKS * 2,
+            windowMsEnv: 'BLOG_STAGE_RATE_LIMIT_WINDOW_MS', maxEnv: 'BLOG_STAGE_RATE_LIMIT_MAX'
+        });
+        if (!grantRate.allowed) return jsonResponse({ error: 'rate limit exceeded' }, 429, env.ALLOWED_ORIGIN, grantRate.headers);
         const uploadId = sanitizeUploadToken(body?.uploadId);
         if (!uploadId) {
             return jsonResponse({ error: 'uploadId is required' }, 400, env.ALLOWED_ORIGIN);
         }
 
-        const stub = getBlogUploadSessionStub(env, uploadId);
+        const stub = getBlogUploadSessionStub(env, grant.id + ':' + uploadId);
         const response = await stub.fetch('https://blog-upload-session/stage', {
             method: 'POST',
             headers: {
@@ -1602,6 +1703,8 @@ async function handleStageImageChunk(request, env) {
 
         return proxyJsonResponse(response, env.ALLOWED_ORIGIN, rateCheck.headers);
     } catch (error) {
+        const oversized = rejectOversizedBody(error, env);
+        if (oversized) return oversized;
         console.error('stage image chunk failed', error);
         return jsonResponse({ error: 'unable to stage image upload right now' }, 500, env.ALLOWED_ORIGIN);
     }
@@ -1615,11 +1718,20 @@ async function handleAppend(request, env) {
             return jsonResponse({ error: 'rate limit exceeded' }, 429, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
-        const body = await request.json().catch(() => null);
+        if (!env.BLOG_SIGNING_SECRET || !env.TURNSTILE_SECRET_KEY || !env.ALLOWED_ORIGIN) {
+            return jsonResponse({ error: 'blog posting unavailable' }, 503, env.ALLOWED_ORIGIN);
+        }
+        const body = await readJsonLimited(request, POST_BODY_LIMIT);
+        const grant = await readGrant(env.BLOG_SIGNING_SECRET, 'upload', body?.uploadGrant);
+        if (!grant && !await verifyTurnstile(env.TURNSTILE_SECRET_KEY, body?.turnstileToken, ip, env.ALLOWED_ORIGIN, TURNSTILE_ACTION)) {
+            return jsonResponse({ error: 'turnstile verification failed' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+        if (grant) {
+            if (!await claimOnce(env, 'upload-submit:' + grant.id, grant.expiresAt)) return jsonResponse({ error: 'upload authorization already used' }, 409, env.ALLOWED_ORIGIN);
+        }
         const text = typeof body?.text === 'string' ? body.text.trim() : '';
         const imageDataUrl = typeof body?.imageDataUrl === 'string' ? body.imageDataUrl.trim() : '';
         const contentBlocks = Array.isArray(body?.contentBlocks) ? body.contentBlocks : null;
-        const turnstileToken = typeof body?.turnstileToken === 'string' ? body.turnstileToken : '';
         const maxPostLength = Number(env.MAX_POST_LENGTH || 500);
         const maxImageDataUrlLength = Number(env.MAX_IMAGE_DATA_URL_LENGTH || MAX_IMAGE_DATA_URL_LENGTH);
         const normalizedBlocks = await normalizeAppendContentBlocks({
@@ -1628,18 +1740,12 @@ async function handleAppend(request, env) {
             imageDataUrl,
             maxPostLength,
             maxImageDataUrlLength,
+            grant,
             env
         });
 
         if (!normalizedBlocks.ok) {
             return jsonResponse({ error: normalizedBlocks.error }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
-        }
-
-        if (env.TURNSTILE_SECRET_KEY) {
-            const verified = await verifyTurnstile(env.TURNSTILE_SECRET_KEY, turnstileToken, ip);
-            if (!verified) {
-                return jsonResponse({ error: 'turnstile verification failed' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
-            }
         }
 
         const githubFile = await fetchGithubFile(env);
@@ -1648,7 +1754,9 @@ async function handleAppend(request, env) {
             return jsonResponse({ error: deploymentStatus.error }, 409, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
-        const hasLargeStagedCompactImage = normalizedBlocks.blocks.some(block =>
+        const media = await finalizeHostedBlocks(normalizedBlocks.blocks, env);
+        if (!media.ok) return jsonResponse({ error: media.error }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
+        const hasLargeStagedCompactImage = media.blocks.some(block =>
             block?.type === 'image' &&
             block.imageEncoding === 'z85' &&
             block.stagedUploadToken &&
@@ -1656,8 +1764,8 @@ async function handleAppend(request, env) {
         );
 
         const commit = hasLargeStagedCompactImage
-            ? await appendBlogEntryViaStream(env, githubFile.content, normalizedBlocks.blocks)
-            : await updateGithubFile(env, appendBlogEntry(githubFile.content, normalizedBlocks.blocks), githubFile.sha);
+            ? await appendBlogEntryViaStream(env, githubFile.content, media.blocks)
+            : await updateGithubFile(env, appendBlogEntry(githubFile.content, media.blocks), githubFile.sha);
 
         return jsonResponse({
             ok: true,
@@ -1665,6 +1773,8 @@ async function handleAppend(request, env) {
             commitUrl: `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/commit/${commit.sha}`
         }, 201, env.ALLOWED_ORIGIN, rateCheck.headers);
     } catch (error) {
+        const oversized = rejectOversizedBody(error, env);
+        if (oversized) return oversized;
         console.error('append failed', error);
         return jsonResponse({ error: 'failed to append blog entry' }, 500, env.ALLOWED_ORIGIN);
     }
@@ -1754,11 +1864,11 @@ export async function handleTerminalSu(request, env, dependencies = {}) {
             return jsonResponse({ error: 'rate limit exceeded' }, 429, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
-        if (!env.BLOG_IMAGE_DELETE_PASSWORD) {
-            return jsonResponse({ error: 'delete password is not configured' }, 500, env.ALLOWED_ORIGIN, rateCheck.headers);
+        if (!env.BLOG_IMAGE_DELETE_PASSWORD || !env.GODLIKE_TOTP_SECRET || !env.BLOG_SIGNING_SECRET) {
+            return jsonResponse({ error: 'moderation authentication unavailable' }, 500, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
-        const body = await request.json().catch(() => null);
+        const body = await readJsonLimited(request);
         const target = String(body?.target || '').trim().toLowerCase();
         const credential = typeof body?.password === 'string' ? body.password : '';
 
@@ -1766,31 +1876,26 @@ export async function handleTerminalSu(request, env, dependencies = {}) {
             return jsonResponse({ error: 'unsupported su target' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
-        let password = credential;
-        let passwordMatches;
-        let totpMatches = true;
-        if (env.GODLIKE_TOTP_SECRET) {
-            const candidateTotp = credential.slice(-TOTP_DIGITS);
-            password = credential.slice(0, -TOTP_DIGITS);
-            passwordMatches = timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD);
-            totpMatches = await verifyTotpCode(
-                env.GODLIKE_TOTP_SECRET,
-                candidateTotp,
-                (dependencies.now || Date.now)()
-            );
-        } else {
-            passwordMatches = timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD);
-        }
+        const now = (dependencies.now || Date.now)();
+        const passwordMatches = timingSafeStringEqual(credential.slice(0, -TOTP_DIGITS), env.BLOG_IMAGE_DELETE_PASSWORD);
+        const totpMatches = await verifyTotpCode(env.GODLIKE_TOTP_SECRET, credential.slice(-TOTP_DIGITS), now);
 
         if (!passwordMatches || !totpMatches) {
+            return jsonResponse({ error: 'invalid credentials' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+        const otpId = await signValue(env.BLOG_SIGNING_SECRET, 'moderation-otp', credential.slice(-TOTP_DIGITS));
+        if (!await claimOnce(env, 'moderation-otp:' + otpId, now + 90_000)) {
             return jsonResponse({ error: 'invalid credentials' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
         return jsonResponse({
             ok: true,
-            user: 'godlike'
-        }, 200, env.ALLOWED_ORIGIN, rateCheck.headers);
+            user: 'godlike',
+            ...await issueGrant(env.BLOG_SIGNING_SECRET, 'moderation', MODERATION_GRANT_MS, now)
+        }, 200, env.ALLOWED_ORIGIN, { ...rateCheck.headers, 'Cache-Control': 'no-store' });
     } catch (error) {
+        const oversized = rejectOversizedBody(error, env);
+        if (oversized) return oversized;
         console.error('terminal su failed', error);
         return jsonResponse({ error: 'failed to authenticate terminal user' }, 500, env.ALLOWED_ORIGIN);
     }
@@ -1804,12 +1909,7 @@ async function handleDeleteImage(request, env) {
             return jsonResponse({ error: 'rate limit exceeded' }, 429, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
-        if (!env.BLOG_IMAGE_DELETE_PASSWORD) {
-            return jsonResponse({ error: 'delete password is not configured' }, 500, env.ALLOWED_ORIGIN, rateCheck.headers);
-        }
-
-        const body = await request.json().catch(() => null);
-        const password = typeof body?.password === 'string' ? body.password : '';
+        const body = await readJsonLimited(request);
         const imageKey = typeof body?.imageKey === 'string' ? body.imageKey.trim() : '';
         const imageDataUrl = normalizeImageDataUrl(body?.imageDataUrl);
         const imageUrl = normalizeImageUrl(body?.imageUrl);
@@ -1819,8 +1919,8 @@ async function handleDeleteImage(request, env) {
         const previousTextLine = typeof body?.previousTextLine === 'string' ? body.previousTextLine.trim() : '';
         const nextTextLine = typeof body?.nextTextLine === 'string' ? body.nextTextLine.trim() : '';
 
-        if (!timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD)) {
-            return jsonResponse({ error: 'invalid password' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
+        if (!await readGrant(env.BLOG_SIGNING_SECRET, 'moderation', body?.moderationToken)) {
+            return jsonResponse({ error: 'moderation session required; run su godlike again' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
         if (
@@ -1874,6 +1974,8 @@ async function handleDeleteImage(request, env) {
             commitUrl: `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/commit/${commit.sha}`
         }, 200, env.ALLOWED_ORIGIN, rateCheck.headers);
     } catch (error) {
+        const oversized = rejectOversizedBody(error, env);
+        if (oversized) return oversized;
         console.error('delete image failed', error);
         return jsonResponse({ error: 'failed to delete blog image' }, 500, env.ALLOWED_ORIGIN);
     }
@@ -1887,12 +1989,7 @@ async function handleDeleteText(request, env) {
             return jsonResponse({ error: 'rate limit exceeded' }, 429, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
-        if (!env.BLOG_IMAGE_DELETE_PASSWORD) {
-            return jsonResponse({ error: 'delete password is not configured' }, 500, env.ALLOWED_ORIGIN, rateCheck.headers);
-        }
-
-        const body = await request.json().catch(() => null);
-        const password = typeof body?.password === 'string' ? body.password : '';
+        const body = await readJsonLimited(request);
         const entryTimestamp = normalizeBlogEntryTimestamp(body?.entryTimestamp);
         const entryTextBlockIndex = Number.isInteger(body?.entryTextBlockIndex)
             ? body.entryTextBlockIndex
@@ -1901,8 +1998,8 @@ async function handleDeleteText(request, env) {
         const previousImageKey = typeof body?.previousImageKey === 'string' ? body.previousImageKey.trim() : '';
         const nextImageKey = typeof body?.nextImageKey === 'string' ? body.nextImageKey.trim() : '';
 
-        if (!timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD)) {
-            return jsonResponse({ error: 'invalid password' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
+        if (!await readGrant(env.BLOG_SIGNING_SECRET, 'moderation', body?.moderationToken)) {
+            return jsonResponse({ error: 'moderation session required; run su godlike again' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
         if (
@@ -1947,6 +2044,8 @@ async function handleDeleteText(request, env) {
             commitUrl: `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/commit/${commit.sha}`
         }, 200, env.ALLOWED_ORIGIN, rateCheck.headers);
     } catch (error) {
+        const oversized = rejectOversizedBody(error, env);
+        if (oversized) return oversized;
         console.error('delete text failed', error);
         return jsonResponse({ error: 'failed to delete blog text block' }, 500, env.ALLOWED_ORIGIN);
     }
@@ -1960,16 +2059,11 @@ async function handleDeleteEntry(request, env) {
             return jsonResponse({ error: 'rate limit exceeded' }, 429, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
-        if (!env.BLOG_IMAGE_DELETE_PASSWORD) {
-            return jsonResponse({ error: 'delete password is not configured' }, 500, env.ALLOWED_ORIGIN, rateCheck.headers);
-        }
-
-        const body = await request.json().catch(() => null);
-        const password = typeof body?.password === 'string' ? body.password : '';
+        const body = await readJsonLimited(request);
         const entryTimestamp = normalizeBlogEntryTimestamp(body?.entryTimestamp);
 
-        if (!timingSafeStringEqual(password, env.BLOG_IMAGE_DELETE_PASSWORD)) {
-            return jsonResponse({ error: 'invalid password' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
+        if (!await readGrant(env.BLOG_SIGNING_SECRET, 'moderation', body?.moderationToken)) {
+            return jsonResponse({ error: 'moderation session required; run su godlike again' }, 403, env.ALLOWED_ORIGIN, rateCheck.headers);
         }
 
         if (!entryTimestamp) {
@@ -2016,6 +2110,8 @@ async function handleDeleteEntry(request, env) {
             commitUrl: `https://github.com/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/commit/${commit.sha}`
         }, 200, env.ALLOWED_ORIGIN, rateCheck.headers);
     } catch (error) {
+        const oversized = rejectOversizedBody(error, env);
+        if (oversized) return oversized;
         console.error('delete entry failed', error);
         return jsonResponse({ error: 'failed to delete blog entry' }, 500, env.ALLOWED_ORIGIN);
     }
@@ -2509,7 +2605,8 @@ function createHostedImageBlock({
     storageProvider,
     storageKey,
     storageFileId = '',
-    storageBytes = 0
+    storageBytes = 0,
+    storageProof = ''
 }) {
     const normalizedImageUrl = normalizeImageUrl(imageUrl);
     const normalizedMimeType = String(mimeType || '').trim().toLowerCase();
@@ -2535,7 +2632,8 @@ function createHostedImageBlock({
         storageProvider: normalizedStorageProvider,
         storageKey: normalizedStorageKey,
         ...(normalizedStorageFileId ? { storageFileId: normalizedStorageFileId } : {}),
-        ...(normalizedStorageBytes > 0 ? { storageBytes: normalizedStorageBytes } : {})
+        ...(normalizedStorageBytes > 0 ? { storageBytes: normalizedStorageBytes } : {}),
+        ...(storageProof ? { storageProof } : {})
     };
 }
 
@@ -2577,13 +2675,13 @@ function timingSafeStringEqual(left, right) {
     return mismatch === 0;
 }
 
-async function normalizeAppendContentBlocks({ contentBlocks, text, imageDataUrl, maxPostLength, maxImageDataUrlLength, env }) {
+async function normalizeAppendContentBlocks({ contentBlocks, text, imageDataUrl, maxPostLength, maxImageDataUrlLength, grant, env }) {
     if (contentBlocks) {
         const validated = validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLength);
         if (!validated.ok) {
             return validated;
         }
-        return resolveStagedImageBlocks(validated.blocks, maxImageDataUrlLength, env);
+        return resolveAuthorizedBlocks(validated.blocks, maxImageDataUrlLength, grant, env);
     }
 
     const blocks = [];
@@ -2598,7 +2696,7 @@ async function normalizeAppendContentBlocks({ contentBlocks, text, imageDataUrl,
     if (!validated.ok) {
         return validated;
     }
-    return resolveStagedImageBlocks(validated.blocks, maxImageDataUrlLength, env);
+    return resolveAuthorizedBlocks(validated.blocks, maxImageDataUrlLength, grant, env);
 }
 
 function validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLength) {
@@ -2737,6 +2835,16 @@ function validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLeng
     };
 }
 
+async function resolveAuthorizedBlocks(blocks, maximumLength, grant, env) {
+    if (blocks.some(block => block.stagedUploadToken) && !grant) {
+        return { ok: false, error: 'staged media requires its upload authorization' };
+    }
+    const scoped = blocks.map(block => block.stagedUploadToken
+        ? { ...block, stagedUploadToken: grant.id + ':' + block.stagedUploadToken }
+        : block);
+    return resolveStagedImageBlocks(scoped, maximumLength, env);
+}
+
 async function resolveStagedImageBlocks(blocks, maxImageDataUrlLength, env) {
     const resolvedBlocks = [];
 
@@ -2790,69 +2898,47 @@ async function resolveStagedImageBlocks(blocks, maxImageDataUrlLength, env) {
             return stagedUpload;
         }
 
-          const imageValidation = validateImageDataUrl(stagedUpload.dataUrl, maxImageDataUrlLength);
-          if (!imageValidation.ok) {
-              return {
-                  ok: false,
-                  error: imageValidation.error
-              };
-          }
+        const imageValidation = validateImageDataUrl(stagedUpload.dataUrl, maxImageDataUrlLength);
+        if (!imageValidation.ok) return imageValidation;
+        resolvedBlocks.push({ type: 'image', imageDataUrl: stagedUpload.dataUrl });
+    }
 
-          const stagedImageParts = parseImageDataUrlParts(stagedUpload.dataUrl);
-          const hostedMediaBlock = await uploadHostedBlogMediaToStorage(stagedUpload.dataUrl, env);
-          if (stagedImageParts?.mimeType === 'video/mp4') {
-              if (!hostedMediaBlock) {
-                  return {
-                      ok: false,
-                      error: 'mp4 hosted media temporarily unavailable'
-                  };
-              }
-              resolvedBlocks.push(hostedMediaBlock);
-              continue;
-          }
+    return { ok: true, blocks: resolvedBlocks };
+}
 
-          if (!hostedMediaBlock && stagedImageParts?.mimeType === 'image/gif' && canStoreHostedBlogMedia(env)) {
-              return {
-                  ok: false,
-                  error: 'gif hosted media temporarily unavailable'
-              };
-          }
-          resolvedBlocks.push(hostedMediaBlock || createCompactImageBlock(stagedUpload.dataUrl));
-      }
+async function finalizeHostedBlocks(blocks, env) {
+    const finalized = [];
+    try {
+        for (const block of blocks) {
+            if (block.type !== 'image' || !block.imageDataUrl) {
+                finalized.push(block);
+                continue;
+            }
 
-    const finalizedBlocks = [];
-    for (const block of resolvedBlocks) {
-        if (block.type !== 'image' || !block.imageDataUrl) {
-            finalizedBlocks.push(block);
-            continue;
-          }
+            const { mimeType } = parseImageDataUrlParts(block.imageDataUrl);
+            const hosted = await uploadHostedBlogMediaToStorage(block.imageDataUrl, env);
+            if (!hosted && (mimeType === 'video/mp4' || (mimeType === 'image/gif' && canStoreHostedBlogMedia(env)))) {
+                await cleanupUncommittedMedia(env, finalized);
+                const label = mimeType === 'video/mp4' ? 'mp4' : 'gif';
+                return { ok: false, error: label + ' hosted media temporarily unavailable' };
+            }
+            finalized.push(hosted || createCompactImageBlock(block.imageDataUrl));
+        }
+        return { ok: true, blocks: finalized };
+    } catch (error) {
+        await cleanupUncommittedMedia(env, finalized);
+        throw error;
+    }
+}
 
-          const imageParts = parseImageDataUrlParts(block.imageDataUrl);
-          const hostedMediaBlock = await uploadHostedBlogMediaToStorage(block.imageDataUrl, env);
-          if (imageParts?.mimeType === 'video/mp4') {
-              if (!hostedMediaBlock) {
-                  return {
-                      ok: false,
-                      error: 'mp4 hosted media temporarily unavailable'
-                  };
-              }
-              finalizedBlocks.push(hostedMediaBlock);
-              continue;
-          }
-
-          if (!hostedMediaBlock && imageParts?.mimeType === 'image/gif' && canStoreHostedBlogMedia(env)) {
-              return {
-                  ok: false,
-                  error: 'gif hosted media temporarily unavailable'
-              };
-          }
-          finalizedBlocks.push(hostedMediaBlock || createCompactImageBlock(block.imageDataUrl));
-      }
-
-    return {
-        ok: true,
-        blocks: finalizedBlocks
-    };
+async function cleanupUncommittedMedia(env, blocks) {
+    for (const block of blocks) {
+        try {
+            await cleanupHostedImageBlock(env, block);
+        } catch (error) {
+            console.error('uncommitted hosted media cleanup failed', error);
+        }
+    }
 }
 
 async function validateStagedCompactImageUploadPrefix(env, uploadToken, mimeType, byteLength) {
@@ -2993,7 +3079,7 @@ function b2QuotaGuardRequestBody(env, action, bytesDelta = 0) {
         githubOwner: String(env.GITHUB_OWNER || '').trim(),
         githubRepo: String(env.GITHUB_REPO || '').trim(),
         githubBranch: String(env.GITHUB_BRANCH || 'main').trim() || 'main',
-        githubBlogPath: String(env.GITHUB_BLOG_PATH || 'blog.txt').trim() || 'blog.txt',
+        githubBlogPath: String(env.GITHUB_BLOG_PATH || 'content/blog.txt').trim() || 'content/blog.txt',
         githubPat: String(env.GITHUB_PAT || '').trim(),
         now: Date.now()
     };
@@ -3221,7 +3307,7 @@ function createHostedBlogMediaStorageKey(mimeType) {
     const normalizedMimeType = String(mimeType || '').trim().toLowerCase();
     const extension = normalizedMimeType === 'video/mp4' ? 'mp4' : 'gif';
     const directory = normalizedMimeType === 'video/mp4' ? 'blog-videos' : 'blog-gifs';
-    return `${directory}/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}.${extension}`;
+    return `${directory}/${Date.now().toString(36)}-${crypto.randomUUID()}.${extension}`;
 }
 
 function buildHostedBlogMediaUrl(env, storageProvider, storageKey, storageFileId = '') {
@@ -3235,7 +3321,7 @@ function buildHostedBlogMediaUrl(env, storageProvider, storageKey, storageFileId
 
 async function uploadHostedBlogMediaToStorage(imageDataUrl, env) {
     const imageBytes = parseImageBytesFromDataUrl(imageDataUrl);
-    if (!imageBytes || !BLOG_HOSTED_MEDIA_MIME_TYPES.has(imageBytes.mimeType) || !canStoreHostedBlogMedia(env)) {
+    if (!env.BLOG_SIGNING_SECRET || !imageBytes || !BLOG_HOSTED_MEDIA_MIME_TYPES.has(imageBytes.mimeType) || !canStoreHostedBlogMedia(env)) {
         return null;
     }
 
@@ -3252,7 +3338,7 @@ async function uploadHostedBlogMediaToStorage(imageDataUrl, env) {
                 });
                 await recordR2WriteUsage(env, storageKey, imageBytes.bytes.byteLength);
 
-                return createHostedImageBlock({
+                return createSignedHostedImageBlock(env, {
                     imageUrl: buildHostedBlogMediaUrl(env, 'r2', storageKey),
                     mimeType: imageBytes.mimeType,
                     storageProvider: 'r2',
@@ -3279,7 +3365,7 @@ async function uploadHostedBlogMediaToStorage(imageDataUrl, env) {
 
     const uploadedFile = await uploadHostedBlogMediaToPrivateB2(env, storageKey, imageBytes.bytes, imageBytes.mimeType);
     await recordB2WriteUsage(env, uploadedFile.fileName, imageBytes.bytes.byteLength);
-    return createHostedImageBlock({
+    return createSignedHostedImageBlock(env, {
         imageUrl: buildHostedBlogMediaUrl(env, 'b2', uploadedFile.fileName, uploadedFile.fileId),
         mimeType: imageBytes.mimeType,
         storageProvider: 'b2',
@@ -3289,8 +3375,17 @@ async function uploadHostedBlogMediaToStorage(imageDataUrl, env) {
     });
 }
 
+function storageIdentity(block) {
+    return [block.storageProvider, block.storageKey, block.storageFileId || '', block.imageUrl, block.mimeType, block.storageBytes || 0];
+}
+
+async function createSignedHostedImageBlock(env, fields) {
+    const block = createHostedImageBlock(fields);
+    return { ...block, storageProof: await signValue(env.BLOG_SIGNING_SECRET, 'media', storageIdentity(block)) };
+}
+
 async function cleanupHostedImageBlock(env, block) {
-    if (!block || block.type !== 'image') {
+    if (block?.type !== 'image' || !await verifyValue(env.BLOG_SIGNING_SECRET, 'media', storageIdentity(block), block.storageProof)) {
         return;
     }
 
@@ -3445,31 +3540,13 @@ function readStoredValue(stored, key) {
     return stored ? stored[key] : undefined;
 }
 
-async function verifyTurnstile(secret, token, ip) {
-    if (!token) {
-        return false;
-    }
-
-    const body = new URLSearchParams({
-        secret,
-        response: token,
-        remoteip: ip || ''
-    });
-
-    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+async function claimOnce(env, key, expiresAt) {
+    const response = await getRateLimiterStub(env, key).fetch('https://rate-limiter/claim', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body
+        body: JSON.stringify({ expiresAt })
     });
-
-    if (!response.ok) {
-        return false;
-    }
-
-    const payload = await response.json();
-    return Boolean(payload.success);
+    if (!response.ok) throw new Error('unable to claim authorization');
+    return (await response.json()).allowed === true;
 }
 
 async function enforceRateLimit(ip, env, options = {}) {
@@ -3700,7 +3777,7 @@ function createGithubBlobAppendRequestBodyStream(env, currentContent, contentBlo
                     const lines = Array.isArray(block.lines)
                         ? block.lines
                         : String(block.text || '').replace(/\r\n/g, '\n').split('\n');
-                    const textContent = `${lines.join('\n')}\n`;
+                    const textContent = `${lines.map(encodeBlogTextLine).join('\n')}\n`;
                     controller.enqueue(encoder.encode(escapeJsonString(textContent)));
                     continue;
                 }
@@ -3719,6 +3796,11 @@ function createGithubBlobAppendRequestBodyStream(env, currentContent, contentBlo
 
                 if (block.type === 'image' && block.imageEncoding === 'z85') {
                     controller.enqueue(encoder.encode(escapeJsonString(`[image-z85]\nmime:${block.mimeType}\nbytes:${block.byteLength}\n${block.encodedPayload}\n[/image-z85]\n`)));
+                    continue;
+                }
+
+                if (block.type === 'image' && block.imageUrl) {
+                    controller.enqueue(encoder.encode(escapeJsonString(hostedMediaLines(block).join('\n') + '\n')));
                     continue;
                 }
 
@@ -4211,7 +4293,8 @@ function parseHostedImageBlockLines(imageLines) {
         storageProvider: blockData.provider,
         storageKey: blockData['storage-key'],
         storageFileId: blockData['storage-file-id'],
-        storageBytes: blockData['storage-bytes']
+        storageBytes: blockData['storage-bytes'],
+        storageProof: blockData['storage-proof']
     });
 }
 
@@ -4249,12 +4332,20 @@ function parseCompactImageBlockLines(imageLines) {
     };
 }
 
+function encodeBlogTextLine(line) {
+    const trimmed = line.trim();
+    return /^(?:\[\/?image-(?:base64|z85|url)\])$/i.test(trimmed) || line.startsWith('[text-escaped]')
+        || isBlogEntryTimestampLine(trimmed)
+        ? '[text-escaped]' + line
+        : line;
+}
+
 function normalizeBlogEntryBlocks(contentBlocks) {
     const blocks = [];
 
     for (const block of contentBlocks) {
         if (block.type === 'text') {
-            const lines = String(block.text || '').replace(/\r\n/g, '\n').split('\n');
+            const lines = String(block.text || '').replace(/\r\n/g, '\n').split('\n').map(encodeBlogTextLine);
             if (lines.length > 0) {
                 blocks.push({
                     type: 'text',
@@ -4272,7 +4363,8 @@ function normalizeBlogEntryBlocks(contentBlocks) {
                     storageProvider: block.storageProvider,
                     storageKey: block.storageKey,
                     storageFileId: block.storageFileId,
-                    storageBytes: block.storageBytes
+                    storageBytes: block.storageBytes,
+                    storageProof: block.storageProof
                 });
                 if (!hostedImageBlock) {
                     continue;
@@ -4319,6 +4411,21 @@ function normalizeBlogEntryBlocks(contentBlocks) {
     return blocks;
 }
 
+function hostedMediaLines(block) {
+    const lines = [
+        '[image-url]',
+        `src:${block.imageUrl}`,
+        `mime:${String(block.mimeType || 'image/gif').toLowerCase()}`,
+        `provider:${block.storageProvider}`,
+        `storage-key:${block.storageKey}`
+    ];
+    if (block.storageFileId) lines.push(`storage-file-id:${block.storageFileId}`);
+    if (block.storageBytes) lines.push(`storage-bytes:${Number(block.storageBytes)}`);
+    if (block.storageProof) lines.push(`storage-proof:${block.storageProof}`);
+    lines.push('[/image-url]');
+    return lines;
+}
+
 function serializeBlogDocument(blogDocument) {
     const lines = [...blogDocument.introLines];
 
@@ -4338,20 +4445,9 @@ function serializeBlogDocument(blogDocument) {
 
             if (block.type === 'image') {
                 if (block.imageUrl) {
-                    lines.push('[image-url]');
-                    lines.push(`src:${block.imageUrl}`);
-                    lines.push(`mime:${String(block.mimeType || 'image/gif').toLowerCase()}`);
-                    lines.push(`provider:${block.storageProvider}`);
-                    lines.push(`storage-key:${block.storageKey}`);
-                if (block.storageFileId) {
-                    lines.push(`storage-file-id:${block.storageFileId}`);
+                    lines.push(...hostedMediaLines(block));
+                    continue;
                 }
-                if (block.storageBytes) {
-                    lines.push(`storage-bytes:${Number(block.storageBytes || 0)}`);
-                }
-                lines.push('[/image-url]');
-                continue;
-            }
 
                 if (block.imageEncoding === 'z85') {
                     lines.push('[image-z85]');
@@ -4808,9 +4904,9 @@ function githubContentsUrl(env) {
 
 function githubFilePath(env) {
     return stripLeadingCharacter(
-        String(env.GITHUB_BLOG_PATH || 'blog.txt').trim(),
+        String(env.GITHUB_BLOG_PATH || 'content/blog.txt').trim(),
         '/'
-    ) || 'blog.txt';
+    ) || 'content/blog.txt';
 }
 
 function publishedBlogUrl(env) {

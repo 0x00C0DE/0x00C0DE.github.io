@@ -423,3 +423,46 @@ test('post waits for a delayed showOpenFilePicker resolution instead of treating
         3
     );
 });
+
+test('staged media uses the same challenge grant for chunks and append', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(() => server.close());
+    const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
+    t.after(() => browser.close());
+    const page = await browser.newPage();
+    t.after(() => page.close());
+    const api = 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/';
+    const calls = [];
+    for (const endpoint of ['upload-grant', 'upload-chunk', 'append']) {
+        await page.route(api + endpoint, async route => {
+            calls.push({ endpoint, body: route.request().postDataJSON() });
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify(endpoint === 'upload-grant' ? { token: 'fixture-upload-grant' } : { ok: true })
+            });
+        });
+    }
+    await prepareUploadPage(page, server.origin);
+    await page.evaluate(() => {
+        window.showOpenFilePicker = async () => [{
+            kind: 'file',
+            name: 'staged.jpg',
+            getFile: async () => {
+                const bytes = new Uint8Array(800000);
+                bytes.set([0xff, 0xd8, 0xff]);
+                return new File([bytes], 'staged.jpg', { type: 'image/jpeg' });
+            }
+        }];
+    });
+    await startPostCommand(page, 'post staged [image]');
+    await page.waitForFunction(() => window.__postCommandDone === true);
+    assert.equal(calls[0]?.endpoint, 'upload-grant');
+    assert.equal(calls[0].body.turnstileToken, 'browser-test-turnstile-token');
+    assert.equal(calls.at(-1)?.endpoint, 'append');
+    const chunks = calls.slice(1, -1);
+    assert.ok(chunks.length > 1);
+    assert.ok(chunks.every(call => call.endpoint === 'upload-chunk' && call.body.uploadGrant === 'fixture-upload-grant'));
+    assert.equal(calls.at(-1).body.uploadGrant, 'fixture-upload-grant');
+    assert.equal(calls.at(-1).body.contentBlocks.find(block => block.type === 'image').stagedUploadToken, chunks[0].body.uploadId);
+});

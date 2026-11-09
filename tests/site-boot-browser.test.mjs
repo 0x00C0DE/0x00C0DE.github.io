@@ -240,3 +240,58 @@ test('the resume command reveals the HTML resume in place after the Nazarick cut
     assert.equal(await staticIntro.locator('#intro').isHidden(), true);
     assert.equal(await staticIntro.locator('noscript').innerText(), 'Enable JavaScript to display the HTML résumé.');
 });
+
+test('terminal interaction is disabled inside a cross-origin frame', { timeout: 30000 }, async t => {
+    const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
+    t.after(() => browser.close());
+    const context = await browser.newContext();
+    const site = 'https://site-fixture.example';
+    const embedder = 'https://embedder-fixture.example/';
+    await context.route(site + '/**', route => {
+        const { pathname } = new URL(route.request().url());
+        return route.fulfill({ path: path.join(REPO_ROOT, pathname === '/' ? '/index.html' : pathname) });
+    });
+    await context.route(embedder, route => route.fulfill({
+        contentType: 'text/html',
+        body: '<iframe src="' + site + '/"></iframe>'
+    }));
+    const page = await context.newPage();
+    await page.goto(embedder);
+    const frame = page.frameLocator('iframe');
+    await frame.locator('#terminal-canvas').waitFor({ state: 'attached', timeout: 10000 });
+    await frame.locator('body[hidden]').waitFor({ state: 'attached', timeout: 10000 });
+});
+
+test('moderation requests carry the issued session token without the password', { timeout: 30000 }, async t => {
+    const site = await createStaticServer(REPO_ROOT);
+    const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
+    t.after(async () => {
+        await browser.close();
+        await site.close();
+    });
+    const page = await browser.newPage();
+    const api = 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/';
+    const posted = [];
+    await page.route(api + '**', route => {
+        const path = new URL(route.request().url()).pathname;
+        if (path === '/api/terminal/su') {
+            return route.fulfill({ json: { ok: true, token: 'fixture-session', expiresAt: Date.now() + 60_000 } });
+        }
+        if (path.startsWith('/api/blog/delete-')) posted.push(route.request().postDataJSON());
+        return route.fulfill({ json: { ok: true, visits: 0, uniqueVisitors: 0, onSite: 0 } });
+    });
+    await page.goto(site.origin);
+    const results = await page.evaluate(async () => {
+        const timestamp = '[2026-01-02T03:04:05.000Z]';
+        window.prompt = () => 'fixture-password123456';
+        await window.executeCommand('su godlike');
+        return Promise.all([
+            window.deleteBlogEntryByTimestamp(timestamp),
+            window.deleteBlogImageByBlockIndex(0),
+            window.deleteBlogTextBlockByContext(0, undefined, timestamp)
+        ]);
+    });
+    assert.ok(results.every(result => result.ok));
+    assert.equal(posted.length, 3);
+    assert.ok(posted.every(body => body.moderationToken === 'fixture-session' && !Object.hasOwn(body, 'password')));
+});
