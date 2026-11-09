@@ -48,7 +48,7 @@ No frameworks. No frontend build step. No DOM reflow-driven text layout in the l
 
 The design philosophy is still **file-system-first**: documentation lives as real `.txt` files fetched over HTTP at runtime, mirroring how a real terminal would `cat` files off disk. This keeps content versionable, diffable, and human-readable without introducing a database or a frontend toolchain.
 
-The live blog still centers on `blog.txt`, and the Worker still supports three media storage modes inside that document: inline `[image-base64]` blocks for `png/jpg/jpeg/webp`, compact reversible `[image-z85]` blocks for smaller GIF payloads, and hosted `[image-url]` blocks for larger GIF or MP4 assets served through the Worker from `R2` with private `B2` fallback. The public `post` flow now also supports mixed text/media templates with repeated `[image]` placeholders, exact-count file picking, and optional Turnstile-backed verification before the append request reaches the Worker. Inline uploads, staged uploads, and compact GIF payloads are now all signature-checked against the declared `png/jpg/jpeg/webp/gif/mp4` MIME type before the Worker writes anything into `blog.txt` or hosted storage, and hosted media responses now ship with `X-Content-Type-Options: nosniff`.
+The live blog still centers on `blog.txt`, and the Worker still supports three media storage modes inside that document: inline `[image-base64]` blocks for `png/jpg/jpeg/webp`, compact reversible `[image-z85]` blocks for smaller GIF payloads, and hosted `[image-url]` blocks for larger GIF or MP4 assets served through the Worker from `R2` with private `B2` fallback. The public `post` flow now also supports mixed text/media templates with repeated `[image]` placeholders, exact-count file picking, and required Turnstile verification before the Worker accepts staged uploads or writes blog content. Inline uploads, staged uploads, and compact GIF payloads are now all signature-checked against the declared `png/jpg/jpeg/webp/gif/mp4` MIME type before the Worker writes anything into `blog.txt` or hosted storage, and hosted media responses now ship with `X-Content-Type-Options: nosniff`.
 
 The latest terminal update is the big one: the production terminal now follows the intended Pretext flow much more closely. Text is tokenized once, prepared once, and then laid out repeatedly for different widths or obstacle maps before the resulting fragments are drawn manually into canvas. That means plain terminal output, echoed commands, wrapped links, and the editorial `cat blog.txt` layout all avoid DOM measurement and CSS-driven text wrapping in the live render path.
 
@@ -284,7 +284,7 @@ The terminal command map routes each shell verb to its handler, with most comman
 | `ls` | Lists the available terminal-readable `.txt` files |
 | `video [w h]` | Activates webcam to live ASCII/glyph output in the zoomable viewer |
 | `mypic [w h]` | Renders a built-in ASCII portrait |
-| `post [text] ... [image] ...` | Appends a blog entry; omit `[image]` for text-only posts or use one selected `png/jpg/jpeg/webp/gif/mp4` file per placeholder (up to 10). Mixed-media uploads are signature-checked before the Worker appends or hosts them, and when Turnstile is configured a fresh verification token is requested immediately before submit. Example: `post first [image] second [image] third` |
+| `post [text] ... [image] ...` | Appends a blog entry; omit `[image]` for text-only posts or use one selected `png/jpg/jpeg/webp/gif/mp4` file per placeholder (up to 10). Mixed-media uploads are signature-checked before the Worker appends or hosts them, and Turnstile is required. Direct posts submit a fresh token. Staged media uses a short-lived upload grant. Example: `post first [image] second [image] third` |
 | `pretext [text]` | Reports terminal Pretext status or opens the lab with `pretext lab [text]` |
 | `projects` | Opens the dedicated projects terminal page |
 | `pwd` | Prints the simulated working directory |
@@ -362,7 +362,7 @@ Responsibilities:
 
 For blog rendering, `cat blog.txt` groups entries into structured text/media blocks, understands inline base64 image blocks, compact reversible GIF blocks, and hosted media URL blocks for GIF and MP4 assets. When the active user is `root`, it reflows the banner, visitor widget, timestamps, and blog entries through a draggable editorial layout that treats media as terminal-wide obstacles; delete controls remain hidden unless the active user is `godlike`.
 
-`commands.js` also exposes bridge helpers used by the canvas runtime, including current visitor stats, filename normalization, and the shared live history path used by `history`, while coordinating exact-count media selection, the guest/root/godlike session model, password-plus-OTP `su godlike` authentication, Turnstile token acquisition for `post`, user-selected media sniffing, and image/post delete flows. The built-in `qr-totp --generate-qr --issuer=0x00C0DE --username=godlike --email=<email>` command generates a random Base32 seed, keeps the enrollment in page memory, and displays a QR that can be scanned by an authenticator; `qr-totp --get-otp` and `qr-totp --verify=<six-digit-code>` then operate on that same in-memory seed. For `su godlike`, the browser submits one credential consisting of the deletion password immediately followed by the current six-digit authenticator code; after successful Worker verification, only the password portion is retained in memory for authorized delete operations. The browser-side `userpic` path is intentionally local-only: it now accepts only supported raster formats, rejects oversized files before decode, and refuses source images above the configured dimension cap before rendering ASCII output.
+`commands.js` also exposes bridge helpers used by the canvas runtime, including current visitor stats, filename normalization, and the shared live history path used by `history`, while coordinating exact-count media selection, the guest/root/godlike session model, password-plus-OTP `su godlike` authentication, Turnstile token acquisition for `post`, user-selected media sniffing, and image/post delete flows. The built-in `qr-totp --generate-qr --issuer=0x00C0DE --username=godlike --email=<email>` command generates a random Base32 seed, keeps the enrollment in page memory, and displays a QR that can be scanned by an authenticator; `qr-totp --get-otp` and `qr-totp --verify=<six-digit-code>` then operate on that same in-memory seed. For `su godlike`, the browser submits one credential consisting of the deletion password immediately followed by the current six-digit authenticator code; after successful Worker verification, the browser keeps the 15-minute moderation token in page memory. The browser sends that token with delete requests. The browser-side `userpic` path is intentionally local-only: it now accepts only supported raster formats, rejects oversized files before decode, and refuses source images above the configured dimension cap before rendering ASCII output.
 
 ### `terminal-session-core.mjs` — Session State
 
@@ -442,7 +442,7 @@ The site has **no database**. Persistent content lives in versioned `.txt` files
 └──────────────┴─────────────────────────────────────────────────────────────┘
 ```
 
-Because `cat` fetches files at runtime over HTTP, content updates are live as soon as a commit lands on `main`. Authorized delete actions are only exposed during a `godlike` session, remove the matching media block or full entry from `blog.txt`, and authenticated storage references allow hosted GIF or MP4 deletion in `R2` or `B2`. Older unsigned objects require manual reconciliation.
+Because `cat` fetches files at runtime over HTTP, content updates become visible after GitHub Pages publishes the commit from `main`. The shell still uses `cat blog.txt`, and the Worker and Pages both use `content/blog.txt`. Authorized delete actions are only exposed during a `godlike` session, remove the matching media block or full entry from `blog.txt`, and authenticated storage references allow hosted GIF or MP4 deletion in `R2` or `B2`. Older unsigned attachments still render and can be unlinked from the blog. Removing their backing objects requires a separate storage reconciliation. The Worker escapes reserved markers in public text and verifies the `storage-proof` field on new hosted records before deleting their objects.
 
 ---
 
@@ -479,7 +479,7 @@ The `post` command enables live, authenticated blog posting from the terminal di
 ```
                   Browser
                      │
-      POST /api/blog/append {"contentBlocks":[...],"turnstileToken":"..."}
+      POST /api/blog/append with content blocks and posting authorization
                      │
                      ▼
           ┌──────────────────────────┐
@@ -493,16 +493,20 @@ The `post` command enables live, authenticated blog posting from the terminal di
           └──────────────────────────┘
                      │
                      ▼
-            github.com/.../blog.txt
+            github.com/.../content/blog.txt
 ```
 
-In practice, the browser builds `contentBlocks` from the mixed text/media template, uploads or stages any required media, and then requests a fresh Turnstile token immediately before the append request when verification is enabled. The browser narrows the picker to supported media types, while the Worker performs the security-critical checks: file-signature validation for inline base64 media, compact GIF payloads, and staged uploads before any append or hosted-media write is allowed to continue.
+In practice, the browser builds `contentBlocks` from the mixed text/media template. A direct post sends a fresh Turnstile token to `/api/blog/append`. For staged media, the browser first exchanges a verified token at `/api/blog/upload-grant`, then uses the same 15-minute grant for `/api/blog/upload-chunk` and the final append. The Worker checks the Turnstile hostname and `blog_post` action. It scopes chunks to the grant, accepts identical chunk retries, rejects conflicting replacements, and permits only one append per grant. The browser narrows the picker to supported media types, while the Worker performs the security-critical checks: file-signature validation for inline base64 media, compact GIF payloads, and staged uploads before any append or hosted-media write is allowed to continue.
 
-The Worker acts as a thin authenticated proxy between the public terminal UI, the GitHub API, and hosted blog media storage. The same package serves `/api/blog/append`, `/api/blog/upload-chunk`, `/api/blog/delete-image`, `/api/blog/delete-entry`, `/api/blog/media/...`, `/api/terminal/su`, and visitor endpoints while `R2QuotaGuard` and `B2QuotaGuard` Durable Objects enforce conservative storage and operation thresholds before either provider reaches its free-tier limit. The `/api/terminal/su` route splits the last six digits from the submitted credential, constant-time compares the remaining password, verifies the OTP with HMAC-SHA1 over 30-second counters, permits one adjacent counter for clock drift, and returns a generic `invalid credentials` response when either factor fails. Successful authentication issues a 15-minute token required by every moderation route. The staged-upload Durable Object now schedules alarm-based cleanup, returns expired uploads as missing instead of letting them linger, and the public `/api/blog/upload-chunk` entrypoint has its own rate-limit window separate from the append/delete path.
+The Worker acts as a thin authenticated proxy between the public terminal UI, the GitHub API, and hosted blog media storage. The same package serves `/api/blog/append`, `/api/blog/upload-grant`, `/api/blog/upload-chunk`, `/api/blog/delete-image`, `/api/blog/delete-text`, `/api/blog/delete-entry`, `/api/blog/media/...`, `/api/terminal/su`, and visitor endpoints while `R2QuotaGuard` and `B2QuotaGuard` Durable Objects enforce conservative storage and operation thresholds before either provider reaches its free-tier limit. The `/api/terminal/su` route splits the last six digits from the submitted credential, constant-time compares the remaining password, verifies the OTP with HMAC-SHA1 over 30-second counters, permits one adjacent counter for clock drift, and returns a generic `invalid credentials` response when either factor fails. Successful authentication issues a 15-minute token required by every moderation route. The Worker allows one successful login per TOTP code within its acceptance window. Run `su godlike` again with a current code when the session expires. The staged-upload Durable Object now schedules alarm-based cleanup, returns expired uploads as missing instead of letting them linger, and the public `/api/blog/upload-chunk` entrypoint has its own rate-limit window separate from the append/delete path.
 
-Secrets live in Cloudflare environment variables and are not committed to the repo. Current runtime secrets include `GITHUB_PAT`, `TURNSTILE_SECRET_KEY`, `BLOG_IMAGE_DELETE_PASSWORD`, `GODLIKE_TOTP_SECRET`, `B2_APPLICATION_KEY`, and `CLOUDFLARE_BILLING_API_TOKEN`. `GODLIKE_TOTP_SECRET` is the Base32 seed shared only by the Worker and the enrolled authenticator app. The site's internal QR/TOTP flow can create that enrollment: run `qr-totp --generate-qr --issuer=0x00C0DE --username=godlike --email=<email>`, scan the displayed QR, keep the page open, and read the matching seed from the browser console with `window.__qrTotpEnrollmentV1?.secret`; store that exact value with `npx.cmd wrangler secret put GODLIKE_TOTP_SECRET`. The current QR viewer renders through QuickChart, so its enrollment URI leaves the browser; generate the seed and QR entirely offline instead when third-party exposure is unacceptable. To use `su godlike`, enter `BLOG_IMAGE_DELETE_PASSWORD` immediately followed by the authenticator's current six-digit code with no spaces or separator; for example, a password of `example-password` and an OTP of `123456` are submitted as `example-password123456`. Password-only access is rejected whenever `GODLIKE_TOTP_SECRET` is configured.
+Secrets live in Cloudflare environment variables and are not committed to the repo. Current runtime secrets include `GITHUB_PAT`, `TURNSTILE_SECRET_KEY`, `BLOG_SIGNING_SECRET`, `BLOG_IMAGE_DELETE_PASSWORD`, `GODLIKE_TOTP_SECRET`, `B2_APPLICATION_KEY`, and `CLOUDFLARE_BILLING_API_TOKEN`. `GODLIKE_TOTP_SECRET` is the Base32 seed shared only by the Worker and the enrolled authenticator app. The site's internal QR/TOTP flow can create that enrollment: run `qr-totp --generate-qr --issuer=0x00C0DE --username=godlike --email=<email>`, scan the displayed QR, keep the page open, and read the matching seed from the browser console with `window.__qrTotpEnrollmentV1?.secret`; store that exact value with `npx.cmd wrangler secret put GODLIKE_TOTP_SECRET`. The current QR viewer renders through QuickChart, so its enrollment URI leaves the browser; generate the seed and QR entirely offline instead when third-party exposure is unacceptable. To use `su godlike`, enter `BLOG_IMAGE_DELETE_PASSWORD` immediately followed by the authenticator's current six-digit code with no spaces or separator; for example, a password of `example-password` and an OTP of `123456` are submitted as `example-password123456`. The Worker requires both factors to issue a moderation token.
 
-Inline `png/jpg/jpeg/webp` images stay inside `blog.txt`, compact GIF payloads can still be serialized directly into the file, and larger GIF or MP4 uploads are stored as hosted Worker media URLs with `R2` as the primary store and private `B2` as the backup. When `TURNSTILE_SECRET_KEY` is configured, the browser obtains a fresh token immediately before posting and the Worker verifies that token server-side before appending. The Worker also blocks posts and deletes while GitHub Pages is still catching up to the previous `blog.txt` commit so the live site and the repo do not drift. New hardening in this path includes MIME/signature matching for `png/jpg/jpeg/webp/gif/mp4`, `nosniff` headers on hosted media responses, and configurable staged-upload controls through `BLOG_STAGE_RATE_LIMIT_WINDOW_MS`, `BLOG_STAGE_RATE_LIMIT_MAX`, and `BLOG_UPLOAD_SESSION_TTL_MS`.
+Use a separate, randomly generated `BLOG_SIGNING_SECRET` of at least 32 bytes. The Worker uses it for moderation tokens, upload grants, and hosted-media proofs. Keep the same key across routine deployments. Rotating it invalidates active grants and tokens and causes records signed with the previous key to require manual storage reconciliation.
+
+Inline `png/jpg/jpeg/webp` images stay inside `blog.txt`, compact GIF payloads can still be serialized directly into the file, and larger GIF or MP4 uploads are stored as hosted Worker media URLs with `R2` as the primary store and private `B2` as the backup. The Worker enforces request-size limits and checks the published blog revision before writing hosted media. The Worker also blocks posts and deletes while GitHub Pages is still catching up to the previous `blog.txt` commit so the live site and the repo do not drift. New hardening in this path includes MIME/signature matching for `png/jpg/jpeg/webp/gif/mp4`, `nosniff` headers on hosted media responses, and configurable staged-upload controls through `BLOG_STAGE_RATE_LIMIT_WINDOW_MS`, `BLOG_STAGE_RATE_LIMIT_MAX`, and `BLOG_UPLOAD_SESSION_TTL_MS`.
+
+The visitor widget keeps a stable browser visitor ID in `localStorage`. The visit ID and ownership proof stay in the active tab's memory. Tabs still coordinate so only one tracks at a time. When a different tab takes over, it starts a new visit under the same browser visitor ID. The Worker rate-limits visitor writes, deduplicates recent visit events, and checks ownership before accepting a leave event. The displayed counts are estimates.
 
 ### Directories
 
@@ -513,17 +517,18 @@ Inline `png/jpg/jpeg/webp` images stay inside `blog.txt`, compact GIF payloads c
 
 ## Deployment
 
-The site-only deployment workflow builds an allowlisted GitHub Pages artifact from
-`main`. In **Settings > Pages > Build and deployment**, select **GitHub Actions**
-to activate it. The workflow publishes public HTML, scripts, assets, and data.
-Worker and backend files, examples, and test files stay outside the Pages artifact.
+The live site uses the **Publish site-only Pages artifact** GitHub Actions workflow
+to build an allowlisted artifact from `main`. The repository's publishing source is
+**Settings > Pages > Build and deployment > GitHub Actions**. The workflow publishes public HTML, scripts, assets, and data.
+Worker and backend files, examples, and test files stay outside the Pages artifact. Requests for `/worker/src/index.js`, `/backend/server.js`, and `/worker/.dev.vars.example` return 404 on the Pages site.
 Build locally with `node scripts/build-pages.mjs`. Each run prints its output
 directory under `tmp/`.
 
 Release the Worker and Pages changes in one maintenance window. Set the new
 `BLOG_SIGNING_SECRET` Worker secret before deploying and verify that the effective
-`GITHUB_BLOG_PATH` is `content/blog.txt`. Existing open browser tabs should reload
-after the release because write-request formats change. Check post, staged media,
+`GITHUB_BLOG_PATH` is `content/blog.txt`. When a release changes the frontend and
+Worker request format, deploy the Worker, merge the matching frontend, and wait
+for Pages to publish the new artifact. Reload open terminal tabs after publication. Check post, staged media,
 moderation, visitor tracking, and public read paths on the matched frontend and
 Worker versions. See [Worker setup](worker/README.md) for configuration.
 
@@ -549,8 +554,8 @@ Cache busting is handled manually through version query strings in the terminal 
 
 ```html
 <script src="/src/pictures.js?v=20260331b"></script>
-<script src="/src/commands.js?v=20260812d"></script>
-<script src="/src/term.js?v=20260812b"></script>
+<script src="/src/commands.js?v=security-1"></script>
+<script src="/src/term.js?v=security-1"></script>
 ```
 
 The entry pages now mount a visible `terminal-canvas` plus a hidden scratch canvas, and they intentionally do **not** include a stylesheet link for the live terminal renderer. The Pages workflow publishes frontend changes from `main`. Worker changes have a separate release step.
@@ -560,6 +565,7 @@ The live entry pages default to the deployed Worker endpoints and the public Tur
 ```html
 <script>
   window.BLOG_POST_API_URL = "https://your-worker-subdomain.workers.dev/api/blog/append";
+  window.BLOG_UPLOAD_GRANT_API_URL = "https://your-worker-subdomain.workers.dev/api/blog/upload-grant";
   window.BLOG_STAGE_IMAGE_API_URL = "https://your-worker-subdomain.workers.dev/api/blog/upload-chunk";
   window.TURNSTILE_SITE_KEY = "your-turnstile-sitekey";
 </script>
@@ -595,10 +601,15 @@ node --test tests/history-command-browser.test.mjs
 node --test --test-name-pattern "help consolidates post into the universal multi-media form" tests/help-render-browser.test.mjs
 node --test tests/blog-upload-browser.test.mjs
 node --test tests/userpic-security-browser.test.mjs
+node --test tests/visitor-tracking-browser.test.mjs tests/site-boot-browser.test.mjs
+node --check worker/src/request-security.js
+node scripts/build-pages.mjs
 node --check worker/src/index.js
 node --check worker/src/index.test.js
 node --test worker/src/index.test.js
 ```
+
+The release checks cover upload authorization and replay, moderation token and TOTP replay, forged attachment records, and visitor ownership. Browser checks exercise staged posting, verify that the visitor ownership proof stays out of browser storage, and confirm the terminal is hidden when framed. CodeQL runs on the release pull request.
 
 The Pretext lab remains available at [pages/pretext-lab.html](https://0x00c0de.github.io/pages/pretext-lab.html) for manual layout experiments and visual smoke testing.
 
@@ -608,7 +619,7 @@ The Pretext lab remains available at [pages/pretext-lab.html](https://0x00c0de.g
 
 Start at **[https://0x00c0de.github.io](https://0x00c0de.github.io)**. The terminal loads automatically with the `banner` command.
 
-Plain terminal output, echoed commands, and `help` descriptions now use Pretext-backed wrapping and render directly into canvas, so they relayout cleanly on mobile and when the window width changes. The prompt starts in the original guest shell, `su` switches into `root`, `su guest` switches back to the guest shell and restores the default background, and `su godlike` authenticates with the blog/image deletion password concatenated directly with the current six-digit TOTP code. The six-digit code can come from an authenticator that scanned the built-in `qr-totp --generate-qr ...` enrollment, or from `qr-totp --get-otp` while that same in-memory enrollment remains loaded; in either case, the Worker must be configured with the identical Base32 seed. When the active user is `root`, `cat blog.txt` enters the editorial layout with draggable media reflow across the banner, widget, timestamps, and blog text; delete controls stay hidden unless the active user is `godlike`. The `history` command now reads from the same live canvas runtime history used by the prompt, `post` can request a fresh Turnstile token immediately before submit when the Worker secret is configured, and `userpic` now refuses unsupported formats plus oversized sources before ASCII conversion begins.
+Plain terminal output, echoed commands, and `help` descriptions now use Pretext-backed wrapping and render directly into canvas, so they relayout cleanly on mobile and when the window width changes. The prompt starts in the original guest shell, `su` switches into `root`, `su guest` switches back to the guest shell and restores the default background, and `su godlike` authenticates with the blog/image deletion password concatenated directly with the current six-digit TOTP code. The six-digit code can come from an authenticator that scanned the built-in `qr-totp --generate-qr ...` enrollment, or from `qr-totp --get-otp` while that same in-memory enrollment remains loaded; in either case, the Worker must be configured with the identical Base32 seed. When the active user is `root`, `cat blog.txt` enters the editorial layout with draggable media reflow across the banner, widget, timestamps, and blog text; delete controls stay hidden unless the active user is `godlike`. The `history` command now reads from the same live canvas runtime history used by the prompt, `post` verifies Turnstile before submitting a direct post or staging media, and `userpic` now refuses unsupported formats plus oversized sources before ASCII conversion begins.
 
 ```text
 ╔══════════════════════════════════════════════════╗
@@ -634,7 +645,7 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
   youtube                    Open YouTube in a new tab
   discord                    Open the 0x00C0DE Discord invite (#stock-bot market notifications)
   projects                   Render project index
-  resume                     Download resume PDF
+  resume                     Play the cutscene and reveal the HTML résumé
   su                         Switch to the root shell
   su guest                   Return to the guest shell
   su godlike                 Authenticate with password followed by the current 6-digit OTP
