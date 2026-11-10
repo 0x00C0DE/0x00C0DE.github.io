@@ -9,11 +9,11 @@
 </head>
 <body>
     <div id="intro" hidden>
-        <video id="cinematic" muted playsinline preload="none" aria-hidden="true"
+        <video id="cinematic" playsinline preload="none" aria-hidden="true"
                data-src="/assets/resume-crystal-whiteout-4k.mp4"
                data-compact-src="/assets/resume-crystal-whiteout-1080p.mp4"></video>
         <div class="cinematic-actions">
-            <button type="button" id="cinematic-sound" aria-pressed="false" hidden>Sound</button>
+            <button type="button" id="cinematic-sound" aria-pressed="true" hidden>Sound</button>
             <a id="resume-skip" href="#resume">Skip to resume <span aria-hidden="true">↗</span></a>
         </div>
     </div>
@@ -69,8 +69,19 @@
             });
             video.addEventListener('volumechange', () => {
                 sound.setAttribute('aria-pressed', String(!video.muted));
+                sound.title = video.muted ? 'Tap to enable sound' : 'Mute sound';
             });
-            sound.addEventListener('click', () => { video.muted = !video.muted; });
+            const enableSound = () => {
+                video.muted = false;
+                video.play().catch(error => {
+                    video.muted = true;
+                    console.warn('Cinematic sound could not start', error.name);
+                });
+            };
+            sound.addEventListener('click', () => {
+                if (video.muted) enableSound();
+                else video.muted = true;
+            });
             reducedMotion.addEventListener('change', event => {
                 if (event.matches) revealResume();
             });
@@ -94,6 +105,11 @@
                     return;
                 }
                 video.muted = true;
+                document.addEventListener('click', event => {
+                    if (!intro.hidden && video.muted && !event.target.closest('.cinematic-actions')) {
+                        enableSound();
+                    }
+                }, { once: true });
                 video.play().catch(() => revealResume());
             });
         }

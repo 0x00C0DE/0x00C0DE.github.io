@@ -303,9 +303,10 @@ PDF.js renders the source PDF's original layout with selectable text and
 clickable links. The video fills the viewport at every aspect ratio. On tall
 screens, the crop shifts toward the crystal. Phones and smaller viewports
 load a 1080p rendition, and wide desktop viewports use the 2160p rendition.
-Use **Sound** to toggle the
-original audio. If the browser blocks autoplay with sound, the cutscene starts
-muted. Select **Skip to resume** or press Escape to show the HTML résumé immediately.
+Original audio is enabled by default; use **Sound** to toggle it. If the browser
+blocks audible autoplay, playback starts muted and the first tap on the cinematic
+or the **Sound** button enables audio. Select **Skip to resume** or press Escape
+to show the HTML résumé immediately.
 Reduced motion and playback failures also go straight to the HTML résumé.
 [Footage source](https://animesolution.com/2020/09/26/overlord-blu-ray-media-review-episode-13/)
 

@@ -138,6 +138,37 @@ test('site boot loads the vendored pretext generated assets without module failu
     );
 });
 
+test('resume sound defaults on and recovers from blocked audible autoplay on a tap', async t => {
+    const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
+    t.after(() => browser.close());
+    const page = await browser.newPage();
+    await page.route('https://resume.test/**', route => {
+        const { pathname } = new URL(route.request().url());
+        return route.fulfill({ path: path.join(REPO_ROOT, pathname) });
+    });
+    await page.addInitScript(() => {
+        const play = HTMLMediaElement.prototype.play;
+        window.playAttempts = [];
+        HTMLMediaElement.prototype.play = function () {
+            window.playAttempts.push(this.muted);
+            if (window.playAttempts.length === 1) {
+                return Promise.reject(new DOMException('Gesture required', 'NotAllowedError'));
+            }
+            return play.call(this);
+        };
+    });
+    await page.goto('https://resume.test/pages/resume-intro.html');
+    const video = page.locator('#cinematic');
+    assert.equal(await video.evaluate(element => element.defaultMuted), false);
+    await page.waitForFunction(() => window.playAttempts.length >= 2);
+    assert.deepEqual(await page.evaluate(() => window.playAttempts.slice(0, 2)), [false, true]);
+    await page.locator('#cinematic-sound').waitFor({ state: 'visible' });
+    await video.click();
+    await page.waitForFunction(() => !document.querySelector('#cinematic').muted);
+    assert.equal(await page.locator('#cinematic-sound').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.evaluate(() => window.playAttempts.at(-1)), false);
+});
+
 test('the resume command reveals the HTML resume in place after the Nazarick cutscene', { timeout: 65000 }, async t => {
     const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
     t.after(() => browser.close());
@@ -193,6 +224,7 @@ test('the resume command reveals the HTML resume in place after the Nazarick cut
     await page.setViewportSize(viewport);
     const sound = page.getByRole('button', { name: 'Sound', exact: true });
     const initiallyMuted = await video.evaluate(element => element.muted);
+    assert.equal(initiallyMuted, false, 'sound starts enabled after the resume command');
     await sound.click();
     assert.equal(await video.evaluate(element => element.muted), !initiallyMuted);
     await page.waitForFunction(() => {
