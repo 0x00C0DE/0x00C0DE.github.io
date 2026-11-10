@@ -300,9 +300,9 @@ The résumé opening starts with Ainz cracking the crystal and plays through
 the first full Fallen Down whiteout, about five seconds later. The résumé
 then comes into focus on the same HTML page.
 PDF.js renders the source PDF's original layout with selectable text and
-clickable links. Phones and smaller viewports load a 1080p rendition. Tall and
-short viewports show the entire frame, and the surrounding space fades to white
-with the spell. Wide desktop viewports use the full-bleed 2160p rendition.
+clickable links. The video fills the viewport at every aspect ratio. On tall
+screens, the crop shifts toward the crystal. Phones and smaller viewports
+load a 1080p rendition, and wide desktop viewports use the 2160p rendition.
 Use **Sound** to toggle the
 original audio. If the browser blocks autoplay with sound, the cutscene starts
 muted. Select **Skip to resume** or press Escape to show the HTML résumé immediately.

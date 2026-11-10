@@ -179,14 +179,17 @@ test('the resume command reveals the HTML resume in place after the Nazarick cut
         return cinematic?.currentTime > .1 && cinematic.videoWidth > 0;
     });
     assert.deepEqual(await video.boundingBox(), { x: 0, y: 0, ...viewport });
-    assert.equal(await video.evaluate(element => getComputedStyle(element).objectFit), 'contain');
+    assert.equal(await video.evaluate(element => getComputedStyle(element).objectFit), 'cover');
+    assert.equal(await video.evaluate(element => getComputedStyle(element).objectPosition), '42% 50%');
     assert.equal(await page.locator('iframe').count(), 0);
     assert.deepEqual(await video.evaluate(element =>
         [element.videoWidth, element.videoHeight, element.textTracks.length]
     ), [1920, 1080, 0]);
     assert.equal(await video.getAttribute('src'), videoPath);
-    await page.setViewportSize({ width: 844, height: 390 });
-    assert.equal(await video.evaluate(element => getComputedStyle(element).objectFit), 'contain');
+    const landscape = { width: 844, height: 390 };
+    await page.setViewportSize(landscape);
+    assert.deepEqual(await video.boundingBox(), { x: 0, y: 0, ...landscape });
+    assert.equal(await video.evaluate(element => getComputedStyle(element).objectFit), 'cover');
     await page.setViewportSize(viewport);
     const sound = page.getByRole('button', { name: 'Sound', exact: true });
     const initiallyMuted = await video.evaluate(element => element.muted);

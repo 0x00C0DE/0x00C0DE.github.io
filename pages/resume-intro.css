@@ -45,14 +45,11 @@ body.cinematic-active { overflow: hidden; background: #06050a; }
 .cinematic-active #resume { visibility: hidden; }
 #cinematic { background: #06050a; }
 
+@media (max-aspect-ratio: 3/2) {
+    #cinematic { object-position: 42% center; }
+}
+
 @media (max-aspect-ratio: 3/2), (max-height: 600px) {
-    #cinematic {
-        object-fit: contain;
-        transition: background-color .18s linear;
-    }
-
-    #cinematic.cinematic-whiteout { background-color: #fff; }
-
     .cinematic-actions {
         left: max(18px, env(safe-area-inset-left));
         justify-content: flex-end;
