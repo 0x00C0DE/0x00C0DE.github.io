@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#f6f3ef">
     <title>Résumé</title>
-    <link rel="stylesheet" href="resume-intro.css?v=pdf-layout">
+    <link rel="stylesheet" href="resume-intro.css?v=responsive">
 </head>
 <body>
     <div id="intro" hidden>
         <video id="cinematic" muted playsinline preload="none" aria-hidden="true"
-               data-src="/assets/resume-crystal-whiteout-4k.mp4"></video>
+               data-src="/assets/resume-crystal-whiteout-4k.mp4"
+               data-compact-src="/assets/resume-crystal-whiteout-1080p.mp4"></video>
         <div class="cinematic-actions">
             <button type="button" id="cinematic-sound" aria-pressed="false" hidden>Sound</button>
             <a id="resume-skip" href="#resume">Skip to resume <span aria-hidden="true">↗</span></a>
@@ -62,6 +63,9 @@
             video.addEventListener('ended', () => revealResume(true), { once: true });
             video.addEventListener('error', () => revealResume(), { once: true });
             video.addEventListener('waiting', allowPlaybackTime);
+            video.addEventListener('timeupdate', () => {
+                video.classList.toggle('cinematic-whiteout', video.duration - video.currentTime <= .32);
+            });
             video.addEventListener('playing', () => {
                 clearTimeout(deadline);
                 sound.hidden = false;
@@ -84,7 +88,8 @@
                 }
             });
             allowPlaybackTime();
-            video.src = video.dataset.src;
+            const compactViewport = matchMedia('(max-width: 900px), (max-height: 600px)').matches;
+            video.src = compactViewport ? video.dataset.compactSrc : video.dataset.src;
             video.muted = false;
             video.play().catch(error => {
                 if (error.name !== 'NotAllowedError' || intro.hidden) {

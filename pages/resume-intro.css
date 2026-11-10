@@ -45,6 +45,27 @@ body.cinematic-active { overflow: hidden; background: #06050a; }
 .cinematic-active #resume { visibility: hidden; }
 #cinematic { background: #06050a; }
 
+@media (max-aspect-ratio: 3/2), (max-height: 600px) {
+    #cinematic {
+        object-fit: contain;
+        transition: background-color .18s linear;
+    }
+
+    #cinematic.cinematic-whiteout { background-color: #fff; }
+
+    .cinematic-actions {
+        left: max(18px, env(safe-area-inset-left));
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
+
+    #resume-skip, #cinematic-sound {
+        min-height: 44px;
+        box-sizing: border-box;
+        align-content: center;
+    }
+}
+
 #resume {
     min-height: 100svh;
     padding: clamp(12px, 4vw, 48px);
