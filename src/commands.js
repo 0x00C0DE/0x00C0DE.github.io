@@ -104,7 +104,7 @@ let prefetchedFortunePromise = null;
 let bitcoinAnalyticsCorePromise = null;
 let bitcoinDashboardCorePromise = null;
 const BITCOIN_ANALYTICS_MODULE_URL = '/src/bitcoin-analytics-core.mjs?v=20260911a';
-const BITCOIN_DASHBOARD_MODULE_URL = '/src/bitcoin-dashboard-core.mjs?v=20260911a';
+const BITCOIN_DASHBOARD_MODULE_URL = '/src/bitcoin-dashboard-core.mjs?v=20261110a';
 const BITCOIN_HISTORY_DATA_BASE_URL = window.BITCOIN_HISTORY_DATA_BASE_URL
     || 'https://raw.githubusercontent.com/0x00C0DE/0x00C0DE.github.io/bitcoin-data/bitcoindata';
 const BITCOIN_HISTORY_FALLBACK_BASE_URL = '/bitcoindata';
@@ -1037,40 +1037,52 @@ function buildPretextLabHref(text) {
 }
 
 function help_command() {
-    const entries = [
-        ['bitcoin <interval>', 'Analyze repository Bitcoin history across all intervals or drill into 1m, 2m, 5m, 10m, 15m, 30m, 1h, or 2h'],
-        ['bitcoin dashboard [interval]', 'Open the responsive multi-panel Bitcoin chart dashboard (all intervals by default)'],
-        ['bitcoin forecast [interval]', 'Project probabilistic price ranges across multiple horizons (defaults to 1m data)'],
-        ['bitcoin backtest [interval]', 'Walk-forward test the forecast against repository history (defaults to 1m data)'],
-        ['bitcoin risk [interval]', 'Inspect historical loss risk, drawdown, Bollinger bands, and data readiness (defaults to 1m)'],
-        ['cat', 'Display file contents'],
-        ['clear', 'Clear the terminal screen'],
-        ['date', 'Display current date and time'],
-        ['discord', '0x00C0DE\'s world discord, features #stock-bot discord notifications about stock market insights during market hours (pre, during, and post)'],
-        ['echo', 'Display text'],
-        ['fortune', 'Display a live fortune'],
-        ['github', 'Open GitHub in a new tab'],
-        ['help', 'Show this help message'],
-        ['history', 'Show command history'],
-        ['linkedin', 'Open LinkedIn in a new tab'],
-        ['ls', 'List directory contents'],
-        ['video [w h]', 'Display your live camera footage as ASCII art at size w x h'],
-        ['mypic [w h]', 'Display 0x00C0DE\'s picture as ASCII art at size w x h'],
-        ['pretext [lab] [text]', 'Show terminal Pretext status or open the layout lab'],
-        ['post [text] ... [image] ...', `Append a blog entry; omit [image] for text-only posts or use one selected media file per placeholder (${BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL}, up to ${BLOG_MAX_IMAGE_ATTACHMENTS}). Example: post first [image] second [image] third`],
-        ['pwd', 'Print working directory'],
-        ['qr-totp', 'Browser QR enrollment + TOTP generator for the cs370 project'],
-        ['resume', 'Play the Nazarick intro and reveal my web resume'],
-        ['su [guest|godlike]', 'Switch to root with `su`, back to guest with `su guest`, or authenticate godlike with `su godlike`'],
-        ['userpic [w h]', 'Upload or take your own picture and display it as ASCII art'],
-        ['visitors', 'Display the live visitor stats widget'],
-        ['whoami', 'Print current username'],
-        ['instagram', 'Open Instagram in a new tab'],
-        ['projects', 'Open the projects terminal page'],
-        ['youtube', 'Open YouTube in a new tab']
+    const sections = [
+        ['Bitcoin analytics', [
+            ['bitcoin [interval]', 'Analyze all stored intervals, or choose 1m, 2m, 5m, 10m, 15m, 30m, 1h, or 2h'],
+            ['bitcoin dashboard [interval]', 'Chart prices, signals, and projections. Defaults to all intervals.'],
+            ['bitcoin forecast [interval]', 'Project price ranges across multiple horizons. Defaults to 1m.'],
+            ['bitcoin backtest [interval]', 'Test forecasts against historical observations. Defaults to 1m.'],
+            ['bitcoin risk [interval]', 'Review loss risk, drawdown, Bollinger bands, and data readiness. Defaults to 1m.'],
+        ]],
+        ['Terminal', [
+            ['help', 'Show this help message'],
+            ['history', 'Show command history'],
+            ['clear', 'Clear the terminal screen'],
+            ['ls', 'List directory contents'],
+            ['cat <file>', 'Display file contents, e.g. cat projects.txt'],
+            ['pwd', 'Print working directory'],
+            ['echo [text]', 'Display text'],
+            ['date', 'Display current date and time'],
+            ['fortune', 'Display a live fortune'],
+            ['whoami', 'Print current username'],
+            ['su [guest|godlike]', 'Switch to root with `su`, back to guest with `su guest`, or authenticate godlike with `su godlike`'],
+            ['visitors', 'Display the live visitor stats widget'],
+        ]],
+        ['Projects and links', [
+            ['projects', 'Open the projects terminal page'],
+            ['resume', 'Play the Nazarick intro and reveal my web resume'],
+            ['github', 'Open GitHub in a new tab'],
+            ['linkedin', 'Open LinkedIn in a new tab'],
+            ['instagram', 'Open Instagram in a new tab'],
+            ['youtube', 'Open YouTube in a new tab'],
+            ['discord', 'Open the Discord server for stock market updates from #stock-bot'],
+            ['qr-totp', 'Browser QR enrollment + TOTP generator for the cs370 project'],
+            ['pretext [lab] [text]', 'Show terminal Pretext status or open the layout lab'],
+        ]],
+        ['Media and publishing', [
+            ['mypic [w h]', 'Display 0x00C0DE\'s picture as ASCII art at size w x h'],
+            ['userpic [w h]', 'Upload or take your own picture and display it as ASCII art'],
+            ['video [w h]', 'Display your live camera footage as ASCII art at size w x h'],
+            ['post [text] ... [image] ...', `Append a blog entry; omit [image] for text-only posts or use one selected media file per placeholder (${BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL}, up to ${BLOG_MAX_IMAGE_ATTACHMENTS}). Example: post first [image] second [image] third`],
+        ]],
     ];
-    const width = Math.max(...entries.map(([command]) => command.length));
-    return ['Available commands:', ...entries.map(([command, description]) => formatHelpEntry(command, description, width))];
+    const width = Math.max(...sections.flatMap(([, entries]) => entries.map(([command]) => command.length)));
+    return ['Available commands:', ...sections.flatMap(([heading, entries]) => [
+        ' ',
+        heading,
+        ...entries.map(([command, description]) => formatHelpEntry(command, description, width))
+    ])];
 }
 
 async function cat_command(args) {

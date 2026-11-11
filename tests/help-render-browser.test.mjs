@@ -90,7 +90,7 @@ async function createPage(t, options = {}) {
     const page = await browser.newPage(
         options.mobile
             ? { ...MOBILE_DEVICE }
-            : { viewport: { width: 1280, height: 720 } }
+            : { viewport: options.viewport || { width: 1280, height: 720 } }
     );
     t.after(async () => {
         await page.close();
@@ -262,6 +262,17 @@ async function renderHelp(page, origin, options = {}) {
     await runTerminalCommands(page, options.preCommands || []);
     await resetCanvasCaptures(page);
     await runTerminalCommands(page, ['help']);
+    if (options.focusCommand) {
+        await page.evaluate(command => {
+            const hooks = window.__terminalCanvasTestHooks;
+            const block = hooks.getHelpBlock(command);
+            hooks.setScrollTop(Math.max(0, block.top - 100));
+            window.__helpDraws.length = 0;
+        }, options.focusCommand);
+        await page.waitForFunction(command => (
+            window.__helpDraws.some(draw => draw.text === command)
+        ), options.focusCommand);
+    }
     await page.waitForFunction(() => {
         const entries = window.help_command()
             .filter(entry => entry && typeof entry === 'object' && entry.type === 'help-entry')
@@ -538,7 +549,7 @@ test('desktop help commands stay on the terminal text color instead of bright wh
     await installHelpDrawCapture(page);
     await stubVisitorApis(page);
 
-    const rendered = await renderHelp(page, server.origin);
+    const rendered = await renderHelp(page, server.origin, { focusCommand: 'help' });
     const commandDraw = rendered.draws.find(draw => draw.text === 'help');
     const descriptionDraw = rendered.draws.find(draw => draw.text === 'Show this help message');
 
@@ -558,8 +569,8 @@ test('root desktop help keeps the same tabular command and description columns a
     await installHelpDrawCapture(page);
     await stubVisitorApis(page);
 
-    const guestRendered = await renderHelp(page, server.origin, { user: 'guest' });
-    const rootRendered = await renderHelp(page, server.origin, { user: 'root' });
+    const guestRendered = await renderHelp(page, server.origin, { user: 'guest', focusCommand: 'help' });
+    const rootRendered = await renderHelp(page, server.origin, { user: 'root', focusCommand: 'help' });
     const guestRow = getHelpRow(guestRendered, 'help');
     const rootRow = getHelpRow(rootRendered, 'help');
 
@@ -852,4 +863,19 @@ test('mobile help uses a condensed layout so long command entries fit the screen
         entry.lineStarts.length <= 4,
         `expected long mobile help descriptions to need at most 4 lines, got ${entry.lineStarts.length}`
     );
+});
+
+test('help descriptions use the available line width on a narrow phone', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(() => server.close());
+
+    const page = await createPage(t, { viewport: { width: 320, height: 900 } });
+    await installHelpDrawCapture(page);
+    await stubVisitorApis(page);
+
+    const command = 'bitcoin dashboard [interval]';
+    const rendered = await renderHelp(page, server.origin, { focusCommand: command });
+    const { commandDraw, descriptionDraw } = getHelpRow(rendered, command);
+    assert.ok(descriptionDraw.y > commandDraw.y);
+    assert.ok(descriptionDraw.x - commandDraw.x < 40, 'description should have most of the line available');
 });

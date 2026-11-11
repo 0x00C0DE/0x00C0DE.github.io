@@ -4,7 +4,7 @@ import {
     createBitcoinDashboardPanelGeometry,
     inspectBitcoinDashboardPoint,
     renderBitcoinDashboard
-} from './bitcoin-dashboard-core.mjs?v=20260911a';
+} from './bitcoin-dashboard-core.mjs?v=20261110a';
 import * as pretext from './pretext-browser.mjs';
 import {
     layoutPreparedTerminalEditorialText,
@@ -1930,7 +1930,8 @@ function layoutHelpEntry(block, width, metrics, context = {}) {
             compactCommandWidth + separatorWidth + helpGap
         );
         const compactDescriptionWidth = Math.max(0, width - compactDescriptionX);
-        if (compactDescriptionWidth < measureTextWidth('M'.repeat(helpCompactMinChars), helpFont)) {
+        if (width < 320 || compactDescriptionWidth < measureTextWidth('M'.repeat(helpCompactMinChars), helpFont)) {
+            const descriptionIndent = measureTextWidth('MM', helpFont);
             const commandLine = buildTextLayout(
                 block,
                 `${commandText}${separatorText}`,
@@ -1954,18 +1955,19 @@ function layoutHelpEntry(block, width, metrics, context = {}) {
                 height: commandLine.height + description.height,
                 hitRegions: description.hitRegions.map(region => ({
                     ...region,
+                    x: descriptionIndent + region.x,
                     y: commandLine.height + region.y
                 })),
                 render(ctx, originX, originY, palette) {
                     commandLine.render(ctx, originX, originY, palette, palette.text);
-                    description.render(ctx, originX, originY + commandLine.height, palette, palette.text);
+                    description.render(ctx, originX + descriptionIndent, originY + commandLine.height, palette, palette.text);
                 }
             };
             return placeLayoutAroundEditorialObstacles(baseLayout, width, context, {
                 blockHeight: baseLayout.height,
                 blockWidth: Math.max(
                     getLayoutPlanBounds(commandLine.plans, helpLineHeight).width,
-                    getLayoutPlanBounds(description.plans, helpLineHeight).width
+                    descriptionIndent + getLayoutPlanBounds(description.plans, helpLineHeight).width
                 )
             });
         }
@@ -2433,7 +2435,7 @@ function layoutBitcoinDashboard(block, width, metrics, context = {}) {
     const dashboardLayout = createBitcoinDashboardLayout(width, dashboard.panels?.length || 0);
     const dashboardPanelGeometries = dashboardLayout.panelRects.map((rect, index) => (
         dashboard.panels?.[index]?.available
-            ? createBitcoinDashboardPanelGeometry(dashboard.panels[index], rect)
+            ? createBitcoinDashboardPanelGeometry(dashboard.panels[index], rect, { timeZone: dashboard.timeZone })
             : null
     ));
     const baseLayout = {
@@ -4673,7 +4675,7 @@ function syncLocalTestHooks() {
             const index = clamp(Math.floor(historyIndex), 0, panel.history.length - 1);
             const point = panel.history[index];
             const geometry = block.layout.dashboardPanelGeometries?.[panelIndex]
-                || createBitcoinDashboardPanelGeometry(panel, panelRect);
+                || createBitcoinDashboardPanelGeometry(panel, panelRect, { timeZone: block.data.dashboard.timeZone });
             const canvasRect = app.canvas.getBoundingClientRect();
             return {
                 clientX: canvasRect.left + region.x + geometry.timestampToX(point.timestamp),

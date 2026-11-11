@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 async function readHelpLayoutFunctionSource() {
     const source = await readFile(new URL('../src/terminal-canvas-core.mjs', import.meta.url), 'utf8');
-    const match = /function layoutHelpEntry\(block, width, metrics, context = \{\}\) \{([\s\S]*?)\n\}\n\nfunction buildVisitorRowTokens/.exec(source);
+    const match = /function layoutHelpEntry\(block, width, metrics, context = \{\}\) \{([\s\S]*?)\r?\n\}\r?\n\r?\nfunction buildVisitorRowTokens/.exec(source);
     assert.ok(match, 'expected to find layoutHelpEntry in terminal-canvas-core.mjs');
     return match[1];
 }
