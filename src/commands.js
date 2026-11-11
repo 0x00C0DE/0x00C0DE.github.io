@@ -104,7 +104,7 @@ let prefetchedFortunePromise = null;
 let bitcoinAnalyticsCorePromise = null;
 let bitcoinDashboardCorePromise = null;
 const BITCOIN_ANALYTICS_MODULE_URL = '/src/bitcoin-analytics-core.mjs?v=20260911a';
-const BITCOIN_DASHBOARD_MODULE_URL = '/src/bitcoin-dashboard-core.mjs?v=20261110a';
+const BITCOIN_DASHBOARD_MODULE_URL = '/src/bitcoin-dashboard-core.mjs?v=20261111a';
 const BITCOIN_HISTORY_DATA_BASE_URL = window.BITCOIN_HISTORY_DATA_BASE_URL
     || 'https://raw.githubusercontent.com/0x00C0DE/0x00C0DE.github.io/bitcoin-data/bitcoindata';
 const BITCOIN_HISTORY_FALLBACK_BASE_URL = '/bitcoindata';
@@ -1040,7 +1040,7 @@ function help_command() {
     const sections = [
         ['Bitcoin analytics', [
             ['bitcoin [interval]', 'Analyze all stored intervals, or choose 1m, 2m, 5m, 10m, 15m, 30m, 1h, or 2h'],
-            ['bitcoin dashboard [interval]', 'Chart prices, signals, and projections. Defaults to all intervals.'],
+            ['bitcoin dashboard [interval]', 'Chart prices and projections for all intervals by default. Open the workspace to compare and export data.'],
             ['bitcoin forecast [interval]', 'Project price ranges across multiple horizons. Defaults to 1m.'],
             ['bitcoin backtest [interval]', 'Test forecasts against historical observations. Defaults to 1m.'],
             ['bitcoin risk [interval]', 'Review loss risk, drawdown, Bollinger bands, and data readiness. Defaults to 1m.'],
@@ -2651,6 +2651,7 @@ function getBitcoinCommandUsage(core) {
 }
 
 function buildBitcoinVisualDashboardBlock(core, dashboardCore, results) {
+    const selected = results.length === 1 ? results[0].interval.id : null;
     const entries = results
         .filter(result => result.ok && result.analysis)
         .map(result => {
@@ -2664,6 +2665,7 @@ function buildBitcoinVisualDashboardBlock(core, dashboardCore, results) {
     const unavailableIntervals = results.filter(result => !result.ok).map(result => result.interval.id);
     return {
         type: 'bitcoin-dashboard',
+        workspaceHref: '/pages/bitcoin.html' + (selected ? '?interval=' + encodeURIComponent(selected) : ''),
         dashboard: dashboardCore.buildBitcoinDashboardViewModel(entries, {
             generatedAt: Date.now(),
             unavailableIntervals

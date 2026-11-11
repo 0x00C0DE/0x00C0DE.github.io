@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'none'">
+    <meta name="description" content="Compare Bitcoin intervals, inspect stored observations, and review model forecasts and data quality.">
+    <title>Bitcoin analytics</title>
+    <link rel="stylesheet" href="/pages/bitcoin.css?v=1">
+    <script defer src="/src/commands.js?v=20261111a"></script>
+    <script type="module" src="/src/bitcoin-workspace.mjs?v=1"></script>
+</head>
+<body>
+    <a class="skip" href="#main">Skip to analytics</a>
+    <header class="site-bar">
+        <div class="frame">
+            <a href="/">Back to terminal</a>
+            <a href="#comparison">Compare intervals</a>
+        </div>
+    </header>
+    <main id="main" class="frame">
+        <header class="page-head">
+            <div>
+                <h1>Bitcoin analytics</h1>
+                <p>Explore BTC/USD quotes, model projections, and data quality across eight stored intervals.</p>
+            </div>
+            <button id="refresh" type="button" disabled>Refresh data</button>
+        </header>
+        <p id="status" class="status" role="status">Loading repository history…</p>
+        <noscript>Enable JavaScript to load Bitcoin history and use the chart.</noscript>
+
+        <section id="workspace" aria-labelledby="price-heading" hidden>
+            <div id="intervals" class="segmented intervals" role="group" aria-label="Bitcoin interval"></div>
+            <div class="price-sheet">
+                <div class="sheet-head">
+                    <div>
+                        <h2 id="price-heading" tabindex="-1">Price history</h2>
+                        <p id="source-time" class="muted"></p>
+                    </div>
+                    <button id="export" type="button">Export CSV</button>
+                </div>
+                <p id="unavailable" class="empty" hidden></p>
+                <div id="available" class="analysis-grid">
+                    <div class="chart-column">
+                        <div class="chart-controls">
+                            <div class="segmented" role="group" aria-label="Chart range">
+                                <button type="button" data-range="60" aria-pressed="false">Last 60</button>
+                                <button type="button" data-range="all" aria-pressed="true">All loaded</button>
+                            </div>
+                            <fieldset aria-label="Chart overlays">
+                                <label><input type="checkbox" value="quotes"> Bid / ask</label>
+                                <label><input type="checkbox" value="projection" checked> Projection</label>
+                                <label><input type="checkbox" value="levels"> Levels</label>
+                            </fieldset>
+                        </div>
+                        <ul class="chart-key" aria-label="Chart legend">
+                            <li data-series="mid">Mid price</li>
+                            <li data-series="quotes" hidden>Bid</li>
+                            <li data-series="quotes" class="ask" hidden>Ask</li>
+                            <li data-series="projection">Projection and estimated range</li>
+                            <li data-series="levels" class="buy" hidden>Buy level</li>
+                            <li data-series="levels" hidden>Window mean</li>
+                            <li data-series="levels" class="sell" hidden>Sell level</li>
+                        </ul>
+                        <canvas id="chart" aria-hidden="true"></canvas>
+                        <div class="inspect">
+                            <label for="observation">Inspect chart observation</label>
+                            <input type="range" id="observation" min="0" max="1" value="0" step="1">
+                            <output for="observation" data-testid="inspection" id="inspection"></output>
+                        </div>
+                    </div>
+                    <aside class="snapshot" aria-labelledby="snapshot-heading">
+                        <h3 id="snapshot-heading">Interval snapshot</h3>
+                        <dl id="snapshot"></dl>
+                        <details>
+                            <summary>Risk and backtest</summary>
+                            <dl id="diagnostics"></dl>
+                            <p id="warnings" class="muted"></p>
+                        </details>
+                    </aside>
+                </div>
+            </div>
+        </section>
+
+        <section id="comparison" aria-labelledby="comparison-heading" hidden>
+            <div class="section-head">
+                <h2 id="comparison-heading">Interval comparison</h2>
+                <p class="muted">Window returns and coverage use the observations available for each interval.</p>
+            </div>
+            <p id="table-hint" class="table-hint muted" hidden>Scroll the table for spread, coverage, and data quality.</p>
+            <div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable interval comparison" aria-describedby="table-hint">
+                <table>
+                    <thead>
+                        <tr><th scope="col">Interval</th><th scope="col">Mid price</th><th scope="col">Window return</th><th scope="col">Spread</th><th scope="col">Coverage</th><th scope="col">Data quality</th></tr>
+                    </thead>
+                    <tbody id="rows"></tbody>
+                </table>
+            </div>
+        </section>
+        <footer>Source: repository Bitcoin history. Projections and signal levels are model diagnostics for research, not trading instructions. Times are shown in your local time zone.</footer>
+    </main>
+</body>
+</html>

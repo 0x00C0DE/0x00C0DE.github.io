@@ -4,7 +4,7 @@ import {
     createBitcoinDashboardPanelGeometry,
     inspectBitcoinDashboardPoint,
     renderBitcoinDashboard
-} from './bitcoin-dashboard-core.mjs?v=20261110a';
+} from './bitcoin-dashboard-core.mjs?v=20261111a';
 import * as pretext from './pretext-browser.mjs';
 import {
     layoutPreparedTerminalEditorialText,
@@ -2438,19 +2438,26 @@ function layoutBitcoinDashboard(block, width, metrics, context = {}) {
             ? createBitcoinDashboardPanelGeometry(dashboard.panels[index], rect, { timeZone: dashboard.timeZone })
             : null
     ));
+    const workspaceLink = block.data?.workspaceHref ? layoutTextLink({
+        ...block,
+        data: { href: block.data.workspaceHref, text: 'Open Bitcoin analytics workspace', newTab: true }
+    }, width, metrics) : null;
+    const chartOffset = workspaceLink ? workspaceLink.height + 6 : 0;
     const baseLayout = {
         dashboardLayout,
         dashboardPanelGeometries,
-        height: dashboardLayout.height,
-        hitRegions: [{
+        height: chartOffset + dashboardLayout.height,
+        hitRegions: [...(workspaceLink?.hitRegions || []), {
             action: 'bitcoin-dashboard-inspect',
             data: { blockId: block.id },
             height: dashboardLayout.height,
             width: dashboardLayout.width,
             x: 0,
-            y: 0
+            y: chartOffset
         }],
         render(ctx, originX, originY, palette) {
+            workspaceLink?.render(ctx, originX, originY, palette);
+            originY += chartOffset;
             try {
                 renderBitcoinDashboard(ctx, dashboard, dashboardLayout, {
                     inspection: block.bitcoinDashboardInspection || null,
@@ -2472,7 +2479,7 @@ function layoutBitcoinDashboard(block, width, metrics, context = {}) {
         }
     };
     return placeLayoutAroundEditorialObstacles(baseLayout, width, context, {
-        blockHeight: dashboardLayout.height,
+        blockHeight: baseLayout.height,
         blockWidth: dashboardLayout.width
     });
 }

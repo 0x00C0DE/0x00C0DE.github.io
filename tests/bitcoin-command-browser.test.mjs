@@ -19,6 +19,8 @@ function getContentType(filePath) {
     case '.js':
     case '.mjs':
         return 'application/javascript; charset=utf-8';
+    case '.css':
+        return 'text/css; charset=utf-8';
     case '.txt':
         return 'text/plain; charset=utf-8';
     default:
@@ -137,6 +139,7 @@ test('bitcoin command renders repository analytics and interval detail in the li
 
     const standaloneDashboard = await page.evaluate(() => window.bitcoin_command(['dashboard', '1m']));
     assert.equal(standaloneDashboard[0].type, 'bitcoin-dashboard');
+    assert.equal(standaloneDashboard[0].workspaceHref, '/pages/bitcoin.html?interval=1m');
     assert.equal(standaloneDashboard[0].dashboard.panels.length, 1);
     assert.equal(standaloneDashboard[0].dashboard.panels[0].intervalId, '1m');
     assert.equal(
@@ -179,6 +182,21 @@ test('bitcoin command renders repository analytics and interval detail in the li
     assert.ok(dashboardBlock.height > 200);
     assert.equal(dashboardBlock.columns, 1);
     await page.waitForTimeout(150);
+    const workspaceLink = await page.evaluate(() => {
+        const hooks = window.__terminalCanvasTestHooks;
+        const rect = document.getElementById('terminal-canvas').getBoundingClientRect();
+        return { x: rect.left + 45, y: rect.top + hooks.getBitcoinDashboardBlock().top - hooks.getState().scrollTop + 8 };
+    });
+    await page.evaluate(() => {
+        const open = window.open;
+        window.open = target => {
+            window.open = open;
+            window.__openedBitcoinWorkspace = target;
+            return null;
+        };
+    });
+    await page.mouse.click(workspaceLink.x, workspaceLink.y);
+    assert.equal(await page.evaluate(() => window.__openedBitcoinWorkspace), server.origin + '/pages/bitcoin.html?interval=1m');
     const renderedColorCounts = await page.evaluate(() => {
         const canvas = document.getElementById('terminal-canvas');
         const context = canvas.getContext('2d');
@@ -301,4 +319,52 @@ test('bitcoin command renders repository analytics and interval detail in the li
     );
     assert.ok(server.rejectedOversizedRanges > 0, 'expected GitHub Pages-style 416 range responses');
     assert.ok(server.bitcoinFullResponses > 0, 'expected a full-file retry after an oversized range is rejected');
+});
+
+test('Bitcoin workspace compares intervals, inspects prices and exports observations', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(() => server.close());
+    const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
+    t.after(() => browser.close());
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await page.addInitScript(origin => {
+        window.BITCOIN_HISTORY_DATA_BASE_URL = origin + '/bitcoindata';
+    }, server.origin);
+    await page.route('**/bitcoindata/PROPRTS-job_1h-unlimited-history.txt*', route => route.fulfill({ status: 503 }));
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    const response = await page.goto(server.origin + '/pages/bitcoin.html?interval=5m');
+    assert.equal(response.status(), 200);
+    await page.getByRole('button', { name: '5m', exact: true, pressed: true }).waitFor();
+    await page.getByRole('button', { name: '1m', exact: true }).click();
+    assert.equal(new URL(page.url()).searchParams.get('interval'), '1m');
+    const observation = page.getByRole('slider', { name: 'Inspect chart observation' });
+    const fullRange = Number(await observation.getAttribute('max'));
+    await page.getByRole('button', { name: 'Last 60', exact: true }).click();
+    assert.ok(Number(await observation.getAttribute('max')) < fullRange);
+    await observation.press('Home');
+    assert.match(await page.getByTestId('inspection').innerText(), /Historical observation/);
+    await page.getByRole('checkbox', { name: 'Projection' }).uncheck();
+    assert.equal(await observation.getAttribute('max'), '59');
+    await page.locator('#chart').click({ position: { x: 250, y: 80 } });
+    assert.ok(Number(await observation.inputValue()) > 0, 'chart pointer should move the inspection cursor');
+    await page.getByRole('button', { name: 'Open 2m chart' }).click();
+    assert.equal(new URL(page.url()).searchParams.get('interval'), '2m');
+    await page.getByRole('button', { name: '1m', exact: true }).click();
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export CSV' }).click();
+    const download = await downloadPromise;
+    assert.equal(download.suggestedFilename(), 'bitcoin-1m-observations.csv');
+    assert.match(await readFile(await download.path(), 'utf8'), /^timestamp_utc,bid_usd,mid_usd,ask_usd/);
+    await page.getByRole('button', { name: '1h', exact: true }).click();
+    await page.getByText('1h history is unavailable.').waitFor();
+    await page.route('**/bitcoindata/**', route => route.fulfill({ status: 503 }));
+    await page.getByRole('button', { name: 'Refresh data' }).click();
+    await page.getByText('Refresh failed. Showing the previous snapshot.').waitFor();
+    await page.getByRole('button', { name: '1m', exact: true }).click();
+    await page.setViewportSize({ width: 560, height: 900 });
+    await page.getByText('Scroll the table for spread, coverage, and data quality.').waitFor();
+    await page.setViewportSize({ width: 320, height: 900 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 320);
+    assert.deepEqual(pageErrors, []);
 });
