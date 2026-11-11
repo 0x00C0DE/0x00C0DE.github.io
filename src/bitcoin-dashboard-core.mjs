@@ -1,7 +1,20 @@
 import { normalizeBitcoinTimestamp } from './bitcoin-analytics-core.mjs';
 import { buildBitcoinRiskReport } from './bitcoin-risk-core.mjs';
 
-const DASHBOARD_FONT_FAMILY = '"Courier New", Courier, monospace';
+const DASHBOARD_FONT_FAMILY = '"Instrument Sans", "Segoe UI", sans-serif';
+const SHEET = Object.freeze({
+    backdrop: '#e5e9e6',
+    paper: '#ffffff',
+    plot: '#f5f8f7',
+    ink: '#142e2c',
+    muted: '#435954',
+    rule: '#cbd8d3',
+    masthead: '#102d2a',
+    mastheadText: '#d4e4dd',
+    positive: '#176648',
+    negative: '#9c382c',
+    warning: '#794716'
+});
 
 export const BITCOIN_DASHBOARD_COLORS = Object.freeze({
     mid: '#2f81f7',
@@ -18,13 +31,13 @@ export const BITCOIN_DASHBOARD_COLORS = Object.freeze({
 });
 
 const DASHBOARD_LEGEND = Object.freeze([
-    Object.freeze({ key: 'mid', label: 'Mid/Last' }),
+    Object.freeze({ key: 'mid', label: 'Mid price' }),
     Object.freeze({ key: 'bid', label: 'Bid' }),
     Object.freeze({ key: 'ask', label: 'Ask' }),
     Object.freeze({ key: 'reference', label: 'Reference' }),
     Object.freeze({ key: 'buyTrigger', label: 'Buy Trigger' }),
     Object.freeze({ key: 'sellTrigger', label: 'Sell Trigger' }),
-    Object.freeze({ key: 'projection', label: 'Projection' }),
+    Object.freeze({ key: 'projection', label: 'Projection / range' }),
     Object.freeze({ key: 'latest', label: 'Latest' }),
     Object.freeze({ key: 'buySignal', label: 'Buy Signal' }),
     Object.freeze({ key: 'sellSignal', label: 'Sell Signal' })
@@ -210,15 +223,6 @@ export function findNearestBitcoinPoint(points, targetTimestamp) {
         <= normalizeBitcoinTimestamp(after.timestamp) - target
         ? before
         : after;
-}
-
-function formatTimestamp(timestamp, includeSeconds = false, timeZone) {
-    return formatDateTime(timestamp, {
-        hour: '2-digit',
-        hour12: true,
-        minute: '2-digit',
-        second: includeSeconds ? '2-digit' : undefined
-    }, resolveDashboardTimeZone(timeZone));
 }
 
 function classifyVolatility(volatilityBps) {
@@ -445,9 +449,9 @@ export function createBitcoinDashboardLayout(width, panelCount) {
     const count = Math.max(0, Math.floor(finiteNumber(panelCount)));
     const columns = safeWidth >= 860 && count > 1 ? 2 : 1;
     const gap = safeWidth < 520 ? 10 : 12;
-    const headerHeight = safeWidth < 360 ? 184 : safeWidth < 560 ? 162 : 106;
+    const headerHeight = safeWidth < 360 ? 192 : safeWidth < 620 ? 170 : 138;
     const panelWidth = columns === 1 ? safeWidth : (safeWidth - gap) / 2;
-    const panelHeight = panelWidth < 380 ? 510 : panelWidth < 660 ? 432 : 372;
+    const panelHeight = panelWidth < 380 ? 650 : panelWidth < 520 ? 600 : panelWidth < 760 ? 548 : 525;
     const panelRects = Array.from({ length: count }, (_, index) => ({
         height: panelHeight,
         width: panelWidth,
@@ -469,7 +473,7 @@ export function createBitcoinDashboardLayout(width, panelCount) {
 }
 
 function wrapDashboardText(text, width, fontSize) {
-    // Reserve a little extra room beyond Courier New's 0.6em advance.
+    // Estimate wrapping conservatively before a canvas context is available.
     const columns = Math.max(1, Math.floor(width / (fontSize * 0.61)));
     const lines = [];
     let line = '';
@@ -484,16 +488,14 @@ function wrapDashboardText(text, width, fontSize) {
     return lines;
 }
 
-function getPanelSummary(panel, timeZone) {
+function getPanelSummary(panel) {
     return [
-        `Mid ${formatMoney(panel.latestPrice)} | Bid ${formatMoney(panel.bidPrice)} | Ask ${formatMoney(panel.askPrice)} | Ref ${formatMoney(panel.referencePrice)}`,
-        `Spread ${panel.spreadBps.toFixed(1)} bps | Shock ${formatSigned(panel.spreadShockBps, 1, ' bps')} | B/S ${formatMoney(panel.buyTriggerPrice)} / ${formatMoney(panel.sellTriggerPrice)}`,
-        `Return ${formatSigned(panel.changePct, 2, '%')} | Proj ${formatSigned(panel.projectedReturnPct, 3, '%')} C${panel.forecastConfidence.toFixed(2)} | Updated ${formatTimestamp(panel.updatedTimestamp, true, timeZone)}`,
-        `Momentum ${panel.momentum} | Vol ${panel.volatilityClass} ${panel.volatilityBps.toFixed(1)} bps | ${panel.projectionDirection} | N ${panel.sampleCount}`,
-        `Condition ${panel.marketCondition} | Pattern ${panel.historicalPattern}`,
-        `Data ${panel.risk.status.toUpperCase()} | VaR95 ${panel.risk.valueAtRisk95Pct === null ? '--' : panel.risk.valueAtRisk95Pct.toFixed(3) + '%'} | Coverage ${panel.dataCoveragePct.toFixed(1)}%`,
-        panel.signalReason,
-        `Buy Signal ${panel.buySignal ? 'ACTIVE' : 'WAIT'} | Sell Signal ${panel.sellSignal ? 'ACTIVE' : 'WAIT'} | RSI ${panel.rsi === null ? '--' : panel.rsi.toFixed(1)} | MACD-H ${formatSigned(panel.macdHistogram, 2)}`
+        `Quotes · Bid ${formatMoney(panel.bidPrice)} · Ask ${formatMoney(panel.askPrice)} · Mean ${formatMoney(panel.referencePrice)}`,
+        `Levels · Buy ${formatMoney(panel.buyTriggerPrice)} · Sell ${formatMoney(panel.sellTriggerPrice)} · Spread shock ${formatSigned(panel.spreadShockBps, 1, ' bps')}`,
+        `Projection · ${formatSigned(panel.projectedReturnPct, 3, '%')} · Fit ${panel.forecastConfidence.toFixed(2)} · ${panel.projectionDirection.replaceAll('_', ' ')}`,
+        `Market · ${panel.marketCondition} · ${panel.momentum.replaceAll('_', ' ')} · ${panel.historicalPattern.replaceAll('_', ' ')} · Volatility ${panel.volatilityBps.toFixed(1)} bps · ${panel.sampleCount} observations`,
+        `Signal · ${panel.signalReason} · Score ${formatSigned(panel.score)} · Raw ${formatSigned(panel.rawSignal)}`,
+        `Risk · 95% VaR ${panel.risk.valueAtRisk95Pct === null ? '—' : panel.risk.valueAtRisk95Pct.toFixed(3) + '%'} · RSI ${panel.rsi === null ? '—' : panel.rsi.toFixed(1)} · MACD histogram ${formatSigned(panel.macdHistogram, 2)}`
     ];
 }
 
@@ -511,34 +513,25 @@ export function createBitcoinDashboardPanelGeometry(panel, rect, options = {}) {
     const width = Math.max(1, finiteNumber(rect?.width, 1));
     const height = Math.max(1, finiteNumber(rect?.height, 1));
     const compact = width < 520;
-    const padding = compact ? 10 : 12;
-    const smallFont = compact ? 10 : 11;
-    const titleFont = compact ? 12 : 13;
+    const padding = compact ? 14 : 20;
+    const smallFont = compact ? 11 : 12;
     const lineHeight = smallFont + 5;
     const textWidth = width - padding * 2;
-    const timeZone = resolveDashboardTimeZone(options.timeZone);
-    const summary = panel?.available ? getPanelSummary(panel, timeZone) : [];
-    const summaryLines = summary.flatMap((text, index) => (
-        wrapDashboardText(text, textWidth, smallFont).map(line => ({
-            text: line,
-            signal: index === summary.length - 1
-        }))
-    ));
+    const summaryLines = panel?.available
+        ? getPanelSummary(panel).flatMap(text => wrapDashboardText(text, textWidth, smallFont))
+        : [];
     const performanceLines = panel?.available
         ? wrapDashboardText(getPanelPerformance(panel), textWidth, smallFont)
         : [];
-    const performanceHeight = 18 + performanceLines.length * lineHeight;
-    const chartBottomPadding = performanceHeight + 34;
-    const summaryTop = y + padding + titleFont + 13;
-    const maxSummaryLines = Math.max(0, Math.floor((y + height - chartBottomPadding - summaryTop - 84) / lineHeight));
-    const visibleSummary = summaryLines.slice(0, maxSummaryLines);
-    const summaryBottom = summaryTop + visibleSummary.length * lineHeight;
-    const chartTop = summaryBottom + 10;
-    const chartBottom = y + height - chartBottomPadding;
-    const chartLeft = x + (compact ? 58 : 66);
-    const chartRight = x + width - 12;
+    const chartTop = y + 92;
+    const chartHeight = compact ? 174 : width < 760 ? 186 : 216;
+    const chartBottom = chartTop + chartHeight;
+    const chartLeft = x + (compact ? 54 : 62);
+    const chartRight = x + width - padding;
     const chartWidth = Math.max(40, chartRight - chartLeft);
-    const chartHeight = Math.max(54, chartBottom - chartTop);
+    const metricsTop = chartBottom + 34;
+    const summaryTop = metricsTop + 53;
+    const performanceTop = y + height - padding - performanceLines.length * lineHeight;
     const chartValues = [
         ...(Array.isArray(panel?.history) ? panel.history : []).flatMap(point => [point.bid, point.mid, point.ask]),
         panel?.referencePrice,
@@ -565,7 +558,7 @@ export function createBitcoinDashboardPanelGeometry(panel, rect, options = {}) {
 
     return {
         axisTickY: chartBottom + 11,
-        axisTitleY: y + height - performanceHeight - 2,
+        axisTitleY: chartBottom + 24,
         chartBottom,
         chartHeight,
         chartLeft,
@@ -578,16 +571,15 @@ export function createBitcoinDashboardPanelGeometry(panel, rect, options = {}) {
         maximumPrice,
         minimumPrice,
         padding,
-        performanceHeight,
+        metricsTop,
         performanceLines,
+        performanceTop,
         priceToY,
         smallFont,
-        summaryBottom,
-        summaryLines: visibleSummary,
+        summaryLines,
         summaryTop,
         timeScale,
         timestampToX: timeScale.timestampToX,
-        titleFont,
         width,
         x,
         y
@@ -704,16 +696,20 @@ function drawLegend(ctx, legend, x, y, width, fontSize) {
         ctx.strokeStyle = color;
         ctx.fillStyle = color;
         ctx.lineWidth = 2;
+        if (item.key === 'reference' || item.key === 'projection' || item.key.endsWith('Trigger')) {
+            ctx.setLineDash([3, 2]);
+        }
         ctx.beginPath();
         ctx.moveTo(cursorX, cursorY);
         ctx.lineTo(cursorX + 12, cursorY);
         ctx.stroke();
+        ctx.setLineDash([]);
         if (item.key === 'latest' || item.key.endsWith('Signal')) {
             ctx.beginPath();
             ctx.arc(cursorX + 6, cursorY, 3, 0, Math.PI * 2);
             ctx.fill();
         }
-        ctx.fillStyle = '#c9d1d9';
+        ctx.fillStyle = SHEET.ink;
         ctx.fillText(item.label, cursorX + 17, cursorY);
         cursorX += itemWidth;
     });
@@ -804,7 +800,7 @@ function drawBitcoinInspection(ctx, inspection, geometry, timeZone) {
     ];
 
     ctx.save();
-    ctx.strokeStyle = 'rgba(240, 246, 252, 0.72)';
+    ctx.strokeStyle = 'rgba(20, 46, 44, 0.68)';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
     ctx.beginPath();
@@ -855,89 +851,82 @@ function drawBitcoinInspection(ctx, inspection, geometry, timeZone) {
     ctx.restore();
 }
 
+function drawPanelSurface(ctx, rect, x, y) {
+    ctx.fillStyle = SHEET.paper;
+    ctx.fillRect(x, y, rect.width, rect.height);
+    ctx.strokeStyle = SHEET.rule;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, rect.width - 1, rect.height - 1);
+}
+
 function drawUnavailablePanel(ctx, panel, rect, originX, originY) {
     const x = originX + rect.x;
     const y = originY + rect.y;
-    ctx.fillStyle = 'rgba(7, 12, 20, 0.94)';
-    ctx.fillRect(x, y, rect.width, rect.height);
-    ctx.strokeStyle = '#6e7681';
-    ctx.strokeRect(x + 0.5, y + 0.5, rect.width - 1, rect.height - 1);
-    ctx.font = `700 15px ${DASHBOARD_FONT_FAMILY}`;
-    ctx.fillStyle = '#c9d1d9';
+    drawPanelSurface(ctx, rect, x, y);
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText(`${panel.intervalLabel} | UNAVAILABLE`, x + 14, y + 14);
+    ctx.font = `700 20px ${DASHBOARD_FONT_FAMILY}`;
+    ctx.fillStyle = SHEET.ink;
+    ctx.fillText(`BTC/USD · ${panel.intervalLabel.toLowerCase()}`, x + 18, y + 17);
+    ctx.fillStyle = SHEET.plot;
+    ctx.fillRect(x + 18, y + 62, rect.width - 36, 144);
+    ctx.font = `700 15px ${DASHBOARD_FONT_FAMILY}`;
+    ctx.fillStyle = SHEET.warning;
+    ctx.fillText('Interval unavailable', x + 30, y + 79);
     ctx.font = `12px ${DASHBOARD_FONT_FAMILY}`;
-    ctx.fillStyle = '#8b949e';
-    drawClippedText(ctx, panel.reason || 'repository market data unavailable', x + 14, y + 42, rect.width - 28);
-    ctx.strokeStyle = 'rgba(110, 118, 129, 0.32)';
-    ctx.setLineDash([5, 5]);
-    ctx.strokeRect(x + 18.5, y + 80.5, rect.width - 37, rect.height - 104);
-    ctx.setLineDash([]);
+    ctx.fillStyle = SHEET.muted;
+    wrapDashboardText(panel.reason || 'Repository history could not be loaded.', rect.width - 60, 12).forEach((line, i) => {
+        ctx.fillText(line, x + 30, y + 106 + i * 17);
+    });
 }
 
 function drawAvailablePanel(ctx, panel, rect, originX, originY, options = {}) {
     const geometry = createBitcoinDashboardPanelGeometry(panel, rect, { originX, originY, timeZone: options.timeZone });
     const {
-        chartBottom,
-        chartHeight,
-        chartLeft,
-        chartRight,
-        chartTop,
-        chartWidth,
-        compact,
-        lineHeight,
-        maximumPrice,
-        minimumPrice,
-        padding,
-        performanceHeight,
-        performanceLines,
-        priceToY,
-        smallFont,
-        summaryLines,
-        summaryTop,
-        timestampToX,
-        titleFont,
-        width,
-        x,
-        y
+        chartBottom, chartHeight, chartLeft, chartRight, chartTop, chartWidth, compact, lineHeight,
+        maximumPrice, metricsTop, minimumPrice, padding, performanceLines, performanceTop, priceToY,
+        smallFont, summaryLines, summaryTop, timestampToX, width, x, y
     } = geometry;
     const timeZone = resolveDashboardTimeZone(options.timeZone);
-    ctx.fillStyle = '#0d1420';
-    ctx.fillRect(x, y, rect.width, rect.height);
-    ctx.strokeStyle = '#354257';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x + 0.5, y + 0.5, rect.width - 1, rect.height - 1);
-
     const textX = x + padding;
     const textWidth = width - padding * 2;
-    const statusColor = panel.status === 'BUY'
-        ? BITCOIN_DASHBOARD_COLORS.buySignal
-        : panel.status === 'SELL'
-            ? BITCOIN_DASHBOARD_COLORS.sellSignal
-            : '#d29922';
+    const signalColor = panel.status === 'BUY' ? SHEET.positive : panel.status === 'SELL' ? SHEET.negative : SHEET.muted;
+    drawPanelSurface(ctx, rect, x, y);
+
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.font = `700 ${titleFont}px ${DASHBOARD_FONT_FAMILY}`;
-    ctx.fillStyle = '#f0f6fc';
-    drawClippedText(
-        ctx,
-        `${panel.intervalLabel} | ${panel.status} | Score ${formatSigned(panel.score)} | Raw ${formatSigned(panel.rawSignal)}`,
-        textX,
-        y + padding,
-        textWidth
-    );
-    ctx.font = `${smallFont}px ${DASHBOARD_FONT_FAMILY}`;
-    summaryLines.forEach((line, index) => {
-        ctx.fillStyle = line.signal ? statusColor : '#c9d1d9';
-        drawClippedText(ctx, line.text, textX, summaryTop + index * lineHeight, textWidth);
-    });
+    ctx.font = `700 14px ${DASHBOARD_FONT_FAMILY}`;
+    ctx.fillStyle = SHEET.ink;
+    ctx.fillText(`BTC/USD · ${panel.intervalLabel.toLowerCase()}`, textX, y + 12);
+    ctx.textAlign = 'right';
+    ctx.font = `700 11px ${DASHBOARD_FONT_FAMILY}`;
+    ctx.fillStyle = signalColor;
+    ctx.fillText(`Model: ${panel.status}`, x + width - padding, y + 14);
+
+    ctx.textAlign = 'left';
+    ctx.font = `700 ${compact ? 23 : 28}px ${DASHBOARD_FONT_FAMILY}`;
+    ctx.fillStyle = SHEET.ink;
+    ctx.fillText(formatMoney(panel.latestPrice), textX, y + 30);
+    ctx.textAlign = 'right';
+    ctx.font = `700 ${compact ? 12 : 14}px ${DASHBOARD_FONT_FAMILY}`;
+    ctx.fillStyle = panel.changePct >= 0 ? SHEET.positive : SHEET.negative;
+    ctx.fillText(formatSigned(panel.changePct, 2, '%'), x + width - padding, y + 39);
+    ctx.fillStyle = SHEET.muted;
+    ctx.font = `11px ${DASHBOARD_FONT_FAMILY}`;
+    ctx.fillText('Window return', x + width - padding, y + 55);
+    ctx.textAlign = 'left';
+    drawClippedText(ctx, `Observed ${formatBitcoinTooltipTimestamp(panel.updatedTimestamp, { timeZone })}`, textX, y + 65, textWidth);
+
+    ctx.fillStyle = SHEET.plot;
+    ctx.fillRect(chartLeft, chartTop, chartWidth, chartHeight);
 
     const latestTimestamp = panel.updatedTimestamp;
 
     ctx.save();
-    ctx.strokeStyle = 'rgba(139, 148, 158, 0.18)';
-    ctx.fillStyle = '#8b949e';
+    ctx.strokeStyle = SHEET.rule;
+    ctx.fillStyle = SHEET.muted;
     ctx.lineWidth = 1;
-    ctx.font = `${compact ? 9 : 10}px ${DASHBOARD_FONT_FAMILY}`;
+    ctx.font = `${compact ? 10 : 11}px ${DASHBOARD_FONT_FAMILY}`;
     ctx.textBaseline = 'middle';
     for (let tick = 0; tick <= 3; tick += 1) {
         const ratio = tick / 3;
@@ -986,6 +975,8 @@ function drawAvailablePanel(ctx, panel, rect, originX, originY, options = {}) {
             previousRight = right;
         }
     });
+    ctx.textAlign = 'center';
+    ctx.fillText('Local time', chartLeft + chartWidth / 2, geometry.axisTitleY);
     ctx.restore();
 
     drawHorizontalLevel(ctx, priceToY, panel.referencePrice, chartLeft, chartRight, BITCOIN_DASHBOARD_COLORS.reference, [3, 3]);
@@ -1047,23 +1038,35 @@ function drawAvailablePanel(ctx, panel, rect, originX, originY, options = {}) {
         drawBitcoinInspection(ctx, options.inspection, geometry, timeZone);
     }
 
-    ctx.save();
-    ctx.fillStyle = '#8b949e';
-    ctx.font = `${compact ? 9 : 10}px ${DASHBOARD_FONT_FAMILY}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText('Date / time', chartLeft + chartWidth / 2, geometry.axisTitleY);
-    ctx.translate(x + 10, chartTop + chartHeight / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.fillText('BTC Price (USD)', 0, 0);
-    ctx.restore();
-
-    const performanceY = y + rect.height - performanceHeight + 4;
-    ctx.fillStyle = '#8b949e';
-    ctx.font = `${smallFont}px ${DASHBOARD_FONT_FAMILY}`;
+    ctx.fillStyle = SHEET.plot;
+    ctx.fillRect(textX, metricsTop, textWidth, 42);
+    const metrics = [
+        ['Spread', `${panel.spreadBps.toFixed(1)} bps`],
+        ['Coverage', `${panel.dataCoveragePct.toFixed(1)}%`],
+        ['Data quality', panel.risk.status.toUpperCase()]
+    ];
+    const metricWidth = textWidth / metrics.length;
     ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+    metrics.forEach(([label, value], index) => {
+        const metricX = textX + 8 + index * metricWidth;
+        ctx.font = `10px ${DASHBOARD_FONT_FAMILY}`;
+        ctx.fillStyle = SHEET.muted;
+        drawClippedText(ctx, label, metricX, metricsTop + 5, metricWidth - 14);
+        ctx.font = `700 12px ${DASHBOARD_FONT_FAMILY}`;
+        ctx.fillStyle = label === 'Data quality' && panel.risk.status !== 'ready' ? SHEET.warning : SHEET.ink;
+        drawClippedText(ctx, value, metricX, metricsTop + 20, metricWidth - 14);
+    });
+
+    ctx.font = `${smallFont}px ${DASHBOARD_FONT_FAMILY}`;
+    ctx.fillStyle = SHEET.muted;
+    const summaryRows = Math.max(0, Math.floor((performanceTop - summaryTop - 8) / lineHeight));
+    summaryLines.slice(0, summaryRows).forEach((line, index) => {
+        drawClippedText(ctx, line, textX, summaryTop + index * lineHeight, textWidth);
+    });
+    ctx.fillStyle = SHEET.ink;
     performanceLines.forEach((line, index) => {
-        drawClippedText(ctx, line, textX, performanceY + index * lineHeight, textWidth);
+        drawClippedText(ctx, line, textX, performanceTop + index * lineHeight, textWidth);
     });
 }
 
@@ -1076,39 +1079,39 @@ export function renderBitcoinDashboard(ctx, dashboard, layout, options = {}) {
         : buildBitcoinDashboardViewModel([]);
     const originX = finiteNumber(options.originX);
     const originY = finiteNumber(options.originY);
-    const palette = options.palette || {};
     ctx.save();
-    const background = ctx.createLinearGradient(originX, originY, originX, originY + layout.height);
-    background.addColorStop(0, 'rgba(7, 12, 20, 0.98)');
-    background.addColorStop(1, 'rgba(2, 6, 12, 0.98)');
-    ctx.fillStyle = background;
+    ctx.fillStyle = SHEET.backdrop;
     ctx.fillRect(originX, originY, layout.width, layout.height);
-    ctx.strokeStyle = palette.border || 'rgba(139, 148, 158, 0.55)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(originX + 0.5, originY + 0.5, layout.width - 1, layout.height - 1);
+    const compact = layout.width < 620;
+    const inset = compact ? 14 : 20;
+    const textWidth = layout.width - inset * 2;
+    const fontSize = compact ? 11 : 12;
+    const mastheadHeight = compact ? 105 : 94;
+    ctx.fillStyle = SHEET.masthead;
+    ctx.fillRect(originX, originY, layout.width, mastheadHeight);
     ctx.textBaseline = 'top';
-    ctx.fillStyle = palette.title || '#f0f6fc';
-    ctx.font = `700 ${layout.width < 560 ? 15 : 18}px ${DASHBOARD_FONT_FAMILY}`;
-    ctx.fillText(model.title || 'BITCOIN ANALYTICS DASHBOARD', originX + 12, originY + 10);
-    const textWidth = layout.width - 24;
-    const fontSize = layout.width < 560 ? 10 : 11;
-    ctx.fillStyle = '#a8b5c8';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = SHEET.paper;
+    ctx.font = `700 ${compact ? 23 : 30}px ${DASHBOARD_FONT_FAMILY}`;
+    ctx.fillText('Bitcoin analytics', originX + inset, originY + 11);
+
+    const availableCount = (model.panels || []).filter(panel => panel.available).length;
+    const readyCount = (model.panels || []).filter(panel => panel.available && panel.risk?.status === 'ready').length;
+    const coverage = `${availableCount}/${model.panels?.length || 0} intervals available · ${readyCount} data-ready`;
+    const guidance = 'Hover to inspect · Click or tap to lock · Esc clears';
+    ctx.fillStyle = SHEET.mastheadText;
     ctx.font = `${fontSize}px ${DASHBOARD_FONT_FAMILY}`;
-    const metadata = `${model.sourceLabel || 'Repository history'} | Generated ${formatBitcoinTooltipTimestamp(model.generatedAt || Date.now(), { timeZone: model.timeZone })} | ${model.timeZone || 'Local time'}`;
-    const headerLines = [
-        ...wrapDashboardText(metadata, textWidth, fontSize),
-        ...wrapDashboardText('Hover to inspect. Click or tap to lock. Esc clears.', textWidth, fontSize)
-    ];
-    headerLines.forEach((line, index) => {
-        drawClippedText(ctx, line, originX + 12, originY + 34 + index * 14, textWidth);
+    drawClippedText(ctx, coverage, originX + inset, originY + (compact ? 42 : 48), textWidth);
+    wrapDashboardText(guidance, textWidth, fontSize).forEach((line, index) => {
+        ctx.fillText(line, originX + inset, originY + (compact ? 61 : 67) + index * 15);
     });
     drawLegend(
         ctx,
         Array.isArray(model.legend) ? model.legend : DASHBOARD_LEGEND,
-        originX + 12,
-        originY + 38 + headerLines.length * 14,
+        originX + inset,
+        originY + mastheadHeight + 13,
         textWidth,
-        9
+        10
     );
     layout.panelRects.forEach((rect, index) => {
         const panel = model.panels?.[index] || buildUnavailablePanel('--');
@@ -1122,17 +1125,17 @@ export function renderBitcoinDashboard(ctx, dashboard, layout, options = {}) {
             drawUnavailablePanel(ctx, panel, rect, originX, originY);
         }
     });
-    ctx.fillStyle = '#a8b5c8';
+    ctx.fillStyle = SHEET.muted;
     ctx.font = `${fontSize}px ${DASHBOARD_FONT_FAMILY}`;
     ctx.textBaseline = 'bottom';
     const footerLines = wrapDashboardText(
-        'Signals and trigger levels are model diagnostics from limited repository history—not orders, guarantees, or financial advice.',
+        'Source: repository Bitcoin history. Times are local. Signals and projections are model diagnostics.',
         textWidth,
         fontSize
     );
     footerLines.forEach((line, index) => {
         const lineY = layout.height - 10 - (footerLines.length - index - 1) * 13;
-        drawClippedText(ctx, line, originX + 12, originY + lineY, textWidth);
+        drawClippedText(ctx, line, originX + inset, originY + lineY, textWidth);
     });
     ctx.restore();
 }

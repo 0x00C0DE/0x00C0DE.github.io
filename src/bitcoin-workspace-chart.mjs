@@ -1,4 +1,4 @@
-import { createBitcoinTimeScale, formatBitcoinAxisTimestamp } from './bitcoin-dashboard-core.mjs?v=20261111a';
+import { createBitcoinTimeScale, formatBitcoinAxisTimestamp } from './bitcoin-dashboard-core.mjs?v=20261111b';
 
 const quoteFormat = new Intl.NumberFormat('en-US', {
     style: 'currency',

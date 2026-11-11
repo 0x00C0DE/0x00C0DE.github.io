@@ -257,3 +257,13 @@ test('dashboard withholds directional signals when data is stale or sample evide
     assert.equal(panel.status, 'HOLD');
     assert.equal(panel.risk.status, 'limited');
 });
+
+test('dashboard panels put the price chart before supporting diagnostics at both widths', () => {
+    const panel = buildBitcoinDashboardViewModel([buildEntry()]).panels[0];
+    for (const width of [320, 560, 1200]) {
+        const layout = createBitcoinDashboardLayout(width, 1);
+        const geometry = createBitcoinDashboardPanelGeometry(panel, layout.panelRects[0]);
+        assert.ok(geometry.chartHeight >= 160);
+        assert.ok(geometry.summaryTop > geometry.chartBottom);
+    }
+});

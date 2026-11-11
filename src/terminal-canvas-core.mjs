@@ -4,7 +4,7 @@ import {
     createBitcoinDashboardPanelGeometry,
     inspectBitcoinDashboardPoint,
     renderBitcoinDashboard
-} from './bitcoin-dashboard-core.mjs?v=20261111a';
+} from './bitcoin-dashboard-core.mjs?v=20261111b';
 import * as pretext from './pretext-browser.mjs';
 import {
     layoutPreparedTerminalEditorialText,
@@ -2997,8 +2997,16 @@ function drawBackground(ctx, palette, timestamp) {
     }
 }
 
-function drawScreenOverlay(ctx, palette) {
+function drawScreenOverlay(ctx, palette, cleanRegions = []) {
     ctx.save();
+    if (cleanRegions.length) {
+        ctx.beginPath();
+        ctx.rect(0, 0, app.viewportWidth, app.viewportHeight);
+        cleanRegions.forEach(region => {
+            ctx.rect(region.x, region.y - app.scrollTop, region.width, region.height);
+        });
+        ctx.clip('evenodd');
+    }
     const overlayLayer = getScreenOverlayLayer(palette);
     ctx.drawImage(overlayLayer, 0, 0, app.viewportWidth, app.viewportHeight);
     ctx.restore();
@@ -3171,7 +3179,12 @@ function drawTerminalScene(timestamp) {
     });
     ctx.restore();
     drawScrollbar(ctx, palette, metrics);
-    drawScreenOverlay(ctx, palette);
+    const visibleCharts = app.interactiveRegions.filter(region => (
+        region.action === 'bitcoin-dashboard-inspect'
+        && region.y + region.height > app.scrollTop
+        && region.y < app.scrollTop + app.viewportHeight
+    ));
+    drawScreenOverlay(ctx, palette, visibleCharts);
 }
 
 function drawViewerScene(timestamp) {

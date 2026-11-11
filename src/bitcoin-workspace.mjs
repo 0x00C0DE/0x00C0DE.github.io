@@ -1,8 +1,8 @@
 import {
     findNearestBitcoinPoint,
     formatBitcoinTooltipTimestamp
-} from './bitcoin-dashboard-core.mjs?v=20261111a';
-import { drawBitcoinWorkspaceChart } from './bitcoin-workspace-chart.mjs?v=1';
+} from './bitcoin-dashboard-core.mjs?v=20261111b';
+import { drawBitcoinWorkspaceChart } from './bitcoin-workspace-chart.mjs?v=2';
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 const $ = id => document.getElementById(id);
