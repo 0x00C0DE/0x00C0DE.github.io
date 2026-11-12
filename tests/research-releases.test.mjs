@@ -44,3 +44,14 @@ test('invalid tags and unsupported sources are rejected', async () => {
     assert.deepEqual(result.unavailable, [ownerRepo]);
     await assert.rejects(collectReleases({ repos: ['unapproved/tool'], now }), /source configuration/);
 });
+
+test('Workers SDK release metadata accepts the Wrangler package tag', async () => {
+    const repo = 'cloudflare/workers-sdk';
+    const result = await collectReleases({
+        repos: [repo],
+        now,
+        fetchRelease: async () => Response.json({ ...release, tag_name: 'wrangler@4.161.0' }),
+    });
+    assert.deepEqual(result.unavailable, []);
+    assert.match(result.findings[0].source, /wrangler%404\.161\.0$/);
+});

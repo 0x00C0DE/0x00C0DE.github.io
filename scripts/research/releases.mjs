@@ -44,8 +44,11 @@ export async function collectReleases({
     for (const repo of repos) {
         try {
             const { id, published_at: publishedAt, tag_name: tag } = await readRelease(repo, fetchRelease);
-            if (!Number.isSafeInteger(id) || id <= 0 || typeof tag !== 'string'
-                || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(tag)
+            const supportedTag = typeof tag === 'string' && (
+                /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(tag)
+                || (repo === 'cloudflare/workers-sdk' && /^wrangler@[0-9][A-Za-z0-9._-]{0,89}$/.test(tag))
+            );
+            if (!Number.isSafeInteger(id) || id <= 0 || !supportedTag
                 || typeof publishedAt !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(publishedAt)
                 || !(Date.parse(publishedAt) <= Date.parse(now))) throw new Error('Invalid release metadata');
 
