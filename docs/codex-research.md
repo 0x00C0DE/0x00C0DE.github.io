@@ -20,7 +20,7 @@ built from its existing explicit allowlist.
 Run from the repository root with Node 24.
 
 ```powershell
-node --test tests/research-preflight.test.mjs tests/research-releases.test.mjs
+node --test tests/research-preflight.test.mjs tests/research-releases.test.mjs tests/research-features.test.mjs
 node scripts/research/report.mjs
 ```
 
@@ -70,9 +70,20 @@ context. For a UI task use the installed skill's task-specific playbook,
 context loader, and craft guidance. Verify the actual render and reuse the
 mobile and desktop Playwright suites.
 
-## Integration status
+## Site feature discovery and release handoff
 
-The workflow reports only. Follow the branch and release procedure in
-[AGENTS.md](../AGENTS.md) for human-reviewed changes. The preflight uses no
-model credential or repository write credential. Existing dependency audits,
-CodeQL, and Pages workflows provide their own checks and run independently.
+Each report audits the current home and project index HTML and a bounded
+prefix of the blog for concrete feature signals. Candidates include
+evidence, acceptance criteria, and a rough value-to-effort order. These
+heuristics are a starting point for validation. Release metadata remains
+a separate research input.
+
+The report records the source revision in Actions and the repository
+[release skill](../.agents/skills/0x00c0de-release/SKILL.md) to load before
+implementing a candidate. Follow the skill to start a fresh branch from
+current main, run checks, publish, integrate, and verify production.
+Feature candidates may recur while their source signals remain present.
+
+The scheduled workflow produces a research handoff. A model runner and
+automatic implementation or merge job are not configured. Dependency
+audits, CodeQL, and Pages checks continue to run independently.

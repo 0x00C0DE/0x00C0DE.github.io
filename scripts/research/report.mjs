@@ -1,5 +1,6 @@
-import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, open, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { discoverFeatures } from './features.mjs';
 import { planCycle } from './preflight.mjs';
 import { collectReleases } from './releases.mjs';
 
@@ -19,7 +20,30 @@ if (state?.schema !== 1 || !Array.isArray(state.history)) throw new Error('Unsup
 const input = inputFile ? JSON.parse(await readFile(inputFile, 'utf8')) : { mode: 'research-only' };
 const decision = planCycle({ ...input, now: now.getTime() });
 const result = await collectReleases({ now: now.toISOString(), history: state.history });
-const report = { schema: 1, observedAt: now.toISOString(), decision, ...result };
+const root = new URL('../../', import.meta.url);
+const skillPath = '.agents/skills/0x00c0de-release/SKILL.md';
+const [home, projects, releaseSkill] = await Promise.all(
+    ['index.html', 'pages/projects.html', skillPath].map(path => readFile(new URL(path, root), 'utf8')),
+);
+if (!releaseSkill.includes('name: 0x00c0de-release')) throw new Error('Repository release skill is unavailable');
+
+const blogFile = await open(new URL('content/blog.txt', root));
+const blogPrefix = Buffer.alloc(64 * 1024);
+let blogBytes;
+try {
+    ({ bytesRead: blogBytes } = await blogFile.read(blogPrefix));
+} finally {
+    await blogFile.close();
+}
+const featureCandidates = discoverFeatures({ home, projects, blog: blogPrefix.toString('utf8', 0, blogBytes) });
+const report = {
+    schema: 1, observedAt: now.toISOString(), revision: process.env.GITHUB_SHA ?? null,
+    decision, ...result, featureCandidates,
+    handoff: {
+        releaseSkill: skillPath,
+        instructions: 'Before implementing a selected candidate, load and follow the repository release skill. Verify the evidence on current main and check its acceptance criteria before integration.',
+    },
+};
 
 await mkdir(stateDir, { recursive: true });
 const pendingState = statePath + '.' + process.pid + '.tmp';
@@ -40,6 +64,12 @@ const summary = [
     ...(decision.phase ? ['- Phase — ' + decision.phase] : []),
     ...(displayTime ? ['- Usage window ends — ' + displayTime] : []),
     ...result.findings.map(finding => '- [' + finding.summary + '](' + finding.source + ')'),
+    '',
+    '### Site feature candidates',
+    '',
+    ...featureCandidates.map(candidate => '- **' + candidate.title + '** — ' + candidate.evidence),
+    ...(featureCandidates.length ? [] : ['- No candidates matched the current checks.']),
+    '- Implementation handoff uses the repository release skill at `' + skillPath + '`.',
     '',
 ].join('\n');
 if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, summary);
