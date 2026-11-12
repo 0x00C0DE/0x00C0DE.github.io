@@ -2,6 +2,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
+import { encodeBlogTextLine, normalizeBlogPostText } from '../src/blog-post-text.mjs';
 import { verifyTurnstile } from '../worker/src/request-security.js';
 import { configureProxyTrust } from './proxy-trust.mjs';
 
@@ -39,26 +40,16 @@ app.get('/api/blog/health', (_request, response) => {
 
 app.post('/api/blog/append', async (request, response) => {
     try {
-        const text = typeof request.body.text === 'string' ? request.body.text.trim() : '';
-        const turnstileToken = typeof request.body.turnstileToken === 'string' ? request.body.turnstileToken : '';
+        const { text, error } = normalizeBlogPostText(request.body?.text, maxPostLength, { multiline: true });
+        const turnstileToken = request.body?.turnstileToken;
 
-        if (!text) {
-            return response.status(400).json({ error: 'text is required' });
-        }
-        if (text.length > maxPostLength) {
-            return response.status(400).json({ error: `text must be ${maxPostLength} characters or fewer` });
-        }
-        if (containsControlCharacters(text)) {
-            return response.status(400).json({ error: 'text contains unsupported control characters' });
+        if (error || !text) {
+            return response.status(400).json({ error: error || 'text is required' });
         }
 
         if (!await verifyTurnstile(turnstileSecretKey, turnstileToken, request.ip, allowedOrigin, 'blog_post')) {
             return response.status(400).json({ error: 'turnstile verification failed' });
         }
-        if (text.split(/\r?\n/).some(line => /^\s*\[/.test(line))) {
-            return response.status(400).json({ error: 'text contains a reserved blog marker' });
-        }
-
         const githubFile = await fetchGithubFile();
         const nextContent = appendBlogEntry(githubFile.content, text);
         const commit = await updateGithubFile(nextContent, githubFile.sha);
@@ -77,10 +68,6 @@ app.post('/api/blog/append', async (request, response) => {
 app.listen(port, () => {
     console.log(`blog append api listening on ${port}`);
 });
-
-function containsControlCharacters(value) {
-    return /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(value);
-}
 
 async function fetchGithubFile() {
     const response = await fetch(githubContentsUrl(), {
@@ -125,7 +112,8 @@ async function updateGithubFile(content, sha) {
 function appendBlogEntry(currentContent, text) {
     const normalized = currentContent.endsWith('\n') ? currentContent : `${currentContent}\n`;
     const timestamp = new Date().toISOString();
-    return `${normalized}\n[${timestamp}]\n${text}\n`;
+    const encodedText = text.split('\n').map(encodeBlogTextLine).join('\n');
+    return `${normalized}\n[${timestamp}]\n${encodedText}\n`;
 }
 
 function githubContentsUrl() {

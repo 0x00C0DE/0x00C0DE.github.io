@@ -18,3 +18,17 @@ forwarding headers. Invalid entries fail startup. Changing this setting requires
 
 From the repository root in PowerShell, install and verify the fallback with
 `npm.cmd --prefix backend ci`, then `npm.cmd --prefix backend test`.
+
+## Blog post validation
+
+The browser checks text before opening media selection or requesting upload
+authorization. Both server endpoints validate text independently. The text
+limit applies before trimming or collapsing whitespace and covers all text
+segments combined. Unsupported control characters, bidirectional embedding
+and isolate controls, and malformed Unicode are rejected. The Express
+text-only endpoint preserves line breaks and normalizes them to LF.
+
+Posts are stored in a GitHub-backed text file. Reserved timestamp, media, and
+escape-marker lines are encoded as literal text when saved. Ordinary
+punctuation, Unicode text, and SQL keywords are accepted. The upload path
+uses no SQL database.

@@ -4300,3 +4300,30 @@ test('security: a successful TOTP cannot be reused to mint another moderation se
     assert.equal((await login()).status, 200);
     assert.equal((await login()).status, 403);
 });
+
+test('security: malformed append text is rejected before upstream requests', async t => {
+    const requests = [];
+    t.mock.method(globalThis, 'fetch', async url => {
+        requests.push(String(url));
+        return new Response(null, { status: 500 });
+    });
+
+    const env = {
+        TURNSTILE_SECRET_KEY: 'fixture-turnstile',
+        BLOG_SIGNING_SECRET: FIXTURE_SIGNING_KEY,
+        ALLOWED_ORIGIN: 'https://example.com',
+        RATE_LIMITER: createAlwaysAllowRateLimiter(),
+    };
+    for (const payload of [
+        { text: '\u000Bhello' },
+        { contentBlocks: [{ type: 'text', text: 123 }, { type: 'text', text: 'valid' }] },
+        { contentBlocks: {}, text: 'valid' },
+    ]) {
+        const response = await worker.fetch(new Request('https://example.com/api/blog/append', {
+            method: 'POST',
+            body: JSON.stringify({ ...payload, turnstileToken: 'fixture-token' }),
+        }), env);
+        assert.equal(response.status, 400);
+    }
+    assert.deepEqual(requests, []);
+});

@@ -1,3 +1,4 @@
+import { encodeBlogTextLine, normalizeBlogPostTextBlocks } from '../../src/blog-post-text.mjs';
 import {
     stripLeadingCharacter,
     stripTrailingCharacter
@@ -1722,6 +1723,19 @@ async function handleAppend(request, env) {
             return jsonResponse({ error: 'blog posting unavailable' }, 503, env.ALLOWED_ORIGIN);
         }
         const body = await readJsonLimited(request, POST_BODY_LIMIT);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+            || ('contentBlocks' in body && !Array.isArray(body.contentBlocks))
+            || ('text' in body && typeof body.text !== 'string')
+            || ('imageDataUrl' in body && typeof body.imageDataUrl !== 'string')) {
+            return jsonResponse({ error: 'invalid blog post body' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
+        const legacyBlocks = [];
+        if (body.text) legacyBlocks.push({ type: 'text', text: body.text });
+        if (body.imageDataUrl) legacyBlocks.push({ type: 'image', imageDataUrl: body.imageDataUrl });
+        const textValidation = normalizeBlogPostTextBlocks(body.contentBlocks ?? legacyBlocks, Number(env.MAX_POST_LENGTH || 500));
+        if (textValidation.error) {
+            return jsonResponse({ error: textValidation.error }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
+        }
         const grant = await readGrant(env.BLOG_SIGNING_SECRET, 'upload', body?.uploadGrant);
         if (!grant && !await verifyTurnstile(env.TURNSTILE_SECRET_KEY, body?.turnstileToken, ip, env.ALLOWED_ORIGIN, TURNSTILE_ACTION)) {
             return jsonResponse({ error: 'turnstile verification failed' }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
@@ -1729,20 +1743,11 @@ async function handleAppend(request, env) {
         if (grant) {
             if (!await claimOnce(env, 'upload-submit:' + grant.id, grant.expiresAt)) return jsonResponse({ error: 'upload authorization already used' }, 409, env.ALLOWED_ORIGIN);
         }
-        const text = typeof body?.text === 'string' ? body.text.trim() : '';
-        const imageDataUrl = typeof body?.imageDataUrl === 'string' ? body.imageDataUrl.trim() : '';
-        const contentBlocks = Array.isArray(body?.contentBlocks) ? body.contentBlocks : null;
-        const maxPostLength = Number(env.MAX_POST_LENGTH || 500);
         const maxImageDataUrlLength = Number(env.MAX_IMAGE_DATA_URL_LENGTH || MAX_IMAGE_DATA_URL_LENGTH);
-        const normalizedBlocks = await normalizeAppendContentBlocks({
-            contentBlocks,
-            text,
-            imageDataUrl,
-            maxPostLength,
-            maxImageDataUrlLength,
-            grant,
-            env
-        });
+        const validated = validateContentBlocks(textValidation.blocks, maxImageDataUrlLength);
+        const normalizedBlocks = validated.ok
+            ? await resolveAuthorizedBlocks(validated.blocks, maxImageDataUrlLength, grant, env)
+            : validated;
 
         if (!normalizedBlocks.ok) {
             return jsonResponse({ error: normalizedBlocks.error }, 400, env.ALLOWED_ORIGIN, rateCheck.headers);
@@ -2222,10 +2227,6 @@ async function handleHostedBlogMedia(request, env) {
     }
 }
 
-function containsControlCharacters(value) {
-    return /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(value);
-}
-
 function validateImageDataUrl(value, maxLength) {
     const normalizedValue = normalizeImageDataUrl(value);
     if (!normalizedValue) {
@@ -2675,31 +2676,7 @@ function timingSafeStringEqual(left, right) {
     return mismatch === 0;
 }
 
-async function normalizeAppendContentBlocks({ contentBlocks, text, imageDataUrl, maxPostLength, maxImageDataUrlLength, grant, env }) {
-    if (contentBlocks) {
-        const validated = validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLength);
-        if (!validated.ok) {
-            return validated;
-        }
-        return resolveAuthorizedBlocks(validated.blocks, maxImageDataUrlLength, grant, env);
-    }
-
-    const blocks = [];
-    if (text) {
-        blocks.push({ type: 'text', text });
-    }
-    if (imageDataUrl) {
-        blocks.push({ type: 'image', imageDataUrl });
-    }
-
-    const validated = validateContentBlocks(blocks, maxPostLength, maxImageDataUrlLength);
-    if (!validated.ok) {
-        return validated;
-    }
-    return resolveAuthorizedBlocks(validated.blocks, maxImageDataUrlLength, grant, env);
-}
-
-function validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLength) {
+function validateContentBlocks(contentBlocks, maxImageDataUrlLength) {
     if (!Array.isArray(contentBlocks) || contentBlocks.length === 0) {
         return {
             ok: false,
@@ -2708,7 +2685,6 @@ function validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLeng
     }
 
     const normalized = [];
-    let totalTextLength = 0;
     let imageCount = 0;
 
     for (const block of contentBlocks) {
@@ -2720,33 +2696,7 @@ function validateContentBlocks(contentBlocks, maxPostLength, maxImageDataUrlLeng
         }
 
         if (block.type === 'text') {
-            const normalizedText = typeof block.text === 'string'
-                ? block.text.replace(/\s+/g, ' ').trim()
-                : '';
-
-            if (!normalizedText) {
-                continue;
-            }
-
-            totalTextLength += normalizedText.length;
-            if (totalTextLength > maxPostLength) {
-                return {
-                    ok: false,
-                    error: `text must be ${maxPostLength} characters or fewer`
-                };
-            }
-
-            if (containsControlCharacters(normalizedText)) {
-                return {
-                    ok: false,
-                    error: 'text contains unsupported control characters'
-                };
-            }
-
-            normalized.push({
-                type: 'text',
-                text: normalizedText
-            });
+            normalized.push(block);
             continue;
         }
 
@@ -4330,14 +4280,6 @@ function parseCompactImageBlockLines(imageLines) {
         byteLength,
         encodedPayload
     };
-}
-
-function encodeBlogTextLine(line) {
-    const trimmed = line.trim();
-    return /^(?:\[\/?image-(?:base64|z85|url)\])$/i.test(trimmed) || line.startsWith('[text-escaped]')
-        || isBlogEntryTimestampLine(trimmed)
-        ? '[text-escaped]' + line
-        : line;
 }
 
 function normalizeBlogEntryBlocks(contentBlocks) {

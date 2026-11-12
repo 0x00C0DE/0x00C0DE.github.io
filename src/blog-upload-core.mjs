@@ -1,3 +1,5 @@
+export { normalizeBlogPostTextBlocks } from './blog-post-text.mjs';
+
 function normalizeRequiredMediaCount(requiredCount) {
     return Number.isInteger(requiredCount) && requiredCount > 0
         ? requiredCount

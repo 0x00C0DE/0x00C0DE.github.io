@@ -474,7 +474,7 @@ function resolveTerminalFileHref(name) {
 
 let blogUploadCoreReadyPromise = null;
 let turnstileApiReadyPromise = null;
-const BLOG_UPLOAD_CORE_MODULE_URL = './blog-upload-core.mjs?v=20260408b';
+const BLOG_UPLOAD_CORE_MODULE_URL = './blog-upload-core.mjs?v=20261112';
 
 function ensureBlogUploadCoreReady() {
     if (blogUploadCoreReadyPromise) {
@@ -1608,7 +1608,7 @@ function parsePostArgs(args) {
 
     return {
         includeImage: options.includeImage,
-        text: options.textArgs.join(' ').trim()
+        text: options.textArgs.join(' ')
     };
 }
 
@@ -1658,13 +1658,13 @@ function parsePostTemplateBlocks(text, includeImage) {
     return blocks;
 }
 
-function normalizePostTextBlock(text) {
-    return String(text || '').replace(/\s+/g, ' ').trim();
-}
-
 async function resolvePostContentBlocks(templateBlocks, getUploadGrant) {
+    const core = await ensureBlogUploadCoreReady();
+    if (!core?.normalizeBlogPostTextBlocks) return { error: 'post: input validation unavailable' };
+    const validation = core.normalizeBlogPostTextBlocks(templateBlocks, BLOG_MAX_POST_LENGTH);
+    if (validation.error) return { error: 'post: ' + validation.error };
+
     const contentBlocks = [];
-    let totalTextLength = 0;
     const requestedMediaCount = templateBlocks.reduce(
         (count, block) => count + (block.type === 'image' ? 1 : 0),
         0
@@ -1687,7 +1687,7 @@ async function resolvePostContentBlocks(templateBlocks, getUploadGrant) {
 
     let mediaAttachmentIndex = 0;
 
-    for (const block of templateBlocks) {
+    for (const block of validation.blocks) {
         if (block.type === 'image') {
             const imageAttachment = mediaAttachments[mediaAttachmentIndex];
             if (!imageAttachment) {
@@ -1723,22 +1723,7 @@ async function resolvePostContentBlocks(templateBlocks, getUploadGrant) {
             continue;
         }
 
-        const normalizedText = normalizePostTextBlock(block.text);
-        if (!normalizedText) {
-            continue;
-        }
-
-        totalTextLength += normalizedText.length;
-        if (totalTextLength > BLOG_MAX_POST_LENGTH) {
-            return {
-                error: `post: message exceeds ${BLOG_MAX_POST_LENGTH} characters`
-            };
-        }
-
-        contentBlocks.push({
-            type: 'text',
-            text: normalizedText
-        });
+        contentBlocks.push(block);
     }
 
     if (contentBlocks.length === 0) {
