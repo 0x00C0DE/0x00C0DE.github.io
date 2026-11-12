@@ -735,3 +735,8 @@ The dependency-security workflow audits on code pushes and weekly, and runs the
 Bitcoin/security and backend proxy-trust regression tests. The Worker dependency
 changes require no Worker deployment. Existing Express fallback installations need
 `npm.cmd --prefix backend ci` and a restart; see [backend proxy configuration](backend/README.md).
+
+## Scheduled research preflight
+
+[Research operations](docs/codex-research.md) describes the read-only release
+monitor, local usage-planning inputs, and how to run the checks.
