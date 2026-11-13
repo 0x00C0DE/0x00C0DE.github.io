@@ -152,7 +152,7 @@ local runner. Stop the host schedule to stop new local cycles.
 ### Automatic Windows handoff
 
 The hosted workflow announces an eligible lead in a successful handoff job.
-The signed-in host runs `poll-local-handoff.ps1 -Publish` every 15 minutes
+The signed-in host runs `poll-local-handoff.ps1 -Publish` every 2 hours and 30 minutes
 while the Windows user is signed in. It reads public GitHub run metadata,
 requires a successful run for current main, and passes the announced lead
 to the CLI without repeating research. The bridge uses an isolated worktree
@@ -170,7 +170,7 @@ and next check. The panel uses the existing task under the signed-in account.
 
 - **Start** enables the checker if paused and requests a check now.
 - **Stop** disables future checks. An active check or release can finish.
-- **Resume** enables the existing 15-minute schedule.
+- **Resume** enables the existing schedule.
 
 Closing the window leaves the selected schedule in effect. The panel controls
 Windows polling. GitHub Actions research continues on its hosted schedule.

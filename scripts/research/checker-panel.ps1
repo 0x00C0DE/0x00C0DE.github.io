@@ -32,7 +32,7 @@ $title.Font = [Drawing.Font]::new('Segoe UI', 18, [Drawing.FontStyle]::Bold)
 $status = Add-Label '' 64 27
 $status.Font = [Drawing.Font]::new('Segoe UI', 12, [Drawing.FontStyle]::Bold)
 $timing = Add-Label '' 96 54
-$hint = Add-Label 'Start checks now. Stop pauses future checks and lets an active run finish. Resume restores the 15-minute schedule.' 209 60
+$hint = Add-Label 'Start checks now. Stop pauses future checks and lets an active run finish. Resume restores the schedule.' 209 60
 $buttons = @{}
 $offset = 24
 foreach ($action in 'Start', 'Stop', 'Resume') {
@@ -65,6 +65,8 @@ function Update-Panel {
             default { 'Status unavailable' }
         }
         $next = if ($state -eq 'Disabled') { 'Paused' } else { Format-Time $info.NextRunTime }
+        $interval = $task.Triggers[0].Repetition.Interval
+        $cadence = if ($interval) { [Xml.XmlConvert]::ToTimeSpan($interval).ToString('h\h\ mm\m') } else { 'Unavailable' }
         $last = Format-Time $info.LastRunTime
         $result = switch ($info.LastTaskResult) {
             0 { 'completed' }
@@ -72,7 +74,7 @@ function Update-Panel {
             267011 { 'has not run yet' }
             default { 'result ' + $info.LastTaskResult }
         }
-        $timing.Text = "Next check: $next`nLast run: $last ($result)"
+        $timing.Text = "Interval: $cadence   |   Next check: $next`nLast run: $last ($result)"
         foreach ($action in $buttons.Keys) {
             $buttons[$action].Enabled = [bool](Get-CheckerCommands $action $state)
         }
