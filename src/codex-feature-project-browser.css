@@ -1,0 +1,49 @@
+.project-browser {
+    position: fixed;
+    z-index: 2;
+    top: 0.75rem;
+    right: 0.75rem;
+    max-width: min(28rem, calc(100vw - 1.5rem));
+    border: 1px solid #00ff66;
+    border-radius: 0.25rem;
+    background: rgba(0, 12, 5, 0.96);
+    color: #00ff66;
+    font: 1rem/1.4 "Courier New", monospace;
+}
+
+.project-browser summary {
+    padding: 0.625rem 0.75rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.project-browser nav {
+    display: grid;
+    gap: 0.2rem;
+    max-height: calc(100dvh - 5rem);
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 0.5rem 0.75rem;
+    border-top: 1px solid rgba(0, 255, 102, 0.35);
+}
+
+.project-browser a {
+    padding: 0.45rem 0;
+    color: #8dffb7;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.2em;
+}
+
+.project-browser summary:focus-visible,
+.project-browser a:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: -2px;
+}
+
+@media (max-width: 40rem) {
+    .project-browser {
+        top: 0.4rem;
+        right: 0.4rem;
+        max-width: calc(100vw - 0.8rem);
+    }
+}

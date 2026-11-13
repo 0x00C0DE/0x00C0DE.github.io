@@ -754,3 +754,4 @@ monitor, local usage-planning inputs, and how to run the checks.
 
 - [Blog Atom feed](https://0x00c0de.github.io/content/feed.xml) subscribes readers to recent public blog entries.
 - [Sitemap](https://0x00c0de.github.io/sitemap.xml) lists public portfolio and project routes for search engines.
+- [Browse projects](https://0x00c0de.github.io/pages/projects.html) opens a list of native project links. Press Tab from an empty terminal prompt to focus the navigator. Inspired by [Modern Web Guidance](https://github.com/GoogleChrome/modern-web-guidance-src).

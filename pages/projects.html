@@ -8,16 +8,30 @@
     <meta name="description" content="Pinned project index for 0x00C0DE.">
     <meta http-equiv="Cache-Control" content="no-cache">
     <title>Projects | 0x00C0DE</title>
+    <link rel="stylesheet" href="/src/codex-feature-project-browser.css">
     <script>
         const DEFAULT_COMMAND = "cat projects.txt";
     </script>
     <script src="/src/pictures.js?v=20260331b"></script>
     <script src="/src/commands.js?v=20261113-upload"></script>
     <script src="/src/term.js?v=20261111b"></script>
+    <script type="module" src="/src/codex-feature-project-browser.mjs"></script>
 </head>
 <body>
     <canvas id="terminal-canvas"></canvas>
     <canvas id="canvas" hidden></canvas>
+    <details class="project-browser">
+        <summary>Browse projects</summary>
+        <nav aria-label="Pinned projects">
+            <a href="project-proprts.html">PROPR Nearest Neighbor Crypto Trading System</a>
+            <a href="project-qr-totp.html">Secure QR-TOTP Authenticator</a>
+            <a href="project-collision-avoidance.html">Autonomous Mobile Robot Collision Avoidance</a>
+            <a href="project-shellcode-template.html">Shellcode Development Template</a>
+            <a href="project-smallsh.html">Unix Small Shell Implementation</a>
+            <a href="project-bloom-filters.html">Bloom Filter Password Screening</a>
+            <a href="project-doublehitcollectibles.html">Double Hit Collectibles</a>
+        </nav>
+    </details>
     <script>
         bootTerminalSite(DEFAULT_COMMAND);
     </script>
