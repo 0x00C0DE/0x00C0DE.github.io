@@ -120,30 +120,31 @@ existing README research section in the same commit. Register a README
 entry in `scripts/research/document-feature.mjs` when adding a supported
 feature. The release stops if that entry is missing.
 
-## Codex feature proposals
+## Codex CLI feature releases
 
-To enable general proposals, set the repository Actions variable
-`CODEX_RESEARCH_ENABLED` to `true` and add `OPENAI_API_KEY` as an Actions
-secret from a dedicated OpenAI API project. Enable the repository Actions
-setting that allows GitHub Actions to create pull requests. API usage is
-billed separately from ChatGPT. Each scheduled or manually dispatched run
-can generate one proposal and review it if there is a relevant Trending match,
-main still matches the report, and no Codex feature PR is open. Set the
-variable to `false` to stop new attempts.
+Use a dedicated clean checkout on a trusted Windows machine with PowerShell,
+Git, Node.js 24, and the Codex CLI. Run `codex.cmd login` to sign in with
+ChatGPT if needed. The local runner checks the login method and leaves
+account credentials on that machine. The public GitHub Actions workflow
+continues research and predefined releases without a Codex credential.
 
-Codex proposes a small public-site change with a focused regression test
-and a README update in the existing style. A fresh runner checks allowed
-paths, regular file modes, and diff size, then runs the feature and
-research tests and builds Pages. A second, read-only Codex session reviews
-the patch against the trusted base. Only a structured approval with no
-findings advances to publication. A separate job reapplies the reviewed
-patch, opens a PR on a fresh `US-…-codex-feature-v1` branch, and attempts a
-squash merge of the exact reviewed head while main still matches the base.
-GitHub still enforces required reviews, checks, and branch rules. A blocked
-merge leaves the PR open. A successful merge dispatches Pages and verifies
-the successful deployment run for that revision plus public availability.
+From a dedicated checkout at the latest main, preview a proposal with:
 
-If the workflow pushes a feature branch but PR creation fails, open the
-PR from the existing branch after resolving the repository permission.
-Existing predefined implementations retain their automatic deployment
-path.
+```powershell
+pwsh -NoProfile -File scripts/research/run-codex-local.ps1
+```
+
+Add `-Publish` to publish after a separate read-only Codex review approves
+with no findings. That review checks behavior, runs the focused and research
+tests inside the CLI sandbox, and checks the README update. The runner
+checks the allowed file paths and modes, builds Pages, and verifies main
+still matches the reviewed base before pushing. It uses the repository's
+normal atomic feature-branch and main push. If branch rules reject the push,
+use the required PR path. After a successful push it verifies the Pages run
+for that revision and checks that the public home page is reachable.
+
+Preview leaves the proposal staged. Failed checks and reviews leave the
+branch available for diagnosis. For unattended use, schedule the command
+on the signed-in host under the same user account. Start each cycle in a
+clean checkout at current main. The hosted schedule does not start the
+local runner. Stop the host schedule to stop new local cycles.
