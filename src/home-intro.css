@@ -17,7 +17,7 @@
     padding: 1.25rem;
     overflow: hidden;
     border: 0;
-    background: #100c1d;
+    background: #020306;
     color: #f8f3ff;
     cursor: pointer;
 }
@@ -36,8 +36,8 @@
 }
 
 .home-intro-art {
-    background: radial-gradient(ellipse at 75% 30%, #30204b, transparent 65%),
-        radial-gradient(ellipse at 20% 70%, #252041, transparent 60%);
+    background: radial-gradient(ellipse at 72% 32%, #0c111c, transparent 65%),
+        radial-gradient(ellipse at 18% 76%, #070a12, transparent 60%);
 }
 
 .home-intro-copy {
@@ -51,7 +51,7 @@
     margin: 0 0 1.25rem;
     font-size: clamp(2.5rem, 11vw, 6rem);
     letter-spacing: -0.035em;
-    text-shadow: 0 3px 24px #100c1d, 0 1px 4px #100c1d;
+    text-shadow: 0 3px 24px #020306, 0 1px 4px #020306;
 }
 
 .home-intro-metallic {
