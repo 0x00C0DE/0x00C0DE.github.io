@@ -127,19 +127,21 @@ To enable general proposals, set the repository Actions variable
 secret from a dedicated OpenAI API project. Enable the repository Actions
 setting that allows GitHub Actions to create pull requests. API usage is
 billed separately from ChatGPT. Each scheduled or manually dispatched run
-can make one bounded Codex attempt if there is a relevant Trending match,
+can generate one proposal and review it if there is a relevant Trending match,
 main still matches the report, and no Codex feature PR is open. Set the
 variable to `false` to stop new attempts.
 
 Codex proposes a small public-site change with a focused regression test
 and a README update in the existing style. A fresh runner checks allowed
 paths, regular file modes, and diff size, then runs the feature and
-research tests and builds Pages. A separate job reapplies the verified
-patch without executing candidate code and opens a PR on a fresh
-`US-…-codex-feature-v1` branch. Review the feature, README, and applicable
-browser checks before merging. If GitHub requires approval to run checks
-for a bot-created PR, approve them from that PR. Merging through the
-normal repository release path triggers Pages.
+research tests and builds Pages. A second, read-only Codex session reviews
+the patch against the trusted base. Only a structured approval with no
+findings advances to publication. A separate job reapplies the reviewed
+patch, opens a PR on a fresh `US-…-codex-feature-v1` branch, and attempts a
+squash merge of the exact reviewed head while main still matches the base.
+GitHub still enforces required reviews, checks, and branch rules. A blocked
+merge leaves the PR open. A successful merge dispatches Pages and verifies
+the successful deployment run for that revision plus public availability.
 
 If the workflow pushes a feature branch but PR creation fails, open the
 PR from the existing branch after resolving the repository permission.

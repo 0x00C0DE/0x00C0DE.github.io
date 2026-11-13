@@ -20,3 +20,12 @@ test('requires README and tests, and rejects privileged or nonregular paths', ()
     assert.throws(() => validateChanges(good.slice(1)));
     assert.throws(() => validateChanges([...good.slice(0, 2), { ...good[2], mode: '120000' }]));
 });
+
+test('automated review fails closed unless it explicitly approves with zero findings', async () => {
+    const { reviewApproved } = await import('../scripts/research/codex-proposal.mjs');
+    assert.equal(reviewApproved('{"decision":"approve","findings":[]}'), true);
+    for (const value of ['approve', '{}', '{"decision":"block","findings":[]}',
+        '{"decision":"approve","findings":["Regression"]}', '{"decision":"approve","findings":[]} trailing']) {
+        assert.equal(reviewApproved(value), false);
+    }
+});

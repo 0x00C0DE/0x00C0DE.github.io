@@ -19,6 +19,16 @@ export function validateChanges(changes) {
     }
 }
 
+export function reviewApproved(text) {
+    try {
+        const result = JSON.parse(text);
+        return result?.decision === 'approve'
+            && Array.isArray(result.findings) && result.findings.length === 0;
+    } catch {
+        return false;
+    }
+}
+
 function git(...args) {
     return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1024 * 1024 });
 }
@@ -46,6 +56,9 @@ function verifyIndex() {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     if (process.argv[2] === 'verify') {
         verifyIndex();
+    } else if (process.argv[2] === 'review') {
+        const approved = reviewApproved(await readFile(process.argv[3], 'utf8'));
+        await appendFile(process.env.GITHUB_OUTPUT, 'approved=' + approved + '\n');
     } else {
         const report = JSON.parse(await readFile(process.argv[2], 'utf8'));
         const lead = selectLead(report, process.env.GITHUB_SHA);
