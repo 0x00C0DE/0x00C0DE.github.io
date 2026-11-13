@@ -13,6 +13,13 @@ if ($remote -notmatch '^(https://github\.com/|git@github\.com:)0x00C0DE/0x00C0DE
     throw 'Unexpected origin for the local research bridge.'
 }
 $state = New-Item -ItemType Directory -Force $StateDirectory
+$browserRoot = if ($env:CODEX_RESEARCH_BROWSER_ROOT) {
+    $env:CODEX_RESEARCH_BROWSER_ROOT
+} elseif (Test-Path -LiteralPath '../0x00C0DE.github.io/node_modules/playwright/package.json') {
+    (Resolve-Path -LiteralPath '../0x00C0DE.github.io').Path
+} else {
+    (Get-Location).Path
+}
 $lock = [IO.File]::Open((Join-Path $state.FullName 'poll.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
 try {
     $api = 'https://api.github.com/repos/0x00C0DE/0x00C0DE.github.io'
@@ -99,7 +106,7 @@ try {
             '{"status":"already-claimed"}' | Set-Content -LiteralPath $receipt -Encoding utf8
             return
         }
-        $options = @('-ProjectRoot', (Resolve-Path '..').Path)
+        $options = @('-BrowserDependencies', $browserRoot)
         if ($attempt) {
             $options += @('-ReportPath', (Join-Path $checkout 'tmp/codex-research/report.json'))
         }
@@ -110,7 +117,7 @@ try {
         $removeCheckout = $false
         & pwsh -NoProfile -NonInteractive -File (Join-Path $checkout 'scripts/research/run-codex-local.ps1') @options
         $runnerExit = $LASTEXITCODE
-        foreach ($artifact in 'trending-evaluation.json', 'trending-selection.json', 'feature-chat.json') {
+        foreach ($artifact in 'trending-evaluation.json', 'trending-selection.json', 'feature-browser-plan.json') {
             $source = Join-Path $checkout "tmp/$artifact"
             if (Test-Path -LiteralPath $source) {
                 Copy-Item -LiteralPath $source -Destination (Join-Path $state.FullName "$runId-$artifact")
