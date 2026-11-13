@@ -524,7 +524,7 @@ The visitor widget keeps a stable browser visitor ID in `localStorage`. The visi
 
 ## Homepage intro
 
-On the first homepage visit, click or tap the chrome Aero Shards screen, or press Enter on the focused **Enter terminal** button. The terminal is revealed in place. The browser remembers the dismissal in local storage. To replay the intro locally, clear the `0x00c0de.home-intro.v1` key and reload.
+The chrome Aero Shards intro plays on each homepage load, including reloads and visits in new tabs or browser sessions. Click or tap the intro, or press Enter on the focused **Enter terminal** button, to reveal the terminal in place.
 
 The intro layers [React Bits Metallic Paint](https://github.com/DavidHDev/react-bits/tree/9d9c687dc4f55b23539aa5417b703078047efa74/src/content/Animations/MetallicPaint) on the wordmark over [Aero Shards](https://github.com/DavidHDev/react-bits/tree/9d9c687dc4f55b23539aa5417b703078047efa74/src/content/Backgrounds/AeroShards). Reduced motion uses a static screen. Aero Shards needs WebGPU and Metallic Paint needs WebGL 2. Each effect falls back independently. Direct project links and terminal links with a `command` query parameter open immediately. The React Bits license and the license for the bundled Vercel vgpu 0.3.1 renderer are in `vendor/aero-shards/`.
 

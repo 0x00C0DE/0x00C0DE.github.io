@@ -1,14 +1,5 @@
-const INTRO_SEEN = '0x00c0de.home-intro.v1';
 const dialog = document.querySelector('#home-intro');
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
-
-function hasSeenIntro() {
-    try {
-        return localStorage.getItem(INTRO_SEEN) === '1';
-    } catch {
-        return false;
-    }
-}
 
 function showIntro() {
     let leaving = false;
@@ -18,12 +9,6 @@ function showIntro() {
     async function enterTerminal() {
         if (leaving) return;
         leaving = true;
-        try {
-            localStorage.setItem(INTRO_SEEN, '1');
-        } catch {
-            // The visitor can still enter if storage is unavailable.
-        }
-
         if (!motion.matches && typeof dialog.animate === 'function') {
             await dialog.animate(
                 [{ opacity: 1 }, { opacity: 0 }],
@@ -86,6 +71,6 @@ function showIntro() {
 }
 
 if (window.top === window && !new URLSearchParams(location.search).has('command') && !location.hash &&
-    typeof dialog?.showModal === 'function' && !hasSeenIntro()) {
+    typeof dialog?.showModal === 'function') {
     showIntro();
 }

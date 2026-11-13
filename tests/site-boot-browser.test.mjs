@@ -343,7 +343,7 @@ test('moderation requests carry the issued session token without the password', 
     assert.ok(posted.every(body => body.moderationToken === 'fixture-session' && !Object.hasOwn(body, 'password')));
 });
 
-test('homepage intro yields to the terminal and stays dismissed in the same browser', { timeout: 30000 }, async t => {
+test('homepage intro replays on reload and in new tabs in the same browser', { timeout: 30000 }, async t => {
     const site = await createStaticServer(REPO_ROOT);
     const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
     t.after(async () => {
@@ -367,8 +367,11 @@ test('homepage intro yields to the terminal and stays dismissed in the same brow
     await enter.waitFor({ state: 'hidden' });
     assert.equal(await page.locator('#terminal-canvas').isVisible(), true);
     assert.equal(new URL(page.url()).pathname, '/');
+    const secondTab = await context.newPage();
+    await secondTab.goto(site.origin);
+    await secondTab.getByRole('button', { name: 'Enter terminal' }).waitFor({ timeout: 3000 });
     await page.reload();
-    assert.equal(await enter.isVisible(), false);
+    await enter.waitFor({ timeout: 3000 });
     assert.deepEqual(rendererRequests, []);
 
     const touch = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } });
