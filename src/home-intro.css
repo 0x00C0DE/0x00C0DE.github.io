@@ -1,0 +1,87 @@
+#home-intro:not([open]) {
+    display: none;
+}
+
+#home-intro {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 1.25rem;
+    overflow: hidden;
+    border: 0;
+    background: #100c1d;
+    color: #f8f3ff;
+    cursor: pointer;
+}
+
+#home-intro::backdrop {
+    background: transparent;
+}
+
+.home-intro-art,
+.aero-shards-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.home-intro-art {
+    background: radial-gradient(ellipse at 75% 30%, #30204b, transparent 65%),
+        radial-gradient(ellipse at 20% 70%, #252041, transparent 60%);
+}
+
+.home-intro-copy {
+    position: relative;
+    text-align: center;
+    font-family: "Courier New", monospace;
+}
+
+#home-intro-title {
+    position: relative;
+    margin: 0 0 1.25rem;
+    font-size: clamp(2.5rem, 11vw, 6rem);
+    letter-spacing: -0.035em;
+    text-shadow: 0 3px 24px #100c1d, 0 1px 4px #100c1d;
+}
+
+.home-intro-metallic {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+#home-intro-title.has-metallic-paint:has(.home-intro-metallic) {
+    color: transparent;
+    text-shadow: none;
+}
+
+#home-intro button {
+    min-height: 48px;
+    padding: 0.65rem 1.15rem;
+    border: 1px solid #a993cb;
+    border-radius: 4px;
+    background: #191228;
+    color: inherit;
+    font: 600 1rem/1.25 "Courier New", monospace;
+    cursor: inherit;
+}
+
+#home-intro button:hover {
+    background: #36244d;
+}
+
+#home-intro button:focus-visible {
+    outline: 2px solid #f2dfff;
+    outline-offset: 4px;
+}

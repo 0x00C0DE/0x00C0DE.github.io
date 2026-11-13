@@ -342,3 +342,48 @@ test('moderation requests carry the issued session token without the password', 
     assert.equal(posted.length, 3);
     assert.ok(posted.every(body => body.moderationToken === 'fixture-session' && !Object.hasOwn(body, 'password')));
 });
+
+test('homepage intro yields to the terminal and stays dismissed in the same browser', { timeout: 30000 }, async t => {
+    const site = await createStaticServer(REPO_ROOT);
+    const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
+    t.after(async () => {
+        await browser.close();
+        await site.close();
+    });
+    const context = await browser.newContext({ reducedMotion: 'reduce' });
+    await context.route('https://0x00c0de-blog-append.0x00c0de.workers.dev/api/**', route =>
+        route.fulfill({ json: { ok: true, visits: 0, uniqueVisitors: 0, onSite: 0 } })
+    );
+    const page = await context.newPage();
+    const rendererRequests = [];
+    page.on('request', request => {
+        if (request.url().includes('/vendor/aero-shards/')) rendererRequests.push(request.url());
+    });
+    await page.goto(site.origin);
+    const enter = page.getByRole('button', { name: 'Enter terminal' });
+    await enter.waitFor({ timeout: 3000 });
+    assert.equal(await enter.evaluate(button => document.activeElement === button), true);
+    await page.keyboard.press('Enter');
+    await enter.waitFor({ state: 'hidden' });
+    assert.equal(await page.locator('#terminal-canvas').isVisible(), true);
+    assert.equal(new URL(page.url()).pathname, '/');
+    await page.reload();
+    assert.equal(await enter.isVisible(), false);
+    assert.deepEqual(rendererRequests, []);
+
+    const touch = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } });
+    await touch.addInitScript(() => {
+        Object.defineProperty(navigator, 'gpu', { value: undefined });
+    });
+    await touch.route('https://0x00c0de-blog-append.0x00c0de.workers.dev/api/**', route =>
+        route.fulfill({ json: { ok: true, visits: 0, uniqueVisitors: 0, onSite: 0 } })
+    );
+    const phone = await touch.newPage();
+    await phone.goto(site.origin + '/?command=banner');
+    assert.equal(await phone.locator('#home-intro').isVisible(), false);
+    await phone.goto(site.origin);
+    await phone.locator('#home-intro[open]').waitFor();
+    await phone.touchscreen.tap(20, 20);
+    await phone.locator('#home-intro').waitFor({ state: 'hidden' });
+    assert.equal(await phone.locator('#terminal-canvas').isVisible(), true);
+});

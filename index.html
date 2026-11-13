@@ -13,10 +13,19 @@
     <script src="/src/pictures.js?v=20260331b"></script>
     <script src="/src/commands.js?v=20261111b"></script>
     <script src="/src/term.js?v=20261111b"></script>
+    <link rel="stylesheet" href="/src/home-intro.css">
+    <script type="module" src="/src/home-intro.mjs"></script>
 </head>
 <body>
     <canvas id="terminal-canvas"></canvas>
     <canvas id="canvas" hidden></canvas>
+    <dialog id="home-intro" aria-labelledby="home-intro-title">
+        <div class="home-intro-art" aria-hidden="true"></div>
+        <div class="home-intro-copy">
+            <h1 id="home-intro-title">0x00C0DE</h1>
+            <button type="button" autofocus>Enter terminal</button>
+        </div>
+    </dialog>
     <script>
         bootTerminalSite(DEFAULT_COMMAND);
     </script>

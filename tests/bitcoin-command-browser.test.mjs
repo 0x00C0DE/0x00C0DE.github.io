@@ -119,7 +119,7 @@ test('bitcoin command renders repository analytics and interval detail in the li
         status: 503
     }));
     const page = await context.newPage();
-    await page.goto(server.origin, { waitUntil: 'load' });
+    await page.goto(server.origin + '/?command=banner', { waitUntil: 'load' });
     await page.waitForFunction(() => typeof window.bitcoin_command === 'function');
 
     const dashboard = await page.evaluate(() => window.bitcoin_command([]));

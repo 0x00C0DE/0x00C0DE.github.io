@@ -146,7 +146,7 @@ test('mobile tap focuses a text-input proxy and beforeinput can submit commands 
     const page = await createMobilePage(t);
     await stubVisitorApis(page);
 
-    await page.goto(server.origin, { waitUntil: 'load' });
+    await page.goto(server.origin + '/?command=banner', { waitUntil: 'load' });
     await page.waitForFunction(() => typeof window.executeCommand === 'function');
     await page.waitForTimeout(2500);
     await page.evaluate(() => {
@@ -204,7 +204,7 @@ test('mobile visitor widget redraws live stats instead of staying at zeros after
         visits: 456
     });
 
-    await page.goto(server.origin, { waitUntil: 'load' });
+    await page.goto(server.origin + '/?command=banner', { waitUntil: 'load' });
     await page.waitForFunction(() => typeof window.getCurrentVisitorStats === 'function');
     await page.waitForTimeout(3500);
 
@@ -243,7 +243,7 @@ test('mobile scrollbar thumb drag scrolls the terminal content', { timeout: 1200
     const page = await createMobilePage(t);
     await stubVisitorApis(page);
 
-    await page.goto(server.origin, { waitUntil: 'load' });
+    await page.goto(server.origin + '/?command=banner', { waitUntil: 'load' });
     await page.waitForFunction(() => typeof window.executeCommand === 'function');
     await page.waitForFunction(() => Boolean(window.__terminalCanvasTestHooks));
     await page.waitForTimeout(2500);
@@ -310,7 +310,7 @@ test('mobile touch drag across the terminal body scrolls without needing the scr
     const page = await createMobilePage(t);
     await stubVisitorApis(page);
 
-    await page.goto(server.origin, { waitUntil: 'load' });
+    await page.goto(server.origin + '/?command=banner', { waitUntil: 'load' });
     await page.waitForFunction(() => typeof window.executeCommand === 'function');
     await page.waitForFunction(() => Boolean(window.__terminalCanvasTestHooks));
     await page.waitForTimeout(2500);
@@ -377,7 +377,7 @@ test('mobile touch drag keeps gliding briefly after release instead of stopping 
     const page = await createMobilePage(t);
     await stubVisitorApis(page);
 
-    await page.goto(server.origin, { waitUntil: 'load' });
+    await page.goto(server.origin + '/?command=banner', { waitUntil: 'load' });
     await page.waitForFunction(() => typeof window.executeCommand === 'function');
     await page.waitForFunction(() => Boolean(window.__terminalCanvasTestHooks));
     await page.waitForTimeout(2500);
@@ -441,7 +441,7 @@ test('desktop wheel scrolling glides after the initial wheel event', { timeout: 
     const page = await createDesktopPage(t);
     await stubVisitorApis(page);
 
-    await page.goto(server.origin, { waitUntil: 'load' });
+    await page.goto(server.origin + '/?command=banner', { waitUntil: 'load' });
     await page.waitForFunction(() => typeof window.executeCommand === 'function');
     await page.waitForFunction(() => Boolean(window.__terminalCanvasTestHooks));
     await page.waitForTimeout(2500);
