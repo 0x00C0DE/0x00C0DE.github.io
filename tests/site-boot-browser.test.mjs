@@ -426,7 +426,13 @@ test('homepage intro replays on reload and in new tabs in the same browser', { t
     await phone.getByRole('button', { name: 'Enter terminal' }).tap();
     await phone.locator('#home-intro[data-entry-phase="tint"]').waitFor({ timeout: 2000 });
     assert.equal(await phone.locator('.home-intro-pixels').count(), 0);
-    await phone.locator('#home-intro[data-entry-phase="pixels"] .home-intro-pixels').waitFor({ timeout: 2000 });
+    const hold = phone.locator('#home-intro[data-entry-phase="hold"] .home-intro-tint');
+    await hold.waitFor({ timeout: 2500 });
+    assert.equal(await hold.evaluate(layer => layer.getAnimations().some(animation =>
+        animation.effect.getTiming().duration === 2000
+    )), true);
+    assert.equal(await phone.locator('.home-intro-pixels').count(), 0);
+    await phone.locator('#home-intro[data-entry-phase="pixels"] .home-intro-pixels').waitFor({ timeout: 4000 });
     await phone.locator('#home-intro').waitFor({ state: 'hidden' });
     assert.equal(await borders.count(), 0);
     assert.equal(await phone.locator('#terminal-canvas').isVisible(), true);

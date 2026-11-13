@@ -37,13 +37,19 @@ function showIntro() {
                 dialog.append(tint);
                 const tintAnimation = tint.animate(
                     [{ opacity: 0 }, { opacity: 1 }],
-                    { duration: 360, easing: 'ease-in-out', fill: 'forwards' }
+                    { duration: 900, easing: 'ease-in-out', fill: 'forwards' }
                 );
                 abort.signal.addEventListener('abort', () => tintAnimation.cancel(), { once: true });
                 checkVisibility();
                 await tintAnimation.finished;
                 if (!abort.signal.aborted && !motion.matches) {
-                    const { playPixelTransition } = await import('../vendor/aero-shards/pixel-transition.mjs');
+                    dialog.dataset.entryPhase = 'hold';
+                    const holdAnimation = tint.animate([{ opacity: 1 }, { opacity: 1 }], 2000);
+                    abort.signal.addEventListener('abort', () => holdAnimation.cancel(), { once: true });
+                    await holdAnimation.finished;
+                }
+                if (!abort.signal.aborted && !motion.matches) {
+                    const { playPixelTransition } = await import('../vendor/aero-shards/pixel-transition.mjs?v=slower-entry');
                     if (!abort.signal.aborted) {
                         dialog.dataset.entryPhase = 'pixels';
                         dialog.append(pixels);

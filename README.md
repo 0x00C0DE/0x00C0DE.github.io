@@ -524,7 +524,7 @@ The visitor widget keeps a stable browser visitor ID in `localStorage`. The visi
 
 ## Homepage intro
 
-Entering the terminal tints the intro to the terminal banner red, then reveals the terminal with a [React Bits Pixel Transition](https://reactbits.dev/animations/pixel-transition) dissolve. Reduced motion opens the terminal immediately.
+Entering the terminal tints the intro to the terminal banner red, holds the color for two seconds, then reveals the terminal with a [React Bits Pixel Transition](https://reactbits.dev/animations/pixel-transition) dissolve. Reduced motion opens the terminal immediately.
 
 The chrome Aero Shards intro plays on each homepage load, including visits in new tabs or browser sessions. Refreshing any site page opens the intro. On Chrome for iOS, pull down on the intro or from the top of the terminal to use native reload. Other touch browsers use the site Reload indicator. Activate **Enter terminal** to reveal the terminal in place. The web résumé has a **Return to terminal** link. Its cinematic starts with sound when autoplay is allowed and offers **Enable sound** when the browser requires a tap.
 
