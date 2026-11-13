@@ -39,11 +39,14 @@ async function verify(root, planPath, dependencyRoot) {
         browser = await chromium.launch({ timeout: 30_000 });
         const origin = 'http://127.0.0.1:' + server.address().port;
         for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
-            const page = await browser.newPage({ viewport, hasTouch: viewport.width < 500 });
-            page.setDefaultTimeout(5000);
+            const page = await browser.newPage({ viewport, hasTouch: viewport.width < 500,
+                reducedMotion: 'reduce' });
+            page.setDefaultTimeout(20_000);
             await page.route('**/*', route => new URL(route.request().url()).origin === origin
                 ? route.continue() : route.abort());
-            const response = await page.goto(origin + plan.route);
+            const response = await page.goto(origin + plan.route, {
+                waitUntil: 'domcontentloaded', timeout: 30_000,
+            });
             assert.ok(response?.ok(), 'Feature route did not load');
             for (const { action, selector, value } of plan.steps) {
                 const locator = page.locator(selector);

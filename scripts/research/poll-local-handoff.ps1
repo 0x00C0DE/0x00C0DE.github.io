@@ -115,7 +115,8 @@ try {
         '{"status":"started"}' | Set-Content -LiteralPath $receipt -Encoding utf8
         Write-Output "Handing off $leadName ($runId)."
         $removeCheckout = $false
-        & pwsh -NoProfile -NonInteractive -File (Join-Path $checkout 'scripts/research/run-codex-local.ps1') @options
+        $runnerLog = Join-Path $state.FullName "runner-$runId.log"
+        & pwsh -NoProfile -NonInteractive -File (Join-Path $checkout 'scripts/research/run-codex-local.ps1') @options *> $runnerLog
         $runnerExit = $LASTEXITCODE
         foreach ($artifact in 'trending-evaluation.json', 'trending-selection.json', 'feature-browser-plan.json') {
             $source = Join-Path $checkout "tmp/$artifact"
@@ -126,7 +127,7 @@ try {
         $status = switch ($runnerExit) {
             0 { if ($Publish) { 'published' } else { 'previewed' } }
             20 { 'no-proposal' }
-            default { throw "Local runner failed for $runId. Inspect $checkout before retrying." }
+            default { throw "Local runner failed for $runId (exit $runnerExit). Inspect $runnerLog and $checkout before retrying." }
         }
         @{ status = $status } | ConvertTo-Json -Compress | Set-Content -LiteralPath $receipt -Encoding utf8
         Write-Output "Handoff result: $status ($runId)."
