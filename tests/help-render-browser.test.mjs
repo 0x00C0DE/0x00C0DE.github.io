@@ -521,6 +521,30 @@ test('help lists cat blog.txt and describes the blog', { timeout: 120000 }, asyn
     assert.equal(entry?.description, 'Read the live blog, including text posts, images, and videos');
 });
 
+test('cat requires the .txt extension for text files', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(() => server.close());
+    const page = await createPage(t);
+    await stubVisitorApis(page);
+    await bootTerminal(page, server.origin);
+
+    for (const name of ['blog', 'projects']) {
+        const error = await page.evaluate(async filename => {
+            const [firstLine] = await window.cat_command([filename]);
+            return typeof firstLine === 'string' ? firstLine : null;
+        }, name);
+        assert.equal(error, `cat: ${name}: No such file or directory`);
+
+        const filename = name + '.txt';
+        const [response, lineCount] = await Promise.all([
+            page.waitForResponse(server.origin + '/content/' + filename),
+            page.evaluate(async file => (await window.cat_command([file])).length, filename)
+        ]);
+        assert.ok(response.ok());
+        assert.ok(lineCount > 0);
+    }
+});
+
 test('help consolidates post into the universal multi-media form', { timeout: 120000 }, async t => {
     const server = await createStaticServer(REPO_ROOT);
     t.after(async () => {

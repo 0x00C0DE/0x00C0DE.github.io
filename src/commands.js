@@ -424,12 +424,7 @@ function ensureTerminalSessionReady() {
 }
 
 function normalizeTextFilename(input) {
-    const trimmed = input.trim();
-    if (!trimmed) {
-        return null;
-    }
-    const candidate = trimmed.toUpperCase().endsWith('.TXT') ? trimmed : `${trimmed}.txt`;
-    return TEXT_FILE_LOOKUP.get(candidate.toUpperCase()) || null;
+    return TEXT_FILE_LOOKUP.get(input.trim().toUpperCase()) || null;
 }
 
 function appendAnchor(container, href, text, options = {}) {
@@ -1050,7 +1045,7 @@ function help_command() {
             ['history', 'Show command history'],
             ['clear', 'Clear the terminal screen'],
             ['ls', 'List directory contents'],
-            ['cat <file>', 'Display file contents, e.g. cat projects.txt'],
+            ['cat <file>', 'Display a file by its full name, including .txt'],
             ['cat blog.txt', 'Read the live blog, including text posts, images, and videos'],
             ['pwd', 'Print working directory'],
             ['echo [text]', 'Display text'],

@@ -647,6 +647,7 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
   history                    Show recent commands from the active session
   whoami                     Print the current terminal username
   pwd                        Print the simulated working directory
+  cat <file>                 Display a file by its full name, including .txt
   cat blog.txt               Read the live blog
   cat projects.txt           Browse project list
   cat links.txt              View curated links

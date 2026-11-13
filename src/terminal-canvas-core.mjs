@@ -902,13 +902,8 @@ function normalizeTextFilename(input) {
         return window.normalizeTerminalTextFilename(input);
     }
 
-    const trimmed = typeof input === 'string' ? input.trim() : '';
-    if (!trimmed) {
-        return null;
-    }
-
-    const candidate = trimmed.toUpperCase().endsWith('.TXT') ? trimmed : `${trimmed}.txt`;
-    return TEXT_FILE_LOOKUP.get(candidate.toUpperCase()) || null;
+    const filename = typeof input === 'string' ? input.trim().toUpperCase() : '';
+    return TEXT_FILE_LOOKUP.get(filename) || null;
 }
 
 function buildPromptTokens(snapshot) {
