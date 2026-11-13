@@ -161,7 +161,7 @@ const VISITOR_LEADER_STORAGE_KEY = 'siteVisitorLeaderV1';
 const VISITOR_LEADER_LEASE_MS = 10000;
 const VISITOR_LEADER_RENEW_MS = 4000;
 const TURNSTILE_API_LOAD_TIMEOUT_MS = 15000;
-const TURNSTILE_TOKEN_TIMEOUT_MS = 30000;
+const TURNSTILE_TOKEN_TIMEOUT_MS = 120000;
 const BLOG_MEDIA_SIGNATURE_PREFIX_BYTES = 16;
 const TEXT_FILES = Object.freeze([
     'blog.txt',
@@ -567,7 +567,7 @@ function createTurnstileContainer() {
     container.style.right = '16px';
     container.style.bottom = '16px';
     container.style.zIndex = '2147483647';
-    container.style.minWidth = '300px';
+    container.style.width = 'min(300px, calc(100% - 32px))';
     container.style.minHeight = '65px';
     container.style.pointerEvents = 'auto';
     container.style.background = 'transparent';
@@ -626,7 +626,8 @@ async function requestTurnstileToken() {
             widgetId = turnstileApi.render(container, {
                 sitekey: TURNSTILE_SITE_KEY,
                 action: 'blog_post',
-                appearance: 'interaction-only',
+                appearance: 'always',
+                size: container.clientWidth < 300 ? 'compact' : 'normal',
                 execution: 'execute',
                 callback: token => {
                     if (typeof token !== 'string' || !token.trim()) {

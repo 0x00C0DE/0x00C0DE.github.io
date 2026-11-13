@@ -300,7 +300,7 @@ test('post uses showOpenFilePicker for multiple [image] placeholders and uploads
     const turnstileCalls = await page.evaluate(() => window.__turnstileRenderCalls || []);
     assert.equal(turnstileCalls.length, 1);
     assert.equal(turnstileCalls[0].sitekey, '0x4AAAAAAC85Zivt0Tn6Fqp9');
-    assert.equal(turnstileCalls[0].appearance, 'interaction-only');
+    assert.equal(turnstileCalls[0].appearance, 'always');
     assert.equal(turnstileCalls[0].execution, 'execute');
 
     assert.ok(appendPayload && Array.isArray(appendPayload.contentBlocks));
@@ -457,6 +457,7 @@ test('staged media uses the same challenge grant for chunks and append', { timeo
     });
     await startPostCommand(page, 'post staged [image]');
     await page.waitForFunction(() => window.__postCommandDone === true);
+    assert.equal(await page.evaluate(() => window.__turnstileRenderCalls[0]?.appearance), 'always');
     assert.equal(calls[0]?.endpoint, 'upload-grant');
     assert.equal(calls[0].body.turnstileToken, 'browser-test-turnstile-token');
     assert.equal(calls.at(-1)?.endpoint, 'append');
