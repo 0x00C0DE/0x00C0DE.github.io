@@ -4,6 +4,8 @@
 
 #home-intro {
     --intro-chrome: #e3e9f5;
+    --intro-terminal-red: #ff6b78;
+    isolation: isolate;
     position: fixed;
     inset: 0;
     display: grid;
@@ -24,6 +26,28 @@
 
 #home-intro::backdrop {
     background: transparent;
+}
+
+#home-intro[data-entry-phase="reveal"] {
+    background: transparent;
+}
+
+#home-intro[data-entry-phase="reveal"] > :is(.home-intro-art, .home-intro-copy, .home-intro-tint) {
+    visibility: hidden;
+}
+
+.home-intro-pixels,
+.home-intro-tint {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.home-intro-tint {
+    background: var(--intro-terminal-red);
+    mix-blend-mode: multiply;
 }
 
 .home-intro-art,

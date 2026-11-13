@@ -11,13 +11,55 @@ function showIntro() {
     async function enterTerminal() {
         if (leaving) return;
         leaving = true;
+        const abort = new AbortController();
+        const checkVisibility = () => {
+            if (document.hidden) abort.abort();
+        };
+        const revealTerminal = () => {
+            stopAnimations.splice(0).forEach(stop => stop());
+            dialog.dataset.entryPhase = 'reveal';
+        };
+        document.addEventListener('visibilitychange', checkVisibility);
+        const reduceMotion = event => {
+            if (event.matches) abort.abort();
+        };
+        motion.addEventListener('change', reduceMotion);
         if (!motion.matches && typeof dialog.animate === 'function') {
-            await dialog.animate(
-                [{ opacity: 1 }, { opacity: 0 }],
-                { duration: 380, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' }
-            ).finished.catch(() => {});
+            const pixels = document.createElement('canvas');
+            pixels.className = 'home-intro-pixels';
+            pixels.setAttribute('aria-hidden', 'true');
+            const tint = document.createElement('div');
+            tint.className = 'home-intro-tint';
+            tint.setAttribute('aria-hidden', 'true');
+            const red = getComputedStyle(dialog).getPropertyValue('--intro-terminal-red').trim();
+            try {
+                dialog.dataset.entryPhase = 'tint';
+                dialog.append(tint);
+                const tintAnimation = tint.animate(
+                    [{ opacity: 0 }, { opacity: 1 }],
+                    { duration: 360, easing: 'ease-in-out', fill: 'forwards' }
+                );
+                abort.signal.addEventListener('abort', () => tintAnimation.cancel(), { once: true });
+                checkVisibility();
+                await tintAnimation.finished;
+                if (!abort.signal.aborted && !motion.matches) {
+                    const { playPixelTransition } = await import('../vendor/aero-shards/pixel-transition.mjs');
+                    if (!abort.signal.aborted) {
+                        dialog.dataset.entryPhase = 'pixels';
+                        dialog.append(pixels);
+                        await playPixelTransition(pixels, red, revealTerminal, abort.signal);
+                    }
+                }
+            } catch (error) {
+                if (!abort.signal.aborted) console.warn('Terminal entry transition interrupted:', error);
+            } finally {
+                pixels.remove();
+                tint.remove();
+            }
         }
-        stopAnimations.forEach(stop => stop());
+        document.removeEventListener('visibilitychange', checkVisibility);
+        motion.removeEventListener('change', reduceMotion);
+        revealTerminal();
         dialog.close();
         const terminal = document.querySelector('#terminal-canvas');
         terminal.tabIndex = -1;

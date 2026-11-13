@@ -424,6 +424,9 @@ test('homepage intro replays on reload and in new tabs in the same browser', { t
     await phone.touchscreen.tap(20, 20);
     assert.equal(await phone.locator('#home-intro').isVisible(), true);
     await phone.getByRole('button', { name: 'Enter terminal' }).tap();
+    await phone.locator('#home-intro[data-entry-phase="tint"]').waitFor({ timeout: 2000 });
+    assert.equal(await phone.locator('.home-intro-pixels').count(), 0);
+    await phone.locator('#home-intro[data-entry-phase="pixels"] .home-intro-pixels').waitFor({ timeout: 2000 });
     await phone.locator('#home-intro').waitFor({ state: 'hidden' });
     assert.equal(await borders.count(), 0);
     assert.equal(await phone.locator('#terminal-canvas').isVisible(), true);
