@@ -1,5 +1,5 @@
 ﻿let terminalCanvasCore = null;
-const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=pull-motion')
+const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=native-ios')
     .then(core => {
         terminalCanvasCore = core;
         return core;

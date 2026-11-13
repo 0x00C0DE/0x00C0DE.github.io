@@ -1,5 +1,9 @@
 const REFRESH_DISTANCE = 72;
 
+export function usesNativeChromeRefresh() {
+    return /CriOS\//.test(navigator.userAgent);
+}
+
 export function enablePullToRefresh(surface, canStart, indicatorParent = surface.parentElement) {
     const indicator = document.createElement('div');
     indicator.className = 'pull-to-refresh';

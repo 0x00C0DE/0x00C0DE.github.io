@@ -19,7 +19,7 @@ import {
     shouldUseRootTerminalVisuals
 } from './terminal-visuals-core.mjs';
 import { normalizeTrustedMediaSource } from './media-source-policy.mjs';
-import { enablePullToRefresh } from './pull-to-refresh.mjs?v=pull-motion';
+import { enablePullToRefresh, usesNativeChromeRefresh } from './pull-to-refresh.mjs?v=native-ios';
 
 const MONO_FONT_FAMILY = '"Courier New", Courier, monospace';
 const TEXT_FILES = Object.freeze([
@@ -54,6 +54,7 @@ const CURSOR_BLINK_INTERVAL_MS = 540;
 const BACKGROUND_STEP_MS = 120;
 const MEDIA_PLACEHOLDER_ASPECT_RATIO = 16 / 9;
 const MOBILE_INPUT_PROXY_ID = 'terminal-mobile-input';
+const nativeChromeRefresh = usesNativeChromeRefresh();
 const SCROLL_GLIDE_DECAY_RATE = 5.4;
 const SCROLL_GLIDE_MAX_VELOCITY = 4200;
 const SCROLL_GLIDE_MIN_VELOCITY = 26;
@@ -889,11 +890,11 @@ function setDocumentFrame() {
     document.documentElement.style.margin = '0';
     document.documentElement.style.padding = '0';
     document.documentElement.style.background = background;
-    document.documentElement.style.overflow = 'hidden';
+    document.documentElement.style.overflow = nativeChromeRefresh ? '' : 'hidden';
     document.body.style.margin = '0';
     document.body.style.padding = '0';
     document.body.style.background = background;
-    document.body.style.overflow = 'hidden';
+    document.body.style.overflow = nativeChromeRefresh ? '' : 'hidden';
 }
 
 function normalizeTextFilename(input) {
@@ -2783,7 +2784,8 @@ function ensureCanvas() {
         app.canvas = document.getElementById('terminal-canvas');
     }
     if (app.canvas) {
-        app.canvas.style.touchAction = 'none';
+        app.canvas.style.touchAction = nativeChromeRefresh ? 'auto' : 'none';
+        if (nativeChromeRefresh) app.canvas.style.display = 'block';
     }
     if (!app.ctx) {
         app.ctx = app.canvas.getContext('2d');
@@ -4564,7 +4566,25 @@ function onKeyDown(event) {
 }
 
 function bindEvents() {
-    if (document.querySelector('#home-intro')) {
+    if (nativeChromeRefresh) {
+        let start;
+        app.canvas.addEventListener('touchstart', event => {
+            const touch = event.touches[0];
+            start = event.touches.length === 1 && {
+                x: touch.clientX,
+                y: touch.clientY,
+                canRefresh: !app.viewer && app.scrollTop <= 0 &&
+                    shouldStartTouchScroll({ pointerType: 'touch' }, hitTest(touch.clientX, touch.clientY))
+            };
+        }, { passive: true });
+        app.canvas.addEventListener('touchmove', event => {
+            if (!start || event.touches.length !== 1) return;
+            const touch = event.touches[0];
+            const down = touch.clientY - start.y;
+            if (start.canRefresh && down > Math.abs(touch.clientX - start.x)) return;
+            if (event.cancelable) event.preventDefault();
+        }, { passive: false });
+    } else if (document.querySelector('#home-intro')) {
         enablePullToRefresh(app.canvas, event =>
             !app.viewer && app.scrollTop <= 0 && !hitTest(event.clientX, event.clientY)
         );

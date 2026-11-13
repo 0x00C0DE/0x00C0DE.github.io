@@ -390,6 +390,22 @@ test('homepage intro replays on reload and in new tabs in the same browser', { t
     await secondTab.reload();
     await secondTab.waitForURL(site.origin + '/');
 
+    const ios = await browser.newContext({
+        hasTouch: true,
+        reducedMotion: 'reduce',
+        userAgent: 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 CriOS/140.0 Mobile/15E148'
+    });
+    await ios.route('**/api/**', route => route.fulfill({ json: { ok: true, visits: 0, uniqueVisitors: 0, onSite: 0 } }));
+    const iphone = await ios.newPage();
+    await iphone.goto(site.origin);
+    const iosEntry = iphone.getByRole('button', { name: 'Enter terminal' });
+    await iosEntry.waitFor();
+    assert.equal(await iphone.locator('#home-intro').evaluate(element => getComputedStyle(element).touchAction), 'auto');
+    assert.equal(await iphone.locator('.pull-to-refresh').count(), 0);
+    await iosEntry.tap();
+    await iphone.waitForFunction(() => document.querySelector('#terminal-canvas').style.touchAction === 'auto');
+    assert.equal(await iphone.locator('.pull-to-refresh').count(), 0);
+
     const touch = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } });
     await touch.addInitScript(() => {
         Object.defineProperty(navigator, 'gpu', { value: undefined });

@@ -1,4 +1,4 @@
-import { enablePullToRefresh } from './pull-to-refresh.mjs?v=pull-motion';
+import { enablePullToRefresh, usesNativeChromeRefresh } from './pull-to-refresh.mjs?v=native-ios';
 
 const dialog = document.querySelector('#home-intro');
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -26,7 +26,11 @@ function showIntro() {
 
     dialog.querySelector('button').addEventListener('click', enterTerminal);
     dialog.addEventListener('cancel', event => event.preventDefault());
-    enablePullToRefresh(dialog, () => !leaving, dialog);
+    if (usesNativeChromeRefresh()) {
+        dialog.style.touchAction = 'auto';
+    } else {
+        enablePullToRefresh(dialog, () => !leaving, dialog);
+    }
     // The terminal listens for keyboard input on window.
     dialog.addEventListener('keydown', event => event.stopPropagation());
     dialog.showModal();
