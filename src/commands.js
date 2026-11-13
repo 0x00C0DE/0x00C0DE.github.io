@@ -1051,6 +1051,7 @@ function help_command() {
             ['clear', 'Clear the terminal screen'],
             ['ls', 'List directory contents'],
             ['cat <file>', 'Display file contents, e.g. cat projects.txt'],
+            ['cat blog.txt', 'Read the live blog, including text posts, images, and videos'],
             ['pwd', 'Print working directory'],
             ['echo [text]', 'Display text'],
             ['date', 'Display current date and time'],

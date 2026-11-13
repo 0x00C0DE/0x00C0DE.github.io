@@ -509,6 +509,18 @@ test('help lists video and mypic instead of the old movie and picture command na
     assert.ok(!commands.includes('picture [w h]'));
 });
 
+test('help lists cat blog.txt and describes the blog', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(() => server.close());
+    const page = await createPage(t);
+    await stubVisitorApis(page);
+    await bootTerminal(page, server.origin);
+
+    const entry = await page.evaluate(() => window.help_command()
+        .find(item => item?.command === 'cat blog.txt'));
+    assert.equal(entry?.description, 'Read the live blog, including text posts, images, and videos');
+});
+
 test('help consolidates post into the universal multi-media form', { timeout: 120000 }, async t => {
     const server = await createStaticServer(REPO_ROOT);
     t.after(async () => {
