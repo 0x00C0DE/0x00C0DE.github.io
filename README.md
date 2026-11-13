@@ -54,6 +54,8 @@ The latest terminal update is the big one: the production terminal now follows t
 
 Elevated sessions still split responsibilities: `root` enables the red animated glyph-rain background and unlocks a root-only editorial `cat blog.txt` view where images, GIFs, and MP4 blocks can be dragged across the terminal to live-reflow the banner, visitor widget, timestamps, and blog text, while `godlike` requires the blog/image deletion password plus a time-based one-time password and is the only session that can see or trigger inline delete controls. Switching back with `su guest` restores the original guest prompt and default background styling.
 
+In `su` and `su godlike`, the canvas updates dragged blog images and their surrounding text together on the animation frame.
+
 Credit to Cheng Lou for the original [Pretext](https://github.com/chenglou/pretext) project, the pure JavaScript/TypeScript multiline text measurement and layout library this terminal integration builds on.
 
 ---

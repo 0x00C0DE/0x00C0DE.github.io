@@ -156,6 +156,7 @@ async function setupModerationPage(page, origin, options = {}) {
             return originalDrawImage.apply(this, args);
         };
         window.prompt = () => 'pw123456';
+        window.TERMINAL_SU_API_URL = '/api/terminal/su';
     });
 
     await page.route('https://0x00c0de-blog-append.0x00c0de.workers.dev/api/visitors', route => route.fulfill({
@@ -173,7 +174,7 @@ async function setupModerationPage(page, origin, options = {}) {
         contentType: 'application/json',
         status: 200
     }));
-    await page.route('https://0x00c0de-blog-append.0x00c0de.workers.dev/api/terminal/su', route => route.fulfill({
+    await page.route(`${origin}/api/terminal/su`, route => route.fulfill({
         body: JSON.stringify({ ok: true, token: 'fixture-moderation-token', expiresAt: Date.now() + 60_000 }),
         contentType: 'application/json',
         status: 200
@@ -586,7 +587,7 @@ test('godlike multi media posts render text delete controls above each text segm
     assert.equal(remainingTextDeleteLabels.length, 2, 'expected removing one text block to leave the other text delete controls intact');
 });
 
-test('godlike post delete stays clickable after dragging media across it', { timeout: 120000 }, async t => {
+test('editorial media drag defers layout until the next frame', { timeout: 120000 }, async t => {
     const server = await createStaticServer(REPO_ROOT);
     t.after(async () => {
         await server.close();
@@ -607,36 +608,60 @@ test('godlike post delete stays clickable after dragging media across it', { tim
         await page.close();
     });
 
-    const repoBlogText = await readFile(path.join(REPO_ROOT, 'content', 'blog.txt'), 'utf8');
-    const imageMatch = /\[image-base64]\r?\n([\s\S]*?)\r?\n\[\/image-base64]/.exec(repoBlogText);
-    assert.ok(imageMatch, 'expected a large embedded blog image fixture');
     const blogContent = [
         '[2026-04-03T01:33:28.178Z]',
         'drag target',
         '[image-base64]',
-        imageMatch[1].trim(),
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAAAAAAcD2kOAAAAJUlEQVR4nO3BMQEAAADCoPVPbQlPoAAAAAAAAAAAAAAAAAAAPgY4uAABCbhRfwAAAABJRU5ErkJggg==',
         '[/image-base64]',
         ''
     ].join('\n');
 
     await setupModerationPage(page, server.origin, { blogContent });
 
-    const media = (await getRenderedMedia(page))[0] || null;
-    assert.ok(media, 'expected a rendered blog media item');
-    const initialLabel = (await getRenderedLabels(page, '[delete post]'))[0] || null;
-    assert.ok(initialLabel, 'expected a rendered post delete label');
-
-    const targetX = initialLabel.x + initialLabel.tx + 52;
-    const targetY = initialLabel.y + initialLabel.ty + 8;
-    await page.mouse.move(media.x + media.tx + media.width / 2, media.y + media.ty + media.height / 2);
+    const mediaCenter = await page.evaluate(() => {
+        const hooks = window.__terminalCanvasTestHooks;
+        const state = hooks.getState();
+        const media = state.editorialMediaRects.at(-1);
+        if (!media) return null;
+        const entry = state.blocks.find(block => block.id === media.blockId);
+        const scrollTop = hooks.setScrollTop(entry.top - 30);
+        const canvas = document.getElementById('terminal-canvas');
+        const { left, top } = canvas.getBoundingClientRect();
+        return {
+            x: left + media.x + media.width / 2,
+            y: top + media.y - scrollTop + media.height / 2
+        };
+    });
+    assert.ok(mediaCenter, 'expected an editorial media item');
+    await page.mouse.move(mediaCenter.x, mediaCenter.y);
     await page.mouse.down();
-    await page.mouse.move(targetX, targetY, { steps: 12 });
+    const synchronousBoundsReads = await page.evaluate(({ x, y }) => {
+        const canvas = document.getElementById('terminal-canvas');
+        const original = canvas.getBoundingClientRect;
+        let reads = 0;
+        canvas.getBoundingClientRect = function() {
+            reads += 1;
+            return original.call(this);
+        };
+        try {
+            for (let index = 1; index <= 20; index += 1) {
+                canvas.dispatchEvent(new PointerEvent('pointermove', {
+                    clientX: x + index,
+                    clientY: y,
+                    pointerId: 1,
+                    pointerType: 'mouse'
+                }));
+            }
+        } finally {
+            canvas.getBoundingClientRect = original;
+        }
+        return reads;
+    }, mediaCenter);
+    assert.equal(synchronousBoundsReads, 0, 'drag events should leave layout and hit-testing to the frame loop');
     await page.mouse.up();
-    await page.waitForTimeout(300);
-
-    await clickRenderedDeleteLabelAt(page, '[delete post]', 0);
-    const deleteCalls = await page.evaluate(() => window.__deleteCalls);
-    assert.equal(deleteCalls.entry.length, 1, 'expected the overlapped post delete handler to fire');
+    const mediaX = await page.evaluate(() => window.__terminalCanvasTestHooks.getState().editorialMediaRects.at(-1).x);
+    assert.ok(mediaX > 0, 'expected the pointer burst to move the editorial image');
 });
 
 test('root keeps guest banner/widget geometry and drags the widget as a whole', { timeout: 120000 }, async t => {

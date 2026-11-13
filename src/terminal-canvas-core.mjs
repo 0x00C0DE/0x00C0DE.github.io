@@ -2483,7 +2483,7 @@ function layoutBitcoinDashboard(block, width, metrics, context = {}) {
 
 function isEditorialModeActive() {
     const snapshot = getPromptSnapshot();
-    return Boolean(snapshot.isRoot || String(snapshot.user || '').toLowerCase() === 'root');
+    return Boolean(snapshot.isRoot || snapshot.isGodlike || String(snapshot.user || '').toLowerCase() === 'root');
 }
 
 function layoutOutputBlock(block, width, metrics, context = {}) {
@@ -4169,7 +4169,11 @@ function onPointerMove(event) {
         return;
     }
 
-    updateBitcoinDashboardHover(event);
+    // Hover hit-testing can flush pending layout. Keep captured editorial
+    // drags on the animation frame so pointer bursts only update position.
+    if (!app.pointerDrag?.mediaId && !app.pointerDrag?.widgetBlockId) {
+        updateBitcoinDashboardHover(event);
+    }
 
     if (!app.pointerDrag || app.pointerDrag.pointerId !== event.pointerId) {
         return;
