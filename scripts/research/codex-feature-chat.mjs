@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { resolve, relative, isAbsolute } from 'node:path';
 import { createInterface } from 'node:readline';
 
-const [projectRoot, selectionPath, receiptPath] = process.argv.slice(2);
+const [projectRoot, selectionPath, receiptPath, codex] = process.argv.slice(2);
 const project = resolve(projectRoot);
 const checkout = process.cwd();
 const subpath = relative(project, checkout);
@@ -12,7 +12,7 @@ if (!subpath || subpath.startsWith('..') || isAbsolute(subpath)) {
 }
 const feature = JSON.parse(await readFile(selectionPath, 'utf8'));
 const instructions = await readFile('scripts/research/codex-proposal-prompt.md', 'utf8');
-const server = spawn('cmd.exe', ['/d', '/c', 'codex.cmd app-server'], {
+const server = spawn(codex, ['app-server'], {
     stdio: ['pipe', 'pipe', 'inherit'],
     windowsHide: true,
 });
