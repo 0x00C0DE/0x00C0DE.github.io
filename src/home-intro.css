@@ -39,16 +39,46 @@
 .pull-to-refresh {
     position: fixed;
     z-index: 10;
-    top: max(12px, env(safe-area-inset-top));
+    top: max(4px, env(safe-area-inset-top));
     left: 50%;
-    transform: translateX(-50%);
-    padding: 0.5rem 0.8rem;
-    border: 1px solid #e3e9f5;
-    border-radius: 6px;
-    background: #08090d;
+    transform: translate(-50%, calc((var(--refresh-progress) - 1) * 18px));
+    opacity: var(--refresh-progress);
     color: #e3e9f5;
-    font: 700 0.875rem "Courier New", monospace;
+    text-align: center;
+    font: 0.75rem/1.2 system-ui, sans-serif;
     pointer-events: none;
+}
+
+.pull-to-refresh svg {
+    display: block;
+    width: 18px;
+    height: 18px;
+    margin: 0 auto 2px;
+    padding: 5px;
+    border-radius: 50%;
+    transform: rotate(calc(var(--refresh-progress) * 180deg - 180deg));
+}
+
+.pull-to-refresh.refresh-ready svg {
+    background: #e3e9f533;
+}
+
+canvas.refresh-surface,
+.refresh-surface > :is(.home-intro-art, .home-intro-copy) {
+    translate: 0 var(--refresh-offset, 0px);
+    transition: translate 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+canvas.refresh-dragging,
+.refresh-dragging > :is(.home-intro-art, .home-intro-copy) {
+    transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    canvas.refresh-surface,
+    .refresh-surface > :is(.home-intro-art, .home-intro-copy) {
+        transition: none;
+    }
 }
 
 .home-intro-art {

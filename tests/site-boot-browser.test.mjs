@@ -416,11 +416,22 @@ test('homepage intro replays on reload and in new tabs in the same browser', { t
     const pull = async (start, end) => {
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 20, y: start }] });
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 20, y: end }] });
-        await phone.getByText('Release to refresh', { exact: true }).waitFor();
+        await phone.locator('.pull-to-refresh.refresh-ready:visible').waitFor();
+        await phone.waitForFunction(() => {
+            const content = document.querySelector('#home-intro[open] .home-intro-art') ??
+                document.querySelector('#terminal-canvas');
+            return parseFloat(getComputedStyle(content).translate.split(' ').at(-1)) > 0;
+        });
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     };
     await Promise.all([phone.waitForEvent('framenavigated'), pull(60, 200)]);
     await phone.locator('#home-intro[open]').waitFor();
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 20, y: 60 }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 20, y: 100 }] });
+    assert.equal(await phone.locator('#home-intro.refresh-dragging').count(), 1);
+    assert.equal(await phone.locator('.pull-to-refresh.refresh-ready:visible').count(), 0);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    assert.equal(await phone.locator('#home-intro[open]:not(.refresh-dragging)').count(), 1);
     await Promise.all([phone.waitForEvent('framenavigated'), pull(60, 200)]);
     await phone.locator('#home-intro[open]').waitFor();
 });

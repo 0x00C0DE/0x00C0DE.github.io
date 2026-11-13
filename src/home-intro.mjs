@@ -1,4 +1,4 @@
-import { enablePullToRefresh } from './pull-to-refresh.mjs?v=touch-refresh';
+import { enablePullToRefresh } from './pull-to-refresh.mjs?v=pull-motion';
 
 const dialog = document.querySelector('#home-intro');
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
