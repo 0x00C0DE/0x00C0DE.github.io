@@ -51,15 +51,13 @@ function showIntro() {
     }
 
     if (!motion.matches) {
-        import('../vendor/aero-shards/laser-flow.mjs?v=chrome-reflections').then(({ mountLaserFlow }) => {
+        import('../vendor/aero-shards/laser-flow.mjs?v=chrome-beam').then(({ mountLaserFlow }) => {
             if (leaving || motion.matches) return;
             const stop = mountLaserFlow(art, {
                 color: chromeTint,
                 chrome: true,
                 beamPosition: 0.7,
-                intensity: 0.65,
-                beamWidth: 1.8,
-                flare: 0.85,
+                intensity: 0.75,
                 speed: 0.65,
                 dpr: 1
             });
