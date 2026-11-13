@@ -27,7 +27,6 @@ uniform vec4 uAmount;
 uniform vec4 uShape;
 uniform vec4 uExtra;
 uniform float uTheme;
-uniform bool uChrome;
 uniform vec3 uTint[16];
 
 #define BEAM uTint[0]
@@ -307,17 +306,7 @@ void main() {
 
   vec3 emit = 1.0 - exp(-col * mix(1.0, 0.6, uTheme));
   float peak = max(emit.r, max(emit.g, emit.b));
-  if (uChrome) {
-    // Keep the original beam and flare as the coverage for a single reflected highlight.
-    float across = clamp(dx / (9.0 * beamWidth), -1.0, 1.0);
-    float flow = p.y * 0.012 - t * 0.85;
-    float highlightCenter = 0.30 * sin(flow);
-    float highlight = exp(-sq((across - highlightCenter) / 0.34));
-    float ambient = 0.5 + 0.5 * sin(flow + 1.4 * across);
-    vec3 shadow = mix(vec3(0.08, 0.10, 0.16), vec3(0.39, 0.44, 0.55), ambient);
-    vec3 silver = mix(shadow, BEAM * 0.92, highlight * mix(0.55, 1.0, ambient));
-    outColor = vec4(silver * peak, peak);
-  } else if (uTheme > 0.5) {
+  if (uTheme > 0.5) {
     float low = min(emit.r, min(emit.g, emit.b));
     float chroma = peak - low;
     vec3 hue = (emit - low) / max(chroma, 0.0001);
@@ -428,7 +417,6 @@ export function mountLaserFlow(container, {
   beamPosition = 0.6,
   surfaceLevel = 1,
   color = '#3847ff',
-  chrome = false,
   intensity = 1.8,
   beamWidth = 1.5,
   flare = 1.5,
@@ -458,7 +446,6 @@ export function mountLaserFlow(container, {
     beamPosition: clamp(beamPosition, 0, 1),
     surfaceLevel: clamp(surfaceLevel, 0, 1),
     color: String(color),
-    chrome,
     intensity: Math.max(0, intensity),
     beamWidth: clamp(beamWidth, 0.2, 5),
     flare: clamp(flare, 0.2, 4),
@@ -523,7 +510,6 @@ export function mountLaserFlow(container, {
       'uShape',
       'uExtra',
       'uTheme',
-      'uChrome',
       'uTint'
     ]);
     gl.bindVertexArray(vao);
@@ -757,7 +743,6 @@ export function mountLaserFlow(container, {
     gl.uniform4f(uniforms.uShape, s.beamWidth, s.flare, s.spread, s.spill);
     gl.uniform4f(uniforms.uExtra, s.pulse, s.dots, 34.34 + seedValue * 7.31, 11.58 + seedValue * 3.17);
     gl.uniform1f(uniforms.uTheme, s.theme === 'light' ? 1 : 0);
-    gl.uniform1i(uniforms.uChrome, s.chrome ? 1 : 0);
     gl.uniform3fv(uniforms.uTint, state.tints);
     gl.bindVertexArray(vao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);

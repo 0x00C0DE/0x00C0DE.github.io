@@ -55,11 +55,10 @@ function showIntro() {
     }
 
     if (!motion.matches) {
-        import('../vendor/aero-shards/laser-flow.mjs?v=chrome-beam').then(({ mountLaserFlow }) => {
+        import('../vendor/aero-shards/laser-flow.mjs?v=original-beam').then(({ mountLaserFlow }) => {
             if (leaving || motion.matches) return;
             const stop = mountLaserFlow(art, {
                 color: chromeTint,
-                chrome: true,
                 beamPosition: 0.7,
                 intensity: 0.75,
                 speed: 0.65,
