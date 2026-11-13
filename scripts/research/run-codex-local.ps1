@@ -1,4 +1,4 @@
-param([switch]$Publish)
+param([switch]$Publish, [string]$HandoffPath)
 
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath (Resolve-Path (Join-Path $PSScriptRoot '../..'))
@@ -25,7 +25,12 @@ if ((Invoke-Checked git rev-parse HEAD) -ne $base) { throw 'Update the clean che
 
 $env:GITHUB_SHA = $base
 $env:GITHUB_OUTPUT = Join-Path (Get-Location) 'tmp/local-codex-output.txt'
-Invoke-Checked node scripts/research/report.mjs
+if (-not $HandoffPath) {
+    Invoke-Checked node scripts/research/report.mjs
+} else {
+    New-Item -ItemType Directory -Force tmp/codex-research | Out-Null
+    Copy-Item -LiteralPath $HandoffPath -Destination tmp/codex-research/report.json
+}
 Set-Content -LiteralPath $env:GITHUB_OUTPUT -Value '' -Encoding utf8
 Invoke-Checked node scripts/research/codex-proposal.mjs tmp/codex-research/report.json
 if ('eligible=true' -notin (Get-Content -LiteralPath $env:GITHUB_OUTPUT)) { return }

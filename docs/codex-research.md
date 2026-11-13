@@ -148,3 +148,16 @@ branch available for diagnosis. For unattended use, schedule the command
 on the signed-in host under the same user account. Start each cycle in a
 clean checkout at current main. The hosted schedule does not start the
 local runner. Stop the host schedule to stop new local cycles.
+
+### Automatic Windows handoff
+
+The hosted workflow announces an eligible lead in a successful handoff job.
+The signed-in host runs `poll-local-handoff.ps1 -Publish` every 15 minutes
+while the Windows user is signed in. It reads public GitHub run metadata,
+requires a successful run for current main, and passes the announced lead
+to the CLI without repeating research. The bridge uses an isolated worktree
+and records claims under `tmp/local-handoff` before running Codex. Inspect
+the receipt and worktree before retrying an interrupted or failed release.
+If the machine is off or signed out, eligible work waits until it is back
+online. To stop automatic polling, disable the Windows task
+`0x00C0DE Codex Research Handoff`.
