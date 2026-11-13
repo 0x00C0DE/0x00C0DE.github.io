@@ -19,6 +19,7 @@ import {
     shouldUseRootTerminalVisuals
 } from './terminal-visuals-core.mjs';
 import { normalizeTrustedMediaSource } from './media-source-policy.mjs';
+import { enablePullToRefresh } from './pull-to-refresh.mjs';
 
 const MONO_FONT_FAMILY = '"Courier New", Courier, monospace';
 const TEXT_FILES = Object.freeze([
@@ -4563,6 +4564,11 @@ function onKeyDown(event) {
 }
 
 function bindEvents() {
+    if (document.querySelector('#home-intro')) {
+        enablePullToRefresh(app.canvas, event =>
+            !app.viewer && app.scrollTop <= 0 && !hitTest(event.clientX, event.clientY)
+        );
+    }
     window.addEventListener('resize', resizeCanvas);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('paste', onPaste);

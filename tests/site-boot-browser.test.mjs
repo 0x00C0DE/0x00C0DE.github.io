@@ -286,6 +286,8 @@ test('the resume command reveals the HTML resume in place after the Nazarick cut
     await staticIntro.goto(introUrl);
     assert.equal(await staticIntro.locator('#intro').isHidden(), true);
     assert.equal(await staticIntro.locator('noscript').innerText(), 'Enable JavaScript to display the HTML résumé.');
+    await staticIntro.getByRole('link', { name: 'Return to terminal' }).click();
+    assert.equal(new URL(staticIntro.url()).searchParams.get('command'), 'banner');
 });
 
 test('terminal interaction is disabled inside a cross-origin frame', { timeout: 30000 }, async t => {
@@ -363,6 +365,10 @@ test('homepage intro replays on reload and in new tabs in the same browser', { t
     const enter = page.getByRole('button', { name: 'Enter terminal' });
     await enter.waitFor({ timeout: 3000 });
     assert.equal(await enter.evaluate(button => document.activeElement === button), true);
+    await page.locator('#home-intro-title').click();
+    await page.keyboard.press('Escape');
+    assert.equal(await enter.isVisible(), true);
+    await enter.focus();
     await page.keyboard.press('Enter');
     await enter.waitFor({ state: 'hidden' });
     assert.equal(await page.locator('#terminal-canvas').isVisible(), true);
@@ -390,7 +396,21 @@ test('homepage intro replays on reload and in new tabs in the same browser', { t
     await borders.nth(1).waitFor({ timeout: 3000 });
     assert.equal(await borders.count(), 2);
     await phone.touchscreen.tap(20, 20);
+    assert.equal(await phone.locator('#home-intro').isVisible(), true);
+    await phone.getByRole('button', { name: 'Enter terminal' }).tap();
     await phone.locator('#home-intro').waitFor({ state: 'hidden' });
     assert.equal(await borders.count(), 0);
     assert.equal(await phone.locator('#terminal-canvas').isVisible(), true);
+
+    const cdp = await touch.newCDPSession(phone);
+    const pull = async (start, end) => {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 20, y: start }] });
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 20, y: end }] });
+        await phone.getByText('Release to refresh', { exact: true }).waitFor();
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    };
+    await Promise.all([phone.waitForEvent('framenavigated'), pull(60, 200)]);
+    await phone.locator('#home-intro[open]').waitFor();
+    await Promise.all([phone.waitForEvent('framenavigated'), pull(60, 200)]);
+    await phone.locator('#home-intro[open]').waitFor();
 });
