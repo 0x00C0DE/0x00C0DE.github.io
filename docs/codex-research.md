@@ -161,3 +161,16 @@ the receipt and worktree before retrying an interrupted or failed release.
 If the machine is off or signed out, eligible work waits until it is back
 online. To stop automatic polling, disable the Windows task
 `0x00C0DE Codex Research Handoff`.
+
+### Checker control panel
+
+Double-click [Open-Checker-Panel.cmd](../scripts/research/Open-Checker-Panel.cmd)
+in the local checkout to see the current Windows checker status, last result,
+and next check. The panel uses the existing task under the signed-in account.
+
+- **Start** enables the checker if paused and requests a check now.
+- **Stop** disables future checks. An active check or release can finish.
+- **Resume** enables the existing 15-minute schedule.
+
+Closing the window leaves the selected schedule in effect. The panel controls
+Windows polling. GitHub Actions research continues on its hosted schedule.
