@@ -127,6 +127,8 @@ Git, Node.js 24, and the Codex CLI. Run `codex.cmd login` to sign in with
 ChatGPT if needed. The local runner checks the login method and leaves
 account credentials on that machine. The public GitHub Actions workflow
 continues research and predefined releases without a Codex credential.
+The runner explicitly enables the native Windows sandbox because it ignores
+user configuration. Proposal runs use workspace-write and review runs use read-only.
 
 From a dedicated checkout at the latest main, preview a proposal with:
 
@@ -153,11 +155,17 @@ local runner. Stop the host schedule to stop new local cycles.
 
 The hosted workflow announces an eligible lead in a successful handoff job.
 The signed-in host runs `poll-local-handoff.ps1 -Publish` every 2 hours and 30 minutes
-while the Windows user is signed in. It reads public GitHub run metadata,
-requires a successful run for current main, and passes the announced lead
-to the CLI without repeating research. The bridge uses an isolated worktree
-and records claims under `tmp/local-handoff` before running Codex. Inspect
-the receipt and worktree before retrying an interrupted or failed release.
+while the Windows user is signed in. It prefers a successful handoff for current
+main. If current main has no successful or pending hosted run in the last six
+hours, the host can research Trending locally, once per six hours. It checks
+that main still matches before starting the isolated worktree and again before
+publication. A recent, successful hosted run with no lead counts as completed research.
+
+The bridge records claims and receipts under `tmp/local-handoff` before running
+Codex. A receipt distinguishes `no-handoff`, `no-proposal`, `previewed`, `published`,
+and `needs-review`. Publication checks the exact Pages revision and verifies
+the changed public files. Inspect the receipt and worktree before retrying an
+interrupted or failed release.
 If the machine is off or signed out, eligible work waits until it is back
 online. To stop automatic polling, disable the Windows task
 `0x00C0DE Codex Research Handoff`.

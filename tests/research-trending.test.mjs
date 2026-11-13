@@ -28,3 +28,11 @@ test('isolates fetch failures and reports unrecognized markup', async () => {
     assert.deepEqual(result.unavailable, ['weekly', 'monthly']);
     assert.equal(result.repositories[0].fit.surface, 'index.html');
 });
+
+test('recognizes web platform guidance as a lead for an accessible project index', async () => {
+    const result = await discoverTrending(async () => new Response(
+        row('GoogleChrome/modern-web-guidance-src', 'Keep your coding agent up to date with the latest web best practices')
+        + row('example/generic', 'Keep your coding agent up to date')));
+    assert.equal(result.repositories[0].fit?.surface, 'pages/projects.html');
+    assert.equal(result.repositories[1].fit, null);
+});

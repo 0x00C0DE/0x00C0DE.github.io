@@ -12,7 +12,7 @@ const rules = [
     [/\b(?:canvas|text layout|word wrapping)\b/i, 'src/terminal-canvas-core.mjs',
         'Evaluate text wrapping or rendering improvements for the Canvas terminal.',
         'Compare wrapping and frame time at desktop and mobile widths.'],
-    [/\b(?:static site search|full.text search|client.side search)\b/i, 'pages/projects.html',
+    [/\b(?:static site search|full.text search|client.side search|web best practices|web platform guidance)\b/i, 'pages/projects.html',
         'Evaluate client-side filtering for portfolio projects and descriptions.',
         'Verify direct links, keyboard filtering, and empty search results.'],
     [/\b(?:rss|atom feed|feed reader)\b/i, 'content/feed.xml',
