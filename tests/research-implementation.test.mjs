@@ -22,3 +22,12 @@ test('feed excludes attachment records and encodes public text as XML', async ()
     assert.match(feed, /2026-01-02T03:04:05Z/);
     assert.doesNotMatch(feed, /internal-key|Intro/);
 });
+
+test('sitemap lists only known public routes and requires a current handoff', async () => {
+    const { renderSitemap, sitemapEligible } = await import('../scripts/research/sitemap.mjs');
+    const report = { revision: 'current', featureCandidates: [{ id: 'public-sitemap' }] };
+    assert.equal(sitemapEligible(report, 'old'), false);
+    assert.equal(sitemapEligible(report, 'current'), true);
+    assert.match(renderSitemap(['projects.html', 'project-example.html']), /\/pages\/project-example\.html/);
+    assert.doesNotMatch(renderSitemap(['pretext-lab.html', '../private.html', 'project-test&.html']), /lab|private|test/);
+});

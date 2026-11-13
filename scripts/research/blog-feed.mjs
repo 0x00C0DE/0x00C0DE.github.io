@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { createReadStream } from 'node:fs';
 
@@ -86,9 +85,4 @@ export async function renderFeedFile(path) {
     } finally {
         input.destroy();
     }
-}
-
-export async function readActivation(reportPath, homePath, revision) {
-    const [html, report] = await Promise.all([readFile(homePath, 'utf8'), readFile(reportPath, 'utf8')]);
-    return activateFeed(html, JSON.parse(report), revision);
 }

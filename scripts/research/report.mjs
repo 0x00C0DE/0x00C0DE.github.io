@@ -1,5 +1,5 @@
 import { discoverTrending } from './trending.mjs';
-import { appendFile, mkdir, open, readFile, rename, writeFile } from 'node:fs/promises';
+import { appendFile, lstat, mkdir, open, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { discoverFeatures } from './features.mjs';
 import { planCycle } from './preflight.mjs';
@@ -40,6 +40,20 @@ try {
     await blogFile.close();
 }
 const featureCandidates = discoverFeatures({ home, projects, blog: blogPrefix.toString('utf8', 0, blogBytes) });
+const publicPages = (await readdir(new URL('pages/', root))).filter(page => /^project-[a-z0-9-]+\.html$/.test(page));
+const existingRobots = await lstat(new URL('robots.txt', root)).catch(error => {
+    if (error.code !== 'ENOENT') throw error;
+    return null;
+});
+if (!existingRobots && publicPages.length >= 3) {
+    featureCandidates.push({
+        id: 'public-sitemap',
+        title: 'Publish a sitemap for public portfolio routes',
+        evidence: publicPages.length + ' project pages are available and the repository has no robots.txt.',
+        acceptance: ['Verify the Pages artifact and deployed sitemap contain the public project index.'],
+        inspiration: trending.repositories.filter(repo => repo.fit?.surface === 'sitemap.xml').map(repo => repo.name),
+    });
+}
 const report = {
     schema: 1, observedAt: now.toISOString(), revision: process.env.GITHUB_SHA ?? null,
     decision, ...result, featureCandidates, trending,

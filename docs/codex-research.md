@@ -84,17 +84,23 @@ implementing a candidate. Follow the skill to start a fresh branch from
 current main, run checks, publish, integrate, and verify production.
 Feature candidates may recur while their source signals remain present.
 
-The implementation job can activate the public blog feed when the report
-identifies that candidate at the current main revision. It uses a fixed
-implementation and no model credentials. It checks the release skill,
-creates a fresh feature branch, tests the Pages artifact, and pushes the
-branch and main atomically. If branch protection rejects that push, use
-the repository's normal pull request path. Other candidates remain reports.
+The implementation job selects at most one supported candidate at the
+current main revision. It can publish the public blog feed or generate a
+sitemap for the portfolio's public routes. A relevant Trending match is
+recorded as inspiration for the sitemap when available. The site's own
+missing sitemap and public project pages also justify that change.
+
+The job uses fixed implementations and no model credentials. It checks
+the release skill, creates a fresh feature branch, verifies the exact
+changed path and Pages artifact, and pushes the branch and main
+atomically. If branch protection rejects that push, use the repository's
+normal pull request path. Candidates without an implementation remain in
+the report.
 
 The job dispatches the existing Pages workflow explicitly because a push
 using the Actions token does not trigger Pages. It checks the resulting
 deployment and public feed. If publishing succeeds and deployment fails,
-rerun the Pages workflow on main and check /content/feed.xml. Review the
+rerun the Pages workflow on main and check the public path printed in the release job. Review the
 job summary before retrying a failed or interrupted release.
 
 ## GitHub Trending evaluation

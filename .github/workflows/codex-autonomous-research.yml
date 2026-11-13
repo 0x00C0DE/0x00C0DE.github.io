@@ -96,23 +96,38 @@ jobs:
           fi
           refs=$(git ls-remote --heads origin 'refs/heads/US-*')
           max=$(printf '%s\n' "$refs" | sed -nE 's@.*refs/heads/US-([0-9]+)-.*@\1@p' | sort -n | tail -1)
-          branch="US-$((10#${max:-0} + 1))-blog-feed-v1"
+          branch="US-$((10#${max:-0} + 1))-research-feature-v1"
           git switch -c "$branch"
-          node scripts/research/implement.mjs tmp/handoff/report.json
-          if git diff --quiet; then
-            echo 'No reviewed implementation matched the current handoff.' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          test "$(git diff --name-only)" = index.html
-          git diff --check
+          feature=$(node scripts/research/implement.mjs tmp/handoff/report.json)
+          case "$feature" in
+            blog-feed)
+              git add -- index.html
+              test "$(git diff --cached --name-only)" = index.html
+              test -z "$(git status --porcelain --untracked-files=all | grep -v '^M  index.html$')"
+              path=content/feed.xml
+              ;;
+            sitemap)
+              git add -- robots.txt
+              test "$(git diff --cached --name-only)" = robots.txt
+              test -z "$(git status --porcelain --untracked-files=all | grep -v '^A  robots.txt$')"
+              path=sitemap.xml
+              ;;
+            '')
+              echo 'No reviewed implementation matched the current handoff.' >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+              ;;
+            *) exit 1 ;;
+          esac
+          git diff --cached --check
           node --test tests/research-implementation.test.mjs
           GITHUB_OUTPUT="$RUNNER_TEMP/pages-build-output" node scripts/build-pages.mjs
           artifact=$(sed -n 's/^path=//p' "$RUNNER_TEMP/pages-build-output")
-          python -c 'import sys, xml.etree.ElementTree as ET; root = ET.parse(sys.argv[1]).getroot(); assert root.find("{http://www.w3.org/2005/Atom}entry") is not None' "$artifact/content/feed.xml"
+          python scripts/research/verify-public-feature.py "$feature" "$artifact/$path"
+          echo "feature=$feature" >> "$GITHUB_OUTPUT"
+          echo "path=$path" >> "$GITHUB_OUTPUT"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- index.html
-          git commit -m 'Publish a subscribable blog feed'
+          git commit -m "Publish research feature: $feature"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
       - name: Publish the feature branch and integrate
         if: steps.implementation.outputs.branch != ''
@@ -121,9 +136,11 @@ jobs:
         run: |
           git push --atomic origin "HEAD:refs/heads/$RELEASE_BRANCH" HEAD:refs/heads/main
           echo "Integrated $RELEASE_BRANCH at $(git rev-parse HEAD)." >> "$GITHUB_STEP_SUMMARY"
-      - name: Dispatch Pages and verify the live feed
+      - name: Dispatch Pages and verify the live feature
         if: steps.implementation.outputs.branch != ''
         env:
+          FEATURE: ${{ steps.implementation.outputs.feature }}
+          PUBLIC_PATH: ${{ steps.implementation.outputs.path }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
@@ -140,9 +157,9 @@ jobs:
           done
           test -n "$run"
           for attempt in {1..12}; do
-            if curl --fail --silent --max-time 10 "https://0x00c0de.github.io/content/feed.xml?revision=$revision" --output "$RUNNER_TEMP/live-feed.xml" &&
-               python -c 'import sys, xml.etree.ElementTree as ET; assert ET.parse(sys.argv[1]).getroot().find("{http://www.w3.org/2005/Atom}entry") is not None' "$RUNNER_TEMP/live-feed.xml"; then
-              echo '[Verified the production Atom feed](https://0x00c0de.github.io/content/feed.xml).' >> "$GITHUB_STEP_SUMMARY"
+            if curl --fail --silent --max-time 10 "https://0x00c0de.github.io/$PUBLIC_PATH?revision=$revision" --output "$RUNNER_TEMP/live-feature.xml" &&
+               python scripts/research/verify-public-feature.py "$FEATURE" "$RUNNER_TEMP/live-feature.xml"; then
+              echo "Verified https://0x00c0de.github.io/$PUBLIC_PATH." >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
             sleep 5

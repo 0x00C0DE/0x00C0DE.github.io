@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/pages.yml
       - scripts/build-pages.mjs
+      - robots.txt
       - .nojekyll
       - index.html
       - assets/**

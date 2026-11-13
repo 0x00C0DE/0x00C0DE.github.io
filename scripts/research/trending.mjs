@@ -1,5 +1,8 @@
 const windows = ['daily', 'weekly', 'monthly'];
 const rules = [
+    [/\b(?:sitemaps?|search engine optimization|web indexing)\b/i, 'sitemap.xml',
+        'Help search engines discover the portfolio routes with a generated sitemap.',
+        'Validate sitemap XML and check the deployed project index URL.'],
     [/\b(?:keyboard navigation|accessibility|screen readers?)\b/i, 'index.html',
         'Evaluate keyboard and screen-reader access to terminal commands.',
         'Verify focus order and command entry with keyboard-only browser tests.'],
