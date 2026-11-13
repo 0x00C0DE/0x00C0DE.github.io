@@ -30,14 +30,15 @@ function showIntro() {
     // The terminal listens for keyboard input on window.
     dialog.addEventListener('keydown', event => event.stopPropagation());
     dialog.showModal();
+    const introRed = getComputedStyle(dialog).getPropertyValue('--intro-red').trim();
 
     if (!motion.matches && navigator.gpu) {
         import('../vendor/aero-shards/aero-shards.mjs').then(({ mountAeroShards }) => {
             if (leaving || motion.matches) return;
             stopAnimations.push(mountAeroShards(art, {
                 material: 'chrome',
-                shardColor: '#B9C6D9',
-                accentColor: '#9FA8FF',
+                shardColor: introRed,
+                accentColor: introRed,
                 count: 850,
                 dpr: 1,
                 speed: 0.65,
@@ -57,7 +58,7 @@ function showIntro() {
                 text: title.textContent.trim(),
                 fontFamily: '"Courier New", monospace',
                 fontWeight: 700,
-                color: '#ff6b78',
+                color: introRed,
                 scale: 0.95,
                 speed: 0.55,
                 dispersion: 0.12,

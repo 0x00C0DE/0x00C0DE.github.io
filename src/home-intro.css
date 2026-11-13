@@ -3,6 +3,7 @@
 }
 
 #home-intro {
+    --intro-red: #ff6b78;
     position: fixed;
     inset: 0;
     display: grid;
@@ -69,19 +70,19 @@
 #home-intro button {
     min-height: 48px;
     padding: 0.65rem 1.15rem;
-    border: 1px solid #a993cb;
+    border: 1px solid var(--intro-red);
     border-radius: 4px;
-    background: #191228;
-    color: inherit;
+    background: var(--intro-red);
+    color: #100c1d;
     font: 600 1rem/1.25 "Courier New", monospace;
     cursor: inherit;
 }
 
 #home-intro button:hover {
-    background: #36244d;
+    background: #ff8a94;
 }
 
 #home-intro button:focus-visible {
-    outline: 2px solid #f2dfff;
+    outline: 2px solid var(--intro-red);
     outline-offset: 4px;
 }
