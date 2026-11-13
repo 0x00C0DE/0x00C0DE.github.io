@@ -1,6 +1,9 @@
 import { appendFile, readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { selectLead } from './codex-proposal.mjs';
+import { selectDiscovery, selectLead } from './codex-proposal.mjs';
+export { selectDiscovery };
+
+const discoveryName = 'Trending discovery';
 
 const namePattern = /^Local Codex handoff \| ([\w-]+\/[\w.-]+) \| ([a-z0-9./-]+)$/;
 const surfaces = new Set(['index.html', 'pages/bitcoin.html', 'pages/projects.html',
@@ -21,6 +24,9 @@ export function shouldResearchLocally(runs, revision, lastAttempt, now = Date.no
 export function readHandoff(run, jobs, revision) {
     if (!revision || run.head_sha !== revision || run.conclusion !== 'success') return null;
     for (const job of jobs) {
+        if (job.conclusion === 'success' && job.name === 'Local Codex handoff | ' + discoveryName) {
+            return { revision, discovery: true };
+        }
         const match = namePattern.exec(job.name);
         if (job.conclusion !== 'success' || !match || !surfaces.has(match[2])) continue;
         return { revision, trending: { repositories: [{ name: match[1], fit: { surface: match[2] } }] } };
@@ -32,12 +38,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const [command, path] = process.argv.slice(2);
     const data = JSON.parse(await readFile(path, 'utf8'));
     if (command === 'announce') {
-        const lead = selectHandoff(data, process.env.GITHUB_SHA)?.trending.repositories[0];
-        if (lead) {
-            await appendFile(process.env.GITHUB_OUTPUT, 'lead=' + lead.name + ' | ' + lead.fit.surface + '\n');
+        if (selectDiscovery(data, process.env.GITHUB_SHA)) {
+            await appendFile(process.env.GITHUB_OUTPUT, 'lead=' + discoveryName + '\n');
         }
     } else if (command === 'select') {
-        const handoff = selectHandoff(data, process.argv[4]);
+        const handoff = selectDiscovery(data, process.argv[4]);
         if (handoff) console.log(JSON.stringify(handoff));
     } else if (command === 'fallback') {
         console.log(shouldResearchLocally(data.runs, process.argv[4], data.lastAttempt));

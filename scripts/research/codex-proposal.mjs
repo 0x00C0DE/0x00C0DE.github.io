@@ -2,6 +2,13 @@ import { execFileSync } from 'node:child_process';
 import { appendFile, readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
+export function selectDiscovery(report, revision) {
+    if (!revision || report?.revision !== revision || !Array.isArray(report.trending?.repositories)) return null;
+    const repositories = report.trending.repositories.filter(repo =>
+        /^[\w-]+\/[\w.-]+$/.test(repo?.name)).slice(0, 75);
+    return repositories.length ? { revision, trending: { repositories } } : null;
+}
+
 export function selectLead(report, revision, acceptsSurface = () => true) {
     if (!revision || report?.revision !== revision || !Array.isArray(report.trending?.repositories)) return null;
     return report.trending.repositories.find(repo => /^[\w-]+\/[\w.-]+$/.test(repo?.name)
@@ -63,10 +70,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         await appendFile(process.env.GITHUB_OUTPUT, 'approved=' + approved + '\n');
     } else {
         const report = JSON.parse(await readFile(process.argv[2], 'utf8'));
-        const lead = selectLead(report, process.env.GITHUB_SHA);
-        if (lead) {
+        if (selectDiscovery(report, process.env.GITHUB_SHA)) {
             await appendFile(process.env.GITHUB_OUTPUT, 'eligible=true\n');
-            console.log('Selected a Trending lead for site evaluation.');
+            console.log('Trending shortlist is available for open-ended site evaluation.');
         }
     }
 }

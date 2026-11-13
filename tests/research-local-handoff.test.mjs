@@ -38,3 +38,14 @@ test('a report skips already published native project navigation but still accep
     ] } };
     assert.deepEqual(handoff.selectHandoff(report, 'base').trending.repositories, [next]);
 });
+
+test('open-ended handoff accepts ranked unmatched repositories and preserves their ordering', () => {
+    const repositories = [{ name: 'example/layout', ranks: { daily: 1 }, fit: null },
+        { name: 'example/navigation', ranks: { weekly: 2 } }];
+    const report = { revision: 'base', trending: { repositories } };
+    assert.deepEqual(handoff.selectDiscovery(report, 'base').trending.repositories, repositories);
+    assert.equal(handoff.selectDiscovery(report, 'stale'), null);
+    const run = { head_sha: 'base', conclusion: 'success' };
+    assert.deepEqual(readHandoff(run, [{ name: 'Local Codex handoff | Trending discovery', conclusion: 'success' }], 'base'),
+        { revision: 'base', discovery: true });
+});

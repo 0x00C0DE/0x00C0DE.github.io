@@ -85,9 +85,15 @@ try {
             }
         }
 
-        $lead = ($handoff | ConvertFrom-Json).trending.repositories[0]
+        $candidate = $handoff | ConvertFrom-Json
+        $leadName = if ($candidate.discovery -or $attempt) {
+            "Trending discovery ($runId)"
+        } else {
+            $candidate.trending.repositories[0].name
+        }
+        $surface = $candidate.trending.repositories[0].fit.surface
         $key = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
-            [Text.Encoding]::UTF8.GetBytes("$main|$($lead.name.ToLowerInvariant())|$($lead.fit.surface)")))
+            [Text.Encoding]::UTF8.GetBytes("$main|$($leadName.ToLowerInvariant())|$surface")))
         $claim = Join-Path $state.FullName "$key.claim"
         if (Test-Path -LiteralPath $claim) {
             '{"status":"already-claimed"}' | Set-Content -LiteralPath $receipt -Encoding utf8
@@ -96,10 +102,11 @@ try {
         $report = Join-Path $state.FullName "handoff-$runId.json"
         $handoff | Set-Content -LiteralPath $report -Encoding utf8
         $options = @('-HandoffPath', $report)
+        if ($candidate.discovery) { $options = @() }
         if ($Publish) { $options += '-Publish' }
         "run=$runId" | Set-Content -LiteralPath $claim -Encoding utf8
         '{"status":"started"}' | Set-Content -LiteralPath $receipt -Encoding utf8
-        Write-Output "Handing off $($lead.name) for $($lead.fit.surface) ($runId)."
+        Write-Output "Handing off $leadName ($runId)."
         $removeCheckout = $false
         & pwsh -NoProfile -NonInteractive -File (Join-Path $checkout 'scripts/research/run-codex-local.ps1') @options
         $status = switch ($LASTEXITCODE) {

@@ -185,3 +185,7 @@ and next check. The panel uses the existing task under the signed-in account.
 
 Closing the window leaves the selected schedule in effect. The panel controls
 Windows polling. GitHub Actions research continues on its hosted schedule.
+
+### Open-ended Trending discovery
+
+The hosted job signals discovery whenever its current report contains Trending repositories. The Windows runner refreshes the shortlist against current main and gives Codex the ranked repositories and their descriptions. Keyword matches remain optional hints. Codex compares multiple ideas with current behavior, checks for duplicate features, and documents integration and regression evidence before independent review and release.

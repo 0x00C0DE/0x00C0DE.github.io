@@ -47,7 +47,7 @@ async function fetchTrending(window, fetchPage) {
         const rule = rules.find(([pattern]) => pattern.test(description));
         const fit = rule ? { surface: rule[1], use: rule[2], verification: rule[3] } : null;
         if (rule?.[4]) fit.capability = rule[4];
-        repositories.push({ name, fit });
+        repositories.push({ name, description: description.trim(), fit });
         if (repositories.length === 25) break;
     }
     if (!repositories.length) throw new Error('Trending repository markup missing');
@@ -64,9 +64,9 @@ export async function discoverTrending(fetchPage = fetch) {
             unavailable.push(window);
             return;
         }
-        result.value.forEach(({ name, fit }, rank) => {
+        result.value.forEach(({ name, description, fit }, rank) => {
             const key = name.toLowerCase();
-            if (!byName.has(key)) byName.set(key, { name, fit, ranks: {} });
+            if (!byName.has(key)) byName.set(key, { name, description, fit, ranks: {} });
             byName.get(key).ranks[window] ??= rank + 1;
         });
     });
