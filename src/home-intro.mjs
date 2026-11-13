@@ -1,4 +1,4 @@
-import { enablePullToRefresh } from './pull-to-refresh.mjs';
+import { enablePullToRefresh } from './pull-to-refresh.mjs?v=touch-refresh';
 
 const dialog = document.querySelector('#home-intro');
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -26,19 +26,19 @@ function showIntro() {
 
     dialog.querySelector('button').addEventListener('click', enterTerminal);
     dialog.addEventListener('cancel', event => event.preventDefault());
-    enablePullToRefresh(dialog, event => !event.target.closest('button'), dialog);
+    enablePullToRefresh(dialog, () => !leaving, dialog);
     // The terminal listens for keyboard input on window.
     dialog.addEventListener('keydown', event => event.stopPropagation());
     dialog.showModal();
-    const introRed = getComputedStyle(dialog).getPropertyValue('--intro-red').trim();
+    const chromeTint = getComputedStyle(dialog).getPropertyValue('--intro-chrome').trim();
 
     if (!motion.matches && navigator.gpu) {
         import('../vendor/aero-shards/aero-shards.mjs').then(({ mountAeroShards }) => {
             if (leaving || motion.matches) return;
             stopAnimations.push(mountAeroShards(art, {
                 material: 'chrome',
-                shardColor: introRed,
-                accentColor: introRed,
+                shardColor: chromeTint,
+                accentColor: chromeTint,
                 count: 850,
                 dpr: 1,
                 speed: 0.65,
@@ -54,7 +54,7 @@ function showIntro() {
         import('../vendor/aero-shards/laser-flow.mjs').then(({ mountLaserFlow }) => {
             if (leaving || motion.matches) return;
             const stop = mountLaserFlow(art, {
-                color: introRed,
+                color: chromeTint,
                 beamPosition: 0.7,
                 intensity: 0.75,
                 speed: 0.65,
@@ -66,7 +66,7 @@ function showIntro() {
         import('../vendor/aero-shards/star-border.mjs').then(({ mountStarBorder }) => {
             if (leaving || motion.matches) return;
             for (const element of dialog.querySelectorAll('.intro-star-border')) {
-                const stop = mountStarBorder(element, { color: introRed, duration: 5 });
+                const stop = mountStarBorder(element, { color: chromeTint, duration: 5 });
                 if (stop) stopAnimations.push(stop);
             }
         }).catch(error => console.warn('Star Border could not load:', error));
@@ -78,7 +78,7 @@ function showIntro() {
                     text: label.textContent.trim(),
                     fontFamily: '"Courier New", monospace',
                     fontWeight: 700,
-                    color: introRed,
+                    color: chromeTint,
                     scale: 0.95,
                     speed: 0.55,
                     dispersion: 0.12,

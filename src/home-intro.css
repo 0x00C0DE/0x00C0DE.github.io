@@ -3,7 +3,7 @@
 }
 
 #home-intro {
-    --intro-red: #ff6b78;
+    --intro-chrome: #e3e9f5;
     position: fixed;
     inset: 0;
     display: grid;
@@ -43,10 +43,10 @@
     left: 50%;
     transform: translateX(-50%);
     padding: 0.5rem 0.8rem;
-    border: 1px solid #ff6b78;
+    border: 1px solid #e3e9f5;
     border-radius: 6px;
     background: #08090d;
-    color: #ff6b78;
+    color: #e3e9f5;
     font: 700 0.875rem "Courier New", monospace;
     pointer-events: none;
 }
@@ -70,10 +70,10 @@
     isolation: isolate;
     display: inline-grid;
     place-items: center;
-    border: 1px solid #ff6b7866;
+    border: 1px solid #e3e9f566;
     border-radius: 12px;
     background: #08090de8;
-    color: var(--intro-red);
+    color: var(--intro-chrome);
     padding: 0.65rem 1.15rem;
 }
 
@@ -120,10 +120,10 @@
 }
 
 #home-intro button:hover {
-    background: #1d0e16;
+    background: #171d29;
 }
 
 #home-intro button:focus-visible {
-    outline: 2px solid var(--intro-red);
+    outline: 2px solid var(--intro-chrome);
     outline-offset: 4px;
 }

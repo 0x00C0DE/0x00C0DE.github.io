@@ -19,7 +19,7 @@ import {
     shouldUseRootTerminalVisuals
 } from './terminal-visuals-core.mjs';
 import { normalizeTrustedMediaSource } from './media-source-policy.mjs';
-import { enablePullToRefresh } from './pull-to-refresh.mjs';
+import { enablePullToRefresh } from './pull-to-refresh.mjs?v=touch-refresh';
 
 const MONO_FONT_FAMILY = '"Courier New", Courier, monospace';
 const TEXT_FILES = Object.freeze([

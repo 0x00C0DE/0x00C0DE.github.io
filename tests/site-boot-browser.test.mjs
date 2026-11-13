@@ -141,7 +141,7 @@ test('site boot loads the vendored pretext generated assets without module failu
 test('resume sound defaults on and recovers from blocked audible autoplay on a tap', async t => {
     const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
     t.after(() => browser.close());
-    const page = await browser.newPage();
+    const page = await browser.newPage({ isMobile: true, hasTouch: true, viewport: { width: 390, height: 844 } });
     await page.route('https://resume.test/**', route => {
         const { pathname } = new URL(route.request().url());
         return route.fulfill({ path: path.join(REPO_ROOT, pathname) });
@@ -163,7 +163,7 @@ test('resume sound defaults on and recovers from blocked audible autoplay on a t
     await page.waitForFunction(() => window.playAttempts.length >= 2);
     assert.deepEqual(await page.evaluate(() => window.playAttempts.slice(0, 2)), [false, true]);
     await page.locator('#cinematic-sound').waitFor({ state: 'visible' });
-    await video.click();
+    await video.tap();
     await page.waitForFunction(() => !document.querySelector('#cinematic').muted);
     assert.equal(await page.locator('#cinematic-sound').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.evaluate(() => window.playAttempts.at(-1)), false);
@@ -379,6 +379,16 @@ test('homepage intro replays on reload and in new tabs in the same browser', { t
     await page.reload();
     await enter.waitFor({ timeout: 3000 });
     assert.deepEqual(rendererRequests, []);
+
+    await secondTab.goto(site.origin + '/pages/projects.html');
+    assert.equal(new URL(secondTab.url()).pathname, '/pages/projects.html');
+    await secondTab.reload();
+    await secondTab.waitForURL(site.origin + '/');
+    await secondTab.getByRole('button', { name: 'Enter terminal' }).waitFor();
+
+    await secondTab.goto(site.origin + '/?command=banner');
+    await secondTab.reload();
+    await secondTab.waitForURL(site.origin + '/');
 
     const touch = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } });
     await touch.addInitScript(() => {

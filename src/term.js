@@ -1,5 +1,5 @@
 ﻿let terminalCanvasCore = null;
-const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=entry-controls')
+const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=touch-refresh')
     .then(core => {
         terminalCanvasCore = core;
         return core;

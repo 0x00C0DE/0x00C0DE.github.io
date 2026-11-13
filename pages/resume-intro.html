@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
+    <script src="/src/refresh-to-intro.js"></script>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#f6f3ef">
@@ -70,20 +71,35 @@
                 clearTimeout(deadline);
                 sound.hidden = false;
             });
-            video.addEventListener('volumechange', () => {
+            const updateSoundControl = () => {
                 sound.setAttribute('aria-pressed', String(!video.muted));
                 sound.title = video.muted ? 'Tap to enable sound' : 'Mute sound';
-            });
+                sound.textContent = video.muted ? 'Enable sound' : 'Sound';
+            };
+            video.addEventListener('volumechange', updateSoundControl);
+            let waitingForSoundGesture = false;
             const enableSound = () => {
+                waitingForSoundGesture = false;
                 video.muted = false;
+                updateSoundControl();
                 video.play().catch(error => {
+                    if (intro.hidden) return;
                     video.muted = true;
+                    waitingForSoundGesture = true;
+                    updateSoundControl();
+                    video.play().catch(() => revealResume());
                     console.warn('Cinematic sound could not start', error.name);
                 });
             };
             sound.addEventListener('click', () => {
                 if (video.muted) enableSound();
-                else video.muted = true;
+                else {
+                    video.muted = true;
+                    updateSoundControl();
+                }
+            });
+            video.addEventListener('click', () => {
+                if (waitingForSoundGesture) enableSound();
             });
             reducedMotion.addEventListener('change', event => {
                 if (event.matches) revealResume();
@@ -108,12 +124,12 @@
                     return;
                 }
                 video.muted = true;
-                document.addEventListener('click', event => {
-                    if (!intro.hidden && video.muted && !event.target.closest('.cinematic-actions')) {
-                        enableSound();
-                    }
-                }, { once: true });
-                video.play().catch(() => revealResume());
+                waitingForSoundGesture = true;
+                updateSoundControl();
+                sound.hidden = false;
+                video.play().catch(mutedError => {
+                    if (mutedError.name !== 'NotAllowedError') revealResume();
+                });
             });
         }
     </script>
