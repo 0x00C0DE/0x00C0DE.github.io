@@ -72,7 +72,7 @@ function showIntro() {
                 text: title.textContent.trim(),
                 fontFamily: '"Courier New", monospace',
                 fontWeight: 700,
-                color: '#e3e9f5',
+                color: '#ff6b78',
                 scale: 0.95,
                 speed: 0.55,
                 dispersion: 0.12,
