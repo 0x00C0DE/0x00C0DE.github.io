@@ -119,3 +119,29 @@ Each automated feature release adds its missing documentation to the
 existing README research section in the same commit. Register a README
 entry in `scripts/research/document-feature.mjs` when adding a supported
 feature. The release stops if that entry is missing.
+
+## Codex feature proposals
+
+To enable general proposals, set the repository Actions variable
+`CODEX_RESEARCH_ENABLED` to `true` and add `OPENAI_API_KEY` as an Actions
+secret from a dedicated OpenAI API project. Enable the repository Actions
+setting that allows GitHub Actions to create pull requests. API usage is
+billed separately from ChatGPT. Each scheduled or manually dispatched run
+can make one bounded Codex attempt if there is a relevant Trending match,
+main still matches the report, and no Codex feature PR is open. Set the
+variable to `false` to stop new attempts.
+
+Codex proposes a small public-site change with a focused regression test
+and a README update in the existing style. A fresh runner checks allowed
+paths, regular file modes, and diff size, then runs the feature and
+research tests and builds Pages. A separate job reapplies the verified
+patch without executing candidate code and opens a PR on a fresh
+`US-…-codex-feature-v1` branch. Review the feature, README, and applicable
+browser checks before merging. If GitHub requires approval to run checks
+for a bot-created PR, approve them from that PR. Merging through the
+normal repository release path triggers Pages.
+
+If the workflow pushes a feature branch but PR creation fails, open the
+PR from the existing branch after resolving the repository permission.
+Existing predefined implementations retain their automatic deployment
+path.

@@ -746,7 +746,7 @@ changes require no Worker deployment. Existing Express fallback installations ne
 
 ## Scheduled research preflight
 
-[Research operations](docs/codex-research.md) describes the read-only release
+[Research operations](docs/codex-research.md) describes the scheduled release
 monitor, local usage-planning inputs, and how to run the checks.
 
 - [Blog Atom feed](https://0x00c0de.github.io/content/feed.xml) subscribes readers to recent public blog entries.
