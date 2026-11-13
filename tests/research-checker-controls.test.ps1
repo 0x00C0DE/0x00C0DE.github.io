@@ -21,3 +21,5 @@ $wrapper = $syntax.Find({
 . ([scriptblock]::Create($wrapper.Extent.Text))
 Assert-Equal (Invoke-Checked node -p 'JSON.stringify(process.argv.slice(1))' '--' '-A' '--atomic') '["-A","--atomic"]'
 Write-Output 'Native command flag forwarding passed.'
+Assert-Equal (Invoke-Checked node --version) (& node --version)
+Write-Output 'Single native command argument passed.'

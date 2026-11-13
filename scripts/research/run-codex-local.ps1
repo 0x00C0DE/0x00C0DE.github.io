@@ -4,7 +4,8 @@ $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath (Resolve-Path (Join-Path $PSScriptRoot '../..'))
 
 function Invoke-Checked {
-    $program, $arguments = $args
+    $program = $args[0]
+    $arguments = @($args | Select-Object -Skip 1)
     & $program @arguments
     if ($LASTEXITCODE -ne 0) { throw "$program failed with exit code $LASTEXITCODE" }
 }
