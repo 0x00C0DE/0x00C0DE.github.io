@@ -26,7 +26,7 @@ export async function playPixelTransition(canvas, color, swap, signal) {
         function frame(now) {
             try {
                 start ??= now;
-                const progress = clamp((now - start) / 1000);
+                const progress = clamp((now - start) / 2000);
                 const coverage = progress < 0.5 ? progress * 2 : 2 - progress * 2;
                 const ratio = Math.min(window.devicePixelRatio || 1, 2);
                 const width = Math.max(1, Math.round(canvas.clientWidth * ratio));

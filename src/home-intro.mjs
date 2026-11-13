@@ -49,7 +49,7 @@ function showIntro() {
                     await holdAnimation.finished;
                 }
                 if (!abort.signal.aborted && !motion.matches) {
-                    const { playPixelTransition } = await import('../vendor/aero-shards/pixel-transition.mjs?v=slower-entry');
+                    const { playPixelTransition } = await import('../vendor/aero-shards/pixel-transition.mjs?v=slower-checker');
                     if (!abort.signal.aborted) {
                         dialog.dataset.entryPhase = 'pixels';
                         dialog.append(pixels);
