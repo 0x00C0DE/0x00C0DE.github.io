@@ -48,7 +48,6 @@ async function fetchTrending(window, fetchPage) {
         const fit = rule ? { surface: rule[1], use: rule[2], verification: rule[3] } : null;
         if (rule?.[4]) fit.capability = rule[4];
         repositories.push({ name, description: description.trim(), fit });
-        if (repositories.length === 25) break;
     }
     if (!repositories.length) throw new Error('Trending repository markup missing');
     return repositories;

@@ -188,4 +188,18 @@ Windows polling. GitHub Actions research continues on its hosted schedule.
 
 ### Open-ended Trending discovery
 
-The hosted job signals discovery whenever its current report contains Trending repositories. The Windows runner refreshes the shortlist against current main and gives Codex the ranked repositories and their descriptions. Keyword matches remain optional hints. Codex compares multiple ideas with current behavior, checks for duplicate features, and documents integration and regression evidence before independent review and release.
+The hosted job signals discovery when its report contains Trending repositories.
+The Windows runner refreshes the report against current main and requests a
+read-only Codex evaluation for every repository in each daily, weekly, and
+monthly list. Repositories that rank in several lists get an assessment in
+each. The runner verifies coverage and stops for review if a list was
+unavailable or an assessment was missing.
+
+Each cycle selects at most one original feature. For a selection, the runner
+starts a persistent `R&D feature · <title>` chat using Codex app-server with
+the parent workspace as its project directory. The implementation turn runs
+in the isolated feature checkout. The assessment and chat ID are stored in
+the checkout's ignored `tmp/` directory and copied to the poller's receipt
+directory. Independent review, the Pages build,
+and exact-revision deployment verification still gate the release. A cycle
+with no qualifying feature records `no-proposal`.

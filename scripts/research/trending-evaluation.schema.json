@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["assessments", "feature"],
+  "properties": {
+    "assessments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["window", "repository", "reason"],
+        "properties": {
+          "window": { "type": "string", "enum": ["daily", "weekly", "monthly"] },
+          "repository": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "feature": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["title", "repository", "brief"],
+      "properties": {
+        "title": { "type": "string" },
+        "repository": { "type": "string" },
+        "brief": { "type": "string" }
+      }
+    }
+  }
+}

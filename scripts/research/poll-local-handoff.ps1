@@ -1,4 +1,4 @@
-param([switch]$Publish)
+param([switch]$Publish, [string]$StateDirectory = 'tmp/local-handoff')
 
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath (Resolve-Path (Join-Path $PSScriptRoot '../..'))
@@ -12,7 +12,7 @@ $remote = Git remote get-url origin
 if ($remote -notmatch '^(https://github\.com/|git@github\.com:)0x00C0DE/0x00C0DE\.github\.io(\.git)?$') {
     throw 'Unexpected origin for the local research bridge.'
 }
-$state = New-Item -ItemType Directory -Force tmp/local-handoff
+$state = New-Item -ItemType Directory -Force $StateDirectory
 $lock = [IO.File]::Open((Join-Path $state.FullName 'poll.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
 try {
     $api = 'https://api.github.com/repos/0x00C0DE/0x00C0DE.github.io'
@@ -85,13 +85,13 @@ try {
             }
         }
 
-        $candidate = $handoff | ConvertFrom-Json
-        $leadName = if ($candidate.discovery -or $attempt) {
-            "Trending discovery ($runId)"
-        } else {
-            $candidate.trending.repositories[0].name
-        }
-        $surface = $candidate.trending.repositories[0].fit.surface
+        $report = Join-Path $state.FullName "handoff-$runId.json"
+        $handoff | Set-Content -LiteralPath $report -Encoding utf8
+        $description = & node scripts/research/codex-proposal.mjs describe $report $runId
+        if ($LASTEXITCODE -ne 0) { throw 'Could not describe the Trending handoff.' }
+        $description = $description | ConvertFrom-Json
+        $leadName = $description.lead
+        $surface = $description.surface
         $key = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
             [Text.Encoding]::UTF8.GetBytes("$main|$($leadName.ToLowerInvariant())|$surface")))
         $claim = Join-Path $state.FullName "$key.claim"
@@ -99,17 +99,24 @@ try {
             '{"status":"already-claimed"}' | Set-Content -LiteralPath $receipt -Encoding utf8
             return
         }
-        $report = Join-Path $state.FullName "handoff-$runId.json"
-        $handoff | Set-Content -LiteralPath $report -Encoding utf8
-        $options = @('-HandoffPath', $report)
-        if ($candidate.discovery) { $options = @() }
+        $options = @('-ProjectRoot', (Resolve-Path '..').Path)
+        if ($attempt) {
+            $options += @('-ReportPath', (Join-Path $checkout 'tmp/codex-research/report.json'))
+        }
         if ($Publish) { $options += '-Publish' }
         "run=$runId" | Set-Content -LiteralPath $claim -Encoding utf8
         '{"status":"started"}' | Set-Content -LiteralPath $receipt -Encoding utf8
         Write-Output "Handing off $leadName ($runId)."
         $removeCheckout = $false
         & pwsh -NoProfile -NonInteractive -File (Join-Path $checkout 'scripts/research/run-codex-local.ps1') @options
-        $status = switch ($LASTEXITCODE) {
+        $runnerExit = $LASTEXITCODE
+        foreach ($artifact in 'trending-evaluation.json', 'trending-selection.json', 'feature-chat.json') {
+            $source = Join-Path $checkout "tmp/$artifact"
+            if (Test-Path -LiteralPath $source) {
+                Copy-Item -LiteralPath $source -Destination (Join-Path $state.FullName "$runId-$artifact")
+            }
+        }
+        $status = switch ($runnerExit) {
             0 { if ($Publish) { 'published' } else { 'previewed' } }
             20 { 'no-proposal' }
             default { throw "Local runner failed for $runId. Inspect $checkout before retrying." }
@@ -118,7 +125,8 @@ try {
         Write-Output "Handoff result: $status ($runId)."
         $removeCheckout = $true
     } catch {
-        '{"status":"needs-review"}' | Set-Content -LiteralPath $receipt -Encoding utf8
+        @{ status = 'needs-review'; phase = $_.InvocationInfo.ScriptLineNumber } |
+            ConvertTo-Json -Compress | Set-Content -LiteralPath $receipt -Encoding utf8
         throw
     } finally {
         if ($removeCheckout -and -not (Git -C $checkout status --porcelain)) { Git worktree remove $checkout }

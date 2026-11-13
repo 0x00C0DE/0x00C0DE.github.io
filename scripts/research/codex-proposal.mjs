@@ -1,12 +1,43 @@
 import { execFileSync } from 'node:child_process';
-import { appendFile, readFile } from 'node:fs/promises';
+import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
 export function selectDiscovery(report, revision) {
     if (!revision || report?.revision !== revision || !Array.isArray(report.trending?.repositories)) return null;
     const repositories = report.trending.repositories.filter(repo =>
-        /^[\w-]+\/[\w.-]+$/.test(repo?.name)).slice(0, 75);
+        /^[\w-]+\/[\w.-]+$/.test(repo?.name));
     return repositories.length ? { revision, trending: { repositories } } : null;
+}
+
+export function describeHandoff(candidate, runId) {
+    if (candidate.discovery) return { lead: `Trending discovery (${runId})`, surface: null };
+    const [repo] = candidate.trending.repositories;
+    return { lead: repo.name, surface: repo.fit.surface };
+}
+
+export function verifyEvaluation(trending, evaluation) {
+    if (trending.unavailable?.length) throw new Error('Trending windows unavailable: ' + trending.unavailable.join(', '));
+    const windows = ['daily', 'weekly', 'monthly'];
+    const expected = new Set(trending.repositories.flatMap(repo => windows
+        .filter(window => Number.isInteger(repo.ranks?.[window]))
+        .map(window => window + '/' + repo.name)));
+    if (windows.some(window => ![...expected].some(key => key.startsWith(window + '/')))) {
+        throw new Error('Trending coverage is missing an entire window');
+    }
+    for (const { window, repository, reason } of evaluation.assessments ?? []) {
+        if (!reason?.trim() || !expected.delete(window + '/' + repository)) {
+            throw new Error('Invalid or duplicate Trending assessment coverage');
+        }
+    }
+    if (expected.size) throw new Error('Incomplete Trending assessment coverage');
+    const feature = evaluation.feature;
+    if (feature === null) return null;
+    if (!feature?.title?.trim() || /[\r\n]/.test(feature.title) || feature.title.length > 80
+        || !feature.brief?.trim() || feature.brief.length > 3000
+        || !trending.repositories.some(repo => repo.name === feature.repository)) {
+        throw new Error('Invalid selected Trending feature');
+    }
+    return feature;
 }
 
 export function selectLead(report, revision, acceptsSurface = () => true) {
@@ -63,7 +94,17 @@ function verifyIndex() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-    if (process.argv[2] === 'verify') {
+    if (process.argv[2] === 'describe') {
+        const candidate = JSON.parse(await readFile(process.argv[3], 'utf8'));
+        console.log(JSON.stringify(describeHandoff(candidate, process.argv[4])));
+    } else if (process.argv[2] === 'evaluation') {
+        const [, , , reportPath, evaluationPath, selectionPath] = process.argv;
+        const report = JSON.parse(await readFile(reportPath, 'utf8'));
+        const evaluation = JSON.parse(await readFile(evaluationPath, 'utf8'));
+        const feature = verifyEvaluation(report.trending, evaluation);
+        await writeFile(selectionPath, JSON.stringify(feature));
+        console.log(`Verified ${evaluation.assessments.length} daily, weekly, and monthly Trending assessments.`);
+    } else if (process.argv[2] === 'verify') {
         verifyIndex();
     } else if (process.argv[2] === 'review') {
         const approved = reviewApproved(await readFile(process.argv[3], 'utf8'));
