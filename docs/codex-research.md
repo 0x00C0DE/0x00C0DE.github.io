@@ -96,3 +96,15 @@ using the Actions token does not trigger Pages. It checks the resulting
 deployment and public feed. If publishing succeeds and deployment fails,
 rerun the Pages workflow on main and check /content/feed.xml. Review the
 job summary before retrying a failed or interrupted release.
+
+## GitHub Trending evaluation
+
+Every scheduled report reads GitHub Trending's Today, This week, and This
+month lists. It records repository ranks, merges duplicates within the run,
+and maps matching descriptions to a site surface, a possible use, and a
+verification check. Unmatched repositories have no proposed use. A window
+is marked unavailable if GitHub is unreachable or the page format changes.
+
+Trending results are research leads. The implementation job currently ships
+only reviewed, predefined changes with an artifact test and production check.
+It does not execute code or use instructions from trending repositories.

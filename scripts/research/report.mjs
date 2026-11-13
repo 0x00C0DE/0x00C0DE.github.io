@@ -1,3 +1,4 @@
+import { discoverTrending } from './trending.mjs';
 import { appendFile, mkdir, open, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { discoverFeatures } from './features.mjs';
@@ -19,7 +20,10 @@ if (state?.schema !== 1 || !Array.isArray(state.history)) throw new Error('Unsup
 
 const input = inputFile ? JSON.parse(await readFile(inputFile, 'utf8')) : { mode: 'research-only' };
 const decision = planCycle({ ...input, now: now.getTime() });
-const result = await collectReleases({ now: now.toISOString(), history: state.history });
+const [result, trending] = await Promise.all([
+    collectReleases({ now: now.toISOString(), history: state.history }),
+    discoverTrending(),
+]);
 const root = new URL('../../', import.meta.url);
 const skillPath = '.agents/skills/0x00c0de-release/SKILL.md';
 const [home, projects, releaseSkill] = await Promise.all(
@@ -38,7 +42,7 @@ try {
 const featureCandidates = discoverFeatures({ home, projects, blog: blogPrefix.toString('utf8', 0, blogBytes) });
 const report = {
     schema: 1, observedAt: now.toISOString(), revision: process.env.GITHUB_SHA ?? null,
-    decision, ...result, featureCandidates,
+    decision, ...result, featureCandidates, trending,
     handoff: {
         releaseSkill: skillPath,
         instructions: 'Before implementing a selected candidate, load and follow the repository release skill. Verify the evidence on current main and check its acceptance criteria before integration.',
@@ -64,6 +68,14 @@ const summary = [
     ...(decision.phase ? ['- Phase — ' + decision.phase] : []),
     ...(displayTime ? ['- Usage window ends — ' + displayTime] : []),
     ...result.findings.map(finding => '- [' + finding.summary + '](' + finding.source + ')'),
+    '',
+    '### GitHub Trending evaluation',
+    '',
+    '- Repositories evaluated — ' + trending.repositories.length,
+    '- Windows unavailable — ' + (trending.unavailable.join(', ') || 'none'),
+    ...trending.repositories.filter(repo => repo.fit).slice(0, 10).map(repo =>
+        '- [' + repo.name + '](https://github.com/' + repo.name + ') — ' + repo.fit.use
+        + ' ' + repo.fit.verification + ' Target: `' + repo.fit.surface + '`.'),
     '',
     '### Site feature candidates',
     '',
