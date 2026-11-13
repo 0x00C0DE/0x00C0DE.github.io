@@ -124,7 +124,9 @@ feature. The release stops if that entry is missing.
 
 Use a dedicated clean checkout on a trusted Windows machine with PowerShell,
 Git, Node.js 24, and a current native Codex executable on PATH that supports
-`gpt-6.1-sol` and app-server. Run `codex.exe login` to sign in with
+`gpt-6.1-sol` and app-server. The Windows runner can also find the installed
+Codex desktop package or use the executable in `CODEX_RESEARCH_EXECUTABLE`.
+Run `codex.exe login` to sign in with
 ChatGPT if needed. The local runner checks the login method and leaves
 account credentials on that machine. The public GitHub Actions workflow
 continues research and predefined releases without a Codex credential.

@@ -16,7 +16,18 @@ if ($remote -notmatch '^(https://github\.com/|git@github\.com:)0x00C0DE/0x00C0DE
 }
 if (Invoke-Checked git status --porcelain) { throw 'Use a clean dedicated checkout.' }
 if ($env:OPENAI_API_KEY -or $env:CODEX_API_KEY) { throw 'Clear API-key environment overrides.' }
-$codex = (Get-Command codex.exe -CommandType Application -ErrorAction Stop).Source
+$codex = if ($env:CODEX_RESEARCH_EXECUTABLE) {
+    (Get-Item -LiteralPath $env:CODEX_RESEARCH_EXECUTABLE -ErrorAction Stop).FullName
+} else {
+    $command = Get-Command codex.exe -CommandType Application -ErrorAction SilentlyContinue
+    if ($command) {
+        $command.Source
+    } else {
+        $package = Get-AppxPackage -Name OpenAI.Codex | Sort-Object Version -Descending | Select-Object -First 1
+        if (-not $package) { throw 'Set CODEX_RESEARCH_EXECUTABLE to the current native Codex executable.' }
+        (Get-Item -LiteralPath (Join-Path $package.InstallLocation 'app/resources/codex.exe')).FullName
+    }
+}
 $loginStatus = & $codex login status 2>&1 | Out-String
 if ($LASTEXITCODE -ne 0 -or $loginStatus -notmatch '(?m)^Logged in using ChatGPT\s*$') {
     throw 'Sign in locally with codex.exe login.'
