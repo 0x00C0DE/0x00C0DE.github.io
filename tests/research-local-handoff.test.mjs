@@ -29,3 +29,12 @@ test('a deploy-only match does not hide a usable later proposal lead', () => {
     ] } };
     assert.deepEqual(handoff.selectHandoff(report, 'base').trending.repositories, [repo]);
 });
+
+test('a report skips already published native project navigation but still accepts a different lead', () => {
+    const next = { name: 'example/search', fit: { surface: 'pages/projects.html' } };
+    const report = { revision: 'base', projectNavigationPublished: true, trending: { repositories: [
+        { name: 'example/guidance', fit: { surface: 'pages/projects.html', capability: 'native-project-navigation' } },
+        next,
+    ] } };
+    assert.deepEqual(handoff.selectHandoff(report, 'base').trending.repositories, [next]);
+});

@@ -57,6 +57,7 @@ if (!existingRobots && publicPages.length >= 3) {
 const report = {
     schema: 1, observedAt: now.toISOString(), revision: process.env.GITHUB_SHA ?? null,
     decision, ...result, featureCandidates, trending,
+    projectNavigationPublished: projects.includes('<nav aria-label="Pinned projects">'),
     handoff: {
         releaseSkill: skillPath,
         instructions: 'Before implementing a selected candidate, load and follow the repository release skill. Verify the evidence on current main and check its acceptance criteria before integration.',

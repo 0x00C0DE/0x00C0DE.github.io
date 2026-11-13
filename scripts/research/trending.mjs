@@ -12,9 +12,13 @@ const rules = [
     [/\b(?:canvas|text layout|word wrapping)\b/i, 'src/terminal-canvas-core.mjs',
         'Evaluate text wrapping or rendering improvements for the Canvas terminal.',
         'Compare wrapping and frame time at desktop and mobile widths.'],
-    [/\b(?:static site search|full.text search|client.side search|web best practices|web platform guidance)\b/i, 'pages/projects.html',
+    [/\b(?:static site search|full.text search|client.side search)\b/i, 'pages/projects.html',
         'Evaluate client-side filtering for portfolio projects and descriptions.',
         'Verify direct links, keyboard filtering, and empty search results.'],
+    [/\b(?:web best practices|web platform guidance)\b/i, 'pages/projects.html',
+        'Evaluate native navigation for the canvas project index.',
+        'Verify that keyboard users can reach and open pinned project links.',
+        'native-project-navigation'],
     [/\b(?:rss|atom feed|feed reader)\b/i, 'content/feed.xml',
         'Compare subscription and reader compatibility with the existing Atom feed.',
         'Identify a concrete reader failure or missing capability before proposing a change.'],
@@ -42,6 +46,7 @@ async function fetchTrending(window, fetchPage) {
             ?.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 500) ?? '';
         const rule = rules.find(([pattern]) => pattern.test(description));
         const fit = rule ? { surface: rule[1], use: rule[2], verification: rule[3] } : null;
+        if (rule?.[4]) fit.capability = rule[4];
         repositories.push({ name, fit });
         if (repositories.length === 25) break;
     }

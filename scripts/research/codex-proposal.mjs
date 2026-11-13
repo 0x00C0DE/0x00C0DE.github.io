@@ -5,7 +5,8 @@ import { pathToFileURL } from 'node:url';
 export function selectLead(report, revision, acceptsSurface = () => true) {
     if (!revision || report?.revision !== revision || !Array.isArray(report.trending?.repositories)) return null;
     return report.trending.repositories.find(repo => /^[\w-]+\/[\w.-]+$/.test(repo?.name)
-        && typeof repo.fit?.surface === 'string' && acceptsSurface(repo.fit.surface)) ?? null;
+        && typeof repo.fit?.surface === 'string' && acceptsSurface(repo.fit.surface)
+        && !(report.projectNavigationPublished && repo.fit.capability === 'native-project-navigation')) ?? null;
 }
 
 export function validateChanges(changes) {

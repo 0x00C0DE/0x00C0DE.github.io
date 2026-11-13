@@ -162,6 +162,7 @@ main. If current main has no successful or pending hosted run in the last six
 hours, the host can research Trending locally, once per six hours. It checks
 that main still matches before starting the isolated worktree and again before
 publication. A recent, successful hosted run with no lead counts as completed research.
+Once the Projects page exposes native navigation, that specific lead is skipped.
 
 The bridge records claims and receipts under `tmp/local-handoff` before running
 Codex. A receipt distinguishes `no-handoff`, `no-proposal`, `previewed`, `published`,
