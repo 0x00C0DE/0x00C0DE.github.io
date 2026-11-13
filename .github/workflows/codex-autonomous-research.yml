@@ -9,12 +9,14 @@ on:
     paths:
       - '.github/workflows/codex-autonomous-research.yml'
       - 'scripts/research/**'
+      - 'scripts/build-pages.mjs'
       - '.agents/skills/0x00c0de-release/**'
       - 'tests/research-*.test.mjs'
   pull_request:
     paths:
       - '.github/workflows/codex-autonomous-research.yml'
       - 'scripts/research/**'
+      - 'scripts/build-pages.mjs'
       - '.agents/skills/0x00c0de-release/**'
       - 'tests/research-*.test.mjs'
 
@@ -36,7 +38,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24'
-      - run: node --test tests/research-preflight.test.mjs tests/research-releases.test.mjs tests/research-features.test.mjs
+      - run: node --test tests/research-preflight.test.mjs tests/research-releases.test.mjs tests/research-features.test.mjs tests/research-implementation.test.mjs
       - name: Restore deduplication history
         if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -61,3 +63,88 @@ jobs:
         with:
           path: tmp/codex-research/history.json
           key: codex-release-history-v1-${{ github.run_id }}
+
+  implement:
+    if: >-
+      github.repository == '0x00C0DE/0x00C0DE.github.io' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request'
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - name: Download this run's research handoff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --name "codex-research-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --dir tmp/handoff
+      - name: Implement and verify an eligible feature
+        id: implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          if [[ "$(git rev-parse FETCH_HEAD)" != "$GITHUB_SHA" ]]; then
+            echo 'Main changed after research. The next cycle will reassess the candidate.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          refs=$(git ls-remote --heads origin 'refs/heads/US-*')
+          max=$(printf '%s\n' "$refs" | sed -nE 's@.*refs/heads/US-([0-9]+)-.*@\1@p' | sort -n | tail -1)
+          branch="US-$((10#${max:-0} + 1))-blog-feed-v1"
+          git switch -c "$branch"
+          node scripts/research/implement.mjs tmp/handoff/report.json
+          if git diff --quiet; then
+            echo 'No reviewed implementation matched the current handoff.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          test "$(git diff --name-only)" = index.html
+          git diff --check
+          node --test tests/research-implementation.test.mjs
+          GITHUB_OUTPUT="$RUNNER_TEMP/pages-build-output" node scripts/build-pages.mjs
+          artifact=$(sed -n 's/^path=//p' "$RUNNER_TEMP/pages-build-output")
+          python -c 'import sys, xml.etree.ElementTree as ET; root = ET.parse(sys.argv[1]).getroot(); assert root.find("{http://www.w3.org/2005/Atom}entry") is not None' "$artifact/content/feed.xml"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- index.html
+          git commit -m 'Publish a subscribable blog feed'
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+      - name: Publish the feature branch and integrate
+        if: steps.implementation.outputs.branch != ''
+        env:
+          RELEASE_BRANCH: ${{ steps.implementation.outputs.branch }}
+        run: |
+          git push --atomic origin "HEAD:refs/heads/$RELEASE_BRANCH" HEAD:refs/heads/main
+          echo "Integrated $RELEASE_BRANCH at $(git rev-parse HEAD)." >> "$GITHUB_STEP_SUMMARY"
+      - name: Dispatch Pages and verify the live feed
+        if: steps.implementation.outputs.branch != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision=$(git rev-parse HEAD)
+          gh workflow run pages.yml --ref main
+          for attempt in {1..48}; do
+            run=$(gh run list --workflow pages.yml --branch main --event workflow_dispatch --commit "$revision" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+            if [[ -n "$run" ]]; then
+              gh run watch "$run" --exit-status --interval 5
+              break
+            fi
+            sleep 5
+          done
+          test -n "$run"
+          for attempt in {1..12}; do
+            if curl --fail --silent --max-time 10 "https://0x00c0de.github.io/content/feed.xml?revision=$revision" --output "$RUNNER_TEMP/live-feed.xml" &&
+               python -c 'import sys, xml.etree.ElementTree as ET; assert ET.parse(sys.argv[1]).getroot().find("{http://www.w3.org/2005/Atom}entry") is not None' "$RUNNER_TEMP/live-feed.xml"; then
+              echo '[Verified the production Atom feed](https://0x00c0de.github.io/content/feed.xml).' >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1

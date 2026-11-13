@@ -84,6 +84,15 @@ implementing a candidate. Follow the skill to start a fresh branch from
 current main, run checks, publish, integrate, and verify production.
 Feature candidates may recur while their source signals remain present.
 
-The scheduled workflow produces a research handoff. A model runner and
-automatic implementation or merge job are not configured. Dependency
-audits, CodeQL, and Pages checks continue to run independently.
+The implementation job can activate the public blog feed when the report
+identifies that candidate at the current main revision. It uses a fixed
+implementation and no model credentials. It checks the release skill,
+creates a fresh feature branch, tests the Pages artifact, and pushes the
+branch and main atomically. If branch protection rejects that push, use
+the repository's normal pull request path. Other candidates remain reports.
+
+The job dispatches the existing Pages workflow explicitly because a push
+using the Actions token does not trigger Pages. It checks the resulting
+deployment and public feed. If publishing succeeds and deployment fails,
+rerun the Pages workflow on main and check /content/feed.xml. Review the
+job summary before retrying a failed or interrupted release.

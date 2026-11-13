@@ -1,4 +1,5 @@
-import { appendFile, cp, lstat, mkdir, mkdtemp, readdir } from 'node:fs/promises';
+import { feedLink, renderFeedFile } from './research/blog-feed.mjs';
+import { appendFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,6 +20,10 @@ for (const entry of publicEntries) {
             return !segments.some(part => part.startsWith('.') || part === 'node_modules');
         }
     });
+}
+if ((await readFile(new URL('index.html', sourceRoot), 'utf8')).includes(feedLink)) {
+    const feed = await renderFeedFile(new URL('content/blog.txt', sourceRoot));
+    await writeFile(output + sep + 'content' + sep + 'feed.xml', feed);
 }
 if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, 'path=' + output + '\n');
 console.log(output + ' contains: ' + (await readdir(output)).join(', '));
