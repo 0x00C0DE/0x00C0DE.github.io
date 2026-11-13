@@ -36,7 +36,7 @@ async function verify(root, planPath, dependencyRoot) {
     await new Promise((ok, reject) => server.once('error', reject).listen(0, '127.0.0.1', ok));
     let browser;
     try {
-        browser = await chromium.launch({ timeout: 30_000, args: ['--disable-renderer-backgrounding'] });
+        browser = await chromium.launch({ timeout: 60_000, args: ['--disable-gpu'] });
         const origin = 'http://127.0.0.1:' + server.address().port;
         for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
             const page = await browser.newPage({ viewport, hasTouch: viewport.width < 500,
