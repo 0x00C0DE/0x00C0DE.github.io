@@ -129,6 +129,8 @@ account credentials on that machine. The public GitHub Actions workflow
 continues research and predefined releases without a Codex credential.
 The runner explicitly enables the native Windows sandbox because it ignores
 user configuration. Proposal runs use workspace-write and review runs use read-only.
+Use `node --test --test-isolation=none` in those sandboxes so Node runs the tests
+in-process.
 
 From a dedicated checkout at the latest main, preview a proposal with:
 

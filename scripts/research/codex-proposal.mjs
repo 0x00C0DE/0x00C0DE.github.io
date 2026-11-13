@@ -11,7 +11,8 @@ export function selectLead(report, revision, acceptsSurface = () => true) {
 export function validateChanges(changes) {
     const allowed = /^(?:README\.md|pages\/[a-z0-9-]+\.(?:html|css|mjs)|src\/codex-feature-[a-z0-9-]+\.(?:mjs|css)|tests\/codex-feature-[a-z0-9-]+\.test\.mjs)$/;
     if (changes.length < 3 || changes.length > 8
-        || changes.some(change => change.mode !== '100644' || !allowed.test(change.path))
+        || changes.some(({ mode, previousMode, path }) => !allowed.test(path)
+            || (mode !== '100644' && !(mode === '100755' && previousMode === mode)))
         || !changes.some(change => change.path === 'README.md')
         || !changes.some(change => change.path.startsWith('tests/'))
         || !changes.some(change => /^(pages|src)\//.test(change.path))) {
@@ -37,9 +38,9 @@ function verifyIndex() {
     const files = git('diff', '--cached', '--raw', '--no-renames', '-z').split('\0');
     const changes = [];
     for (let i = 0; i < files.length - 1; i += 2) {
-        const match = /^:\d{6} (\d{6}) [a-f0-9]+ [a-f0-9]+ ([AM])$/.exec(files[i]);
+        const match = /^:(\d{6}) (\d{6}) [a-f0-9]+ [a-f0-9]+ ([AM])$/.exec(files[i]);
         if (!match) throw new Error('Unexpected staged operation');
-        changes.push({ mode: match[1], path: files[i + 1] });
+        changes.push({ previousMode: match[1], mode: match[2], path: files[i + 1] });
     }
     validateChanges(changes);
     const stats = git('diff', '--cached', '--numstat', '--no-renames', '-z').split('\0').filter(Boolean);

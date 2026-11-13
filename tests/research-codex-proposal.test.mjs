@@ -19,6 +19,9 @@ test('requires README and tests, and rejects privileged or nonregular paths', ()
     }
     assert.throws(() => validateChanges(good.slice(1)));
     assert.throws(() => validateChanges([...good.slice(0, 2), { ...good[2], mode: '120000' }]));
+    const existingPage = { ...good[1], mode: '100755' };
+    assert.throws(() => validateChanges([good[0], existingPage, good[2]]));
+    assert.doesNotThrow(() => validateChanges([good[0], { ...existingPage, previousMode: '100755' }, good[2]]));
 });
 
 test('automated review fails closed unless it explicitly approves with zero findings', async () => {
