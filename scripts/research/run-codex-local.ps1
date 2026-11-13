@@ -15,7 +15,8 @@ if ($remote -notmatch '^(https://github\.com/|git@github\.com:)0x00C0DE/0x00C0DE
 }
 if (Invoke-Checked git status --porcelain) { throw 'Use a clean dedicated checkout.' }
 if ($env:OPENAI_API_KEY -or $env:CODEX_API_KEY) { throw 'Clear API-key environment overrides.' }
-if ((Invoke-Checked codex.cmd login status | Out-String) -notmatch 'Logged in using ChatGPT') {
+$loginStatus = & codex.cmd login status 2>&1 | Out-String
+if ($LASTEXITCODE -ne 0 -or $loginStatus -notmatch '(?m)^Logged in using ChatGPT\s*$') {
     throw 'Sign in locally with codex.cmd login.'
 }
 
