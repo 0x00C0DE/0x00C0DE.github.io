@@ -3,6 +3,7 @@ name: Codex autonomous research preflight
 on:
   schedule:
     - cron: '17 */6 * * *'
+    - cron: '45 19 13 11 *' # November 13 test at 11:45 a.m. Pacific
   workflow_dispatch:
   push:
     branches: [main]
