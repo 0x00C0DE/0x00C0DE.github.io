@@ -386,7 +386,11 @@ test('homepage intro replays on reload and in new tabs in the same browser', { t
     assert.equal(await phone.locator('#home-intro').isVisible(), false);
     await phone.goto(site.origin);
     await phone.locator('#home-intro[open]').waitFor();
+    const borders = phone.locator('#home-intro .star-border__light');
+    await borders.nth(1).waitFor({ timeout: 3000 });
+    assert.equal(await borders.count(), 2);
     await phone.touchscreen.tap(20, 20);
     await phone.locator('#home-intro').waitFor({ state: 'hidden' });
+    assert.equal(await borders.count(), 0);
     assert.equal(await phone.locator('#terminal-canvas').isVisible(), true);
 });

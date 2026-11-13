@@ -51,22 +51,43 @@ function showIntro() {
     }
 
     if (!motion.matches) {
-        import('../vendor/aero-shards/metallic-paint.mjs').then(({ mountMetallicPaint }) => {
+        import('../vendor/aero-shards/laser-flow.mjs').then(({ mountLaserFlow }) => {
             if (leaving || motion.matches) return;
-            const title = dialog.querySelector('h1');
-            const stop = mountMetallicPaint(title, {
-                text: title.textContent.trim(),
-                fontFamily: '"Courier New", monospace',
-                fontWeight: 700,
+            const stop = mountLaserFlow(art, {
                 color: introRed,
-                scale: 0.95,
-                speed: 0.55,
-                dispersion: 0.12,
-                intro: false,
-                dpr: 1.5,
-                onReady: () => title.classList.add('has-metallic-paint')
+                beamPosition: 0.7,
+                intensity: 0.75,
+                speed: 0.65,
+                dpr: 1
             });
             if (stop) stopAnimations.push(stop);
+        }).catch(error => console.warn('Laser Flow could not load:', error));
+
+        import('../vendor/aero-shards/star-border.mjs').then(({ mountStarBorder }) => {
+            if (leaving || motion.matches) return;
+            for (const element of dialog.querySelectorAll('.intro-star-border')) {
+                const stop = mountStarBorder(element, { color: introRed, duration: 5 });
+                if (stop) stopAnimations.push(stop);
+            }
+        }).catch(error => console.warn('Star Border could not load:', error));
+
+        import('../vendor/aero-shards/metallic-paint.mjs').then(({ mountMetallicPaint }) => {
+            if (leaving || motion.matches) return;
+            for (const label of dialog.querySelectorAll('.intro-metallic-label')) {
+                const stop = mountMetallicPaint(label, {
+                    text: label.textContent.trim(),
+                    fontFamily: '"Courier New", monospace',
+                    fontWeight: 700,
+                    color: introRed,
+                    scale: 0.95,
+                    speed: 0.55,
+                    dispersion: 0.12,
+                    intro: false,
+                    dpr: 1.5,
+                    onReady: () => label.classList.add('has-metallic-paint')
+                });
+                if (stop) stopAnimations.push(stop);
+            }
         }).catch(error => console.warn('Metallic Paint could not load:', error));
     }
 }
