@@ -101,15 +101,11 @@ jobs:
           feature=$(node scripts/research/implement.mjs tmp/handoff/report.json)
           case "$feature" in
             blog-feed)
-              git add -- index.html
-              test "$(git diff --cached --name-only)" = index.html
-              test -z "$(git status --porcelain --untracked-files=all | grep -v '^M  index.html$')"
+              changed=index.html
               path=content/feed.xml
               ;;
             sitemap)
-              git add -- robots.txt
-              test "$(git diff --cached --name-only)" = robots.txt
-              test -z "$(git status --porcelain --untracked-files=all | grep -v '^A  robots.txt$')"
+              changed=robots.txt
               path=sitemap.xml
               ;;
             '')
@@ -118,6 +114,15 @@ jobs:
               ;;
             *) exit 1 ;;
           esac
+          node scripts/research/document-feature.mjs "$feature"
+          git add -- "$changed" README.md
+          git diff --cached --quiet -- "$changed" && exit 1
+          while IFS= read -r status; do
+            case "$status" in
+              "M  README.md"|"M  $changed"|"A  $changed") ;;
+              *) exit 1 ;;
+            esac
+          done < <(git status --porcelain --untracked-files=all)
           git diff --cached --check
           node --test tests/research-implementation.test.mjs
           GITHUB_OUTPUT="$RUNNER_TEMP/pages-build-output" node scripts/build-pages.mjs

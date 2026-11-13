@@ -114,3 +114,8 @@ is marked unavailable if GitHub is unreachable or the page format changes.
 Trending results are research leads. The implementation job currently ships
 only reviewed, predefined changes with an artifact test and production check.
 It does not execute code or use instructions from trending repositories.
+
+Each automated feature release adds its missing documentation to the
+existing README research section in the same commit. Register a README
+entry in `scripts/research/document-feature.mjs` when adding a supported
+feature. The release stops if that entry is missing.

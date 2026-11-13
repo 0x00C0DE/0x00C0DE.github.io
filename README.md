@@ -748,3 +748,6 @@ changes require no Worker deployment. Existing Express fallback installations ne
 
 [Research operations](docs/codex-research.md) describes the read-only release
 monitor, local usage-planning inputs, and how to run the checks.
+
+- [Blog Atom feed](https://0x00c0de.github.io/content/feed.xml) subscribes readers to recent public blog entries.
+- [Sitemap](https://0x00c0de.github.io/sitemap.xml) lists public portfolio and project routes for search engines.

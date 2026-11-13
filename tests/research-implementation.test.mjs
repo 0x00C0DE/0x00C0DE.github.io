@@ -31,3 +31,15 @@ test('sitemap lists only known public routes and requires a current handoff', as
     assert.match(renderSitemap(['projects.html', 'project-example.html']), /\/pages\/project-example\.html/);
     assert.doesNotMatch(renderSitemap(['pretext-lab.html', '../private.html', 'project-test&.html']), /lab|private|test/);
 });
+
+test('README additions preserve existing formatting and are idempotent', async () => {
+    const { documentFeature } = await import('../scripts/research/document-feature.mjs');
+    const before = '## Scheduled research preflight\r\n\r\nExisting prose.\r\n';
+    const after = documentFeature(before, 'sitemap');
+    assert.ok(after.startsWith(before + "\r\n"));
+    assert.match(after, /\r\n- \[Sitemap\]/);
+    assert.doesNotMatch(after, /(?<!\r)\n/);
+    assert.equal(documentFeature(after, 'sitemap'), after);
+    assert.equal(documentFeature('Already described in `/sitemap.xml`.\n', 'sitemap'), 'Already described in `/sitemap.xml`.\n');
+    assert.throws(() => documentFeature(before, 'unknown'), /README/);
+});
