@@ -433,9 +433,26 @@ test('staged media uses the same challenge grant for chunks and append', { timeo
     t.after(() => page.close());
     const api = 'https://0x00c0de-blog-append.0x00c0de.workers.dev/api/blog/';
     const calls = [];
+    let activeChunks = 0;
+    let peakChunks = 0;
+    let releaseFirstChunk;
+    const firstChunkGate = new Promise(resolve => { releaseFirstChunk = resolve; });
     for (const endpoint of ['upload-grant', 'upload-chunk', 'append']) {
         await page.route(api + endpoint, async route => {
-            calls.push({ endpoint, body: route.request().postDataJSON() });
+            const body = route.request().postDataJSON();
+            calls.push({ endpoint, body });
+            if (endpoint === 'upload-chunk') {
+                activeChunks += 1;
+                peakChunks = Math.max(peakChunks, activeChunks);
+                if (body.chunkIndex === 1) releaseFirstChunk();
+                if (body.chunkIndex === 0) {
+                    const timeout = setTimeout(releaseFirstChunk, 3000);
+                    await firstChunkGate;
+                    clearTimeout(timeout);
+                }
+                activeChunks -= 1;
+            }
+            if (endpoint === 'append') assert.equal(activeChunks, 0);
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
@@ -463,7 +480,11 @@ test('staged media uses the same challenge grant for chunks and append', { timeo
     assert.equal(calls.at(-1)?.endpoint, 'append');
     const chunks = calls.slice(1, -1);
     assert.ok(chunks.length > 1);
+    assert.ok(peakChunks > 1 && peakChunks <= 4, `expected bounded overlap, saw ${peakChunks}`);
     assert.ok(chunks.every(call => call.endpoint === 'upload-chunk' && call.body.uploadGrant === 'fixture-upload-grant'));
     assert.equal(calls.at(-1).body.uploadGrant, 'fixture-upload-grant');
-    assert.equal(calls.at(-1).body.contentBlocks.find(block => block.type === 'image').stagedUploadToken, chunks[0].body.uploadId);
+    const stagedId = calls.at(-1).body.contentBlocks.find(block => block.type === 'image').stagedUploadToken;
+    assert.ok(chunks.every(call => call.body.uploadId === stagedId));
+    assert.deepEqual(chunks.map(call => call.body.chunkIndex).sort((a, b) => a - b),
+        Array.from({ length: chunks.length }, (_, index) => index));
 });

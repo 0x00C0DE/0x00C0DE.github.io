@@ -125,6 +125,7 @@ const BLOG_MAX_POST_LENGTH = 500;
 const BLOG_MAX_IMAGE_DATA_URL_LENGTH = 100000000;
 const BLOG_DIRECT_POST_IMAGE_DATA_URL_LENGTH = 1000000;
 const BLOG_STAGED_IMAGE_CHUNK_LENGTH = 98304;
+const BLOG_STAGED_UPLOAD_CONCURRENCY = 4;
 const BLOG_MAX_STAGED_IMAGE_CHUNKS = 2048;
 const BLOG_MAX_IMAGE_ATTACHMENTS = 10;
 const BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL = 'png/jpg/jpeg/webp/gif/mp4';
@@ -2489,7 +2490,7 @@ async function stageBlogUploadPayload(payload, payloadLabel, getUploadGrant) {
     }
 
     const uploadGrant = await getUploadGrant();
-    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+    const uploadChunk = async chunkIndex => {
         const chunk = normalizedPayload.slice(
             chunkIndex * BLOG_STAGED_IMAGE_CHUNK_LENGTH,
             (chunkIndex + 1) * BLOG_STAGED_IMAGE_CHUNK_LENGTH
@@ -2524,6 +2525,24 @@ async function stageBlogUploadPayload(payload, payloadLabel, getUploadGrant) {
                 error: payload.error || `post: unable to stage ${payloadLabel} chunk ${chunkIndex + 1} of ${totalChunks}`
             };
         }
+        return null;
+    };
+
+    let nextChunkIndex = 0;
+    let failure = null;
+    const uploadChunks = async () => {
+        while (!failure && nextChunkIndex < totalChunks) {
+            const chunkIndex = nextChunkIndex++;
+            const result = await uploadChunk(chunkIndex);
+            failure ||= result;
+        }
+    };
+    await Promise.all(Array.from(
+        { length: Math.min(totalChunks, BLOG_STAGED_UPLOAD_CONCURRENCY) },
+        uploadChunks
+    ));
+    if (failure) {
+        return failure;
     }
 
     return {
@@ -2994,18 +3013,36 @@ async function post_command(args) {
             ];
         }
 
+    const status = document.createElement('div');
+    status.setAttribute('role', 'status');
+    status.style.cssText = 'position:fixed;top:12px;right:12px;z-index:10;'
+        + 'max-width:calc(100% - 24px);padding:8px 12px;background:#211313;color:#fff;'
+        + 'font:14px monospace;pointer-events:none';
+    document.body.append(status);
+    const setStatus = text => { status.textContent = `post: ${text}`; };
+
     try {
         let uploadGrantRequest;
-        const getUploadGrant = () => uploadGrantRequest ||= requestBlogUploadGrant();
+        const getUploadGrant = () => uploadGrantRequest ||= (async () => {
+            setStatus('verifying');
+            const grant = await requestBlogUploadGrant();
+            setStatus('uploading media');
+            return grant;
+        })();
         const templateBlocks = parsePostTemplateBlocks(text, includeImage);
+        setStatus(templateBlocks.some(block => block.type === 'image') ? 'selecting media' : 'preparing');
         const resolved = await resolvePostContentBlocks(templateBlocks, getUploadGrant);
         if (resolved.error) {
             return [resolved.error];
         }
 
+        if (!uploadGrantRequest) {
+            setStatus('verifying');
+        }
         const authorization = uploadGrantRequest
             ? { uploadGrant: await uploadGrantRequest }
             : { turnstileToken: await requestTurnstileToken() };
+        setStatus('publishing');
         const response = await fetch(BLOG_POST_API_URL, {
             method: 'POST',
             headers: {
@@ -3043,6 +3080,8 @@ async function post_command(args) {
             ? error.message.trim()
             : 'backend unavailable right now';
         return [`post: ${message}`];
+    } finally {
+        status.remove();
     }
 }
 
