@@ -338,15 +338,7 @@ function syncTerminalThemeClasses() {
 function refreshTerminalSessionUi() {
     syncTerminalDocumentTitle();
     syncTerminalThemeClasses();
-    if (typeof window.syncTerminalVisualEffects === 'function') {
-        window.syncTerminalVisualEffects();
-    }
-    if (typeof window.refreshTerminalInputPrompt === 'function') {
-        window.refreshTerminalInputPrompt();
-    }
-    if (typeof window.syncTerminalSessionAwareLines === 'function') {
-        window.syncTerminalSessionAwareLines();
-    }
+    window.syncTerminalSessionUi?.();
 }
 
 function setTerminalSessionState(nextState) {

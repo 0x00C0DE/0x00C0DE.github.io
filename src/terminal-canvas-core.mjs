@@ -51,7 +51,7 @@ const DEFAULT_VISITOR_STATS = Object.freeze({
     onSite: 0
 });
 const CURSOR_BLINK_INTERVAL_MS = 540;
-const BACKGROUND_STEP_MS = 120;
+const RAIN_SPRITES_PER_FRAME = 3;
 const MEDIA_PLACEHOLDER_ASPECT_RATIO = 16 / 9;
 const MOBILE_INPUT_PROXY_ID = 'terminal-mobile-input';
 const nativeChromeRefresh = usesNativeChromeRefresh();
@@ -189,6 +189,9 @@ const PALETTES = Object.freeze({
 const app = {
     backgroundLayer: null,
     binaryColumns: [],
+    binaryRainKey: '',
+    nextRainSprite: 0,
+    nextRainMutation: 0,
     blockId: 0,
     blocks: [],
     canvas: null,
@@ -202,7 +205,6 @@ const app = {
     inputValue: '',
     interactiveRegions: [],
     isBooted: false,
-    lastBackgroundStep: 0,
     layoutDirty: true,
     measureCanvas: null,
     measureCtx: null,
@@ -2543,171 +2545,78 @@ function buildBlock(kind, data, extra = {}) {
 }
 
 function createBinaryRainSprite(column, color) {
-    const glyphs = Array.isArray(column?.cells) ? column.cells : [];
-    if (glyphs.length === 0) {
-        return null;
-    }
-
-    const fontSizePx = Number.isFinite(column?.fontSizePx) ? column.fontSizePx : 16;
-    const font = buildFont(fontSizePx, '700');
-    const glyphHeight = Math.max(12, round(fontSizePx * 0.84));
-    const paddingX = Math.max(8, round(fontSizePx * 0.7));
-    const paddingY = Math.max(10, round(fontSizePx * 0.9));
-    const widestGlyph = glyphs.reduce((maximum, glyph) => (
-        Math.max(maximum, measureTextWidth(glyph, font))
-    ), measureTextWidth('W', font));
-    const spriteWidth = Math.max(24, round(widestGlyph + paddingX * 2));
-    const spriteHeight = Math.max(24, round(glyphs.length * glyphHeight + paddingY * 2));
-    const spriteDpr = Math.max(1, app.dpr || 1);
-    const spriteCanvas = document.createElement('canvas');
-    spriteCanvas.width = Math.max(1, round(spriteWidth * spriteDpr));
-    spriteCanvas.height = Math.max(1, round(spriteHeight * spriteDpr));
-    const spriteCtx = spriteCanvas.getContext('2d');
-    const metrics = {
-        blurPx: Math.max(0, Number(column?.blurPx) || 0),
-        dpr: spriteDpr,
-        font,
-        glyphHeight,
-        height: spriteHeight,
-        paddingY,
-        shadowBlur: Math.max(6, fontSizePx * 0.35),
-        width: spriteWidth
-    };
-    renderBinaryRainSpriteRows(column, spriteCtx, metrics, color);
-
-    return {
-        canvas: spriteCanvas,
-        ctx: spriteCtx,
-        dpr: spriteDpr,
-        glyphHeight,
-        height: spriteHeight,
-        paddingY,
-        shadowBlur: metrics.shadowBlur,
-        width: spriteWidth
-    };
+    const font = buildFont(column.fontSizePx, '700');
+    const glyphHeight = Math.ceil(column.fontSizePx * 1.1);
+    const width = Math.ceil(measureTextWidth('W', font) + 8);
+    const height = column.cells.length * glyphHeight;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.font = font;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = color;
+    const sprite = { canvas, ctx, glyphHeight, width, height };
+    column.cells.forEach((glyph, index) => drawBinaryRainGlyph(sprite, glyph, index));
+    return sprite;
 }
 
-function renderBinaryRainSpriteRows(column, spriteCtx, metrics, color, rowIndexes = null) {
-    if (!spriteCtx || !metrics) {
-        return;
-    }
-
-    const glyphs = Array.isArray(column?.cells) ? column.cells : [];
-    if (glyphs.length === 0) {
-        spriteCtx.clearRect(0, 0, metrics.width, metrics.height);
-        return;
-    }
-
-    const rows = Array.isArray(rowIndexes)
-        ? [...new Set(rowIndexes.filter(index => Number.isInteger(index) && index >= 0 && index < glyphs.length))]
-        : glyphs.map((_, index) => index);
-    if (rows.length === 0) {
-        return;
-    }
-
-    spriteCtx.setTransform(metrics.dpr, 0, 0, metrics.dpr, 0, 0);
-    spriteCtx.font = metrics.font;
-    spriteCtx.textAlign = 'center';
-    spriteCtx.textBaseline = 'top';
-    spriteCtx.fillStyle = color;
-    spriteCtx.shadowColor = color;
-    spriteCtx.shadowBlur = metrics.shadowBlur;
-    if ('filter' in spriteCtx) {
-        spriteCtx.filter = metrics.blurPx > 0 ? `blur(${metrics.blurPx}px)` : 'none';
-    }
-
-    if (!Array.isArray(rowIndexes)) {
-        spriteCtx.clearRect(0, 0, metrics.width, metrics.height);
-    } else {
-        const clearMargin = Math.max(4, round(metrics.shadowBlur + metrics.blurPx * 2 + 2));
-        rows.forEach(index => {
-            const rowTop = metrics.paddingY + index * metrics.glyphHeight;
-            const clearTop = Math.max(0, rowTop - clearMargin);
-            const clearBottom = Math.min(metrics.height, rowTop + metrics.glyphHeight + clearMargin);
-            spriteCtx.clearRect(0, clearTop, metrics.width, clearBottom - clearTop);
-        });
-    }
-
-    rows.forEach(index => {
-        spriteCtx.fillText(glyphs[index], metrics.width / 2, metrics.paddingY + index * metrics.glyphHeight);
-    });
-}
-
-function hydrateBinaryRainColumn(column, palette = getPalette()) {
-    const blurPx = Math.max(0, Number(column?.blurPx) || 0);
-    const canReuseSprite = Boolean(
-        column?.spriteCanvas
-        && column?.spriteCtx
-        && column.spriteColor === palette.accent
-        && column.spriteDpr === Math.max(1, app.dpr || 1)
-        && column.spriteBlurPx === blurPx
-    );
-    let sprite = null;
-
-    if (canReuseSprite) {
-        const metrics = {
-            blurPx,
-            dpr: column.spriteDpr,
-            font: buildFont(Number.isFinite(column?.fontSizePx) ? column.fontSizePx : 16, '700'),
-            glyphHeight: Number.isFinite(column?.spriteGlyphHeight) ? column.spriteGlyphHeight : Math.max(12, round((Number(column?.fontSizePx) || 16) * 0.84)),
-            height: Number.isFinite(column?.spriteHeight) ? column.spriteHeight : 0,
-            paddingY: Number.isFinite(column?.spritePaddingY) ? column.spritePaddingY : Math.max(10, round((Number(column?.fontSizePx) || 16) * 0.9)),
-            shadowBlur: Number.isFinite(column?.spriteShadowBlur) ? column.spriteShadowBlur : Math.max(6, (Number(column?.fontSizePx) || 16) * 0.35),
-            width: Number.isFinite(column?.spriteWidth) ? column.spriteWidth : 0
-        };
-        renderBinaryRainSpriteRows(column, column.spriteCtx, metrics, palette.accent, column.mutatedIndexes);
-        sprite = {
-            canvas: column.spriteCanvas,
-            ctx: column.spriteCtx,
-            dpr: metrics.dpr,
-            glyphHeight: metrics.glyphHeight,
-            height: metrics.height,
-            paddingY: metrics.paddingY,
-            shadowBlur: metrics.shadowBlur,
-            width: metrics.width
-        };
-    } else {
-        sprite = createBinaryRainSprite(column, palette.accent);
-    }
-
-    return {
-        ...column,
-        spriteCanvas: sprite?.canvas || null,
-        spriteColor: palette.accent,
-        spriteCtx: sprite?.ctx || null,
-        spriteDpr: sprite?.dpr || Math.max(1, app.dpr || 1),
-        spriteGlyphHeight: sprite?.glyphHeight || 0,
-        spriteHeight: sprite?.height || 0,
-        spritePaddingY: sprite?.paddingY || 0,
-        spriteShadowBlur: sprite?.shadowBlur || 0,
-        spriteBlurPx: blurPx,
-        spriteWidth: sprite?.width || 0
-    };
+function drawBinaryRainGlyph(sprite, glyph, index) {
+    const { ctx, width, glyphHeight } = sprite;
+    const top = index * glyphHeight;
+    ctx.clearRect(0, top, width, glyphHeight);
+    ctx.fillText(glyph, width / 2, top + glyphHeight / 2);
 }
 
 function refreshBinaryColumns() {
     const snapshot = getPromptSnapshot();
-    if (!shouldUseRootTerminalVisuals(snapshot)) {
-        app.binaryColumns = [];
+    const palette = getPalette(snapshot);
+    const key = shouldUseRootTerminalVisuals(snapshot)
+        ? `${app.viewportWidth}|${app.viewportHeight}|${palette.accent}`
+        : '';
+    if (key === app.binaryRainKey) {
         return;
     }
 
-    app.binaryColumns = createBinaryRainColumns({
+    app.binaryRainKey = key;
+    app.nextRainSprite = 0;
+    app.nextRainMutation = 0;
+    app.binaryColumns = key ? createBinaryRainColumns({
         height: app.viewportHeight,
         width: app.viewportWidth
-    }).map(column => hydrateBinaryRainColumn(column, getPalette(snapshot)));
+    }) : [];
 }
 
-function advanceBinaryColumns(timestamp) {
-    if (!app.binaryColumns.length) {
+function advanceBinaryColumns(timestamp, palette) {
+    const columns = app.binaryColumns;
+    if (app.nextRainSprite < columns.length) {
+        const end = Math.min(columns.length, app.nextRainSprite + RAIN_SPRITES_PER_FRAME);
+        for (; app.nextRainSprite < end; app.nextRainSprite += 1) {
+            const column = columns[app.nextRainSprite];
+            column.sprite = createBinaryRainSprite(column, palette.accent);
+            column.nextMutation = timestamp + column.mutationIntervalMs;
+        }
         return;
     }
-    if (timestamp - app.lastBackgroundStep < BACKGROUND_STEP_MS) {
-        return;
+
+    let remaining = RAIN_SPRITES_PER_FRAME;
+    for (let scanned = 0; scanned < columns.length && remaining > 0; scanned += 1) {
+        const index = app.nextRainMutation;
+        app.nextRainMutation = (index + 1) % columns.length;
+        const column = columns[index];
+        if (timestamp < column.nextMutation) {
+            continue;
+        }
+
+        const updated = advanceBinaryRainColumn(column);
+        for (const row of updated.mutatedIndexes) {
+            drawBinaryRainGlyph(column.sprite, updated.cells[row], row);
+        }
+        updated.nextMutation = timestamp + column.mutationIntervalMs;
+        columns[index] = updated;
+        remaining -= 1;
     }
-    app.lastBackgroundStep = timestamp;
-    const palette = getPalette();
-    app.binaryColumns = app.binaryColumns.map(column => hydrateBinaryRainColumn(advanceBinaryRainColumn(column), palette));
 }
 
 function invalidateRenderLayers() {
@@ -2964,16 +2873,15 @@ function relayoutScene() {
 }
 
 function drawBackground(ctx, palette, timestamp) {
-    ctx.clearRect(0, 0, app.viewportWidth, app.viewportHeight);
     const backgroundLayer = getBackgroundLayer(palette);
     ctx.drawImage(backgroundLayer, 0, 0, app.viewportWidth, app.viewportHeight);
 
-    advanceBinaryColumns(timestamp);
+    advanceBinaryColumns(timestamp, palette);
     if (app.binaryColumns.length > 0) {
         ctx.save();
         app.binaryColumns.forEach(column => {
-            const spriteCanvas = column?.spriteCanvas;
-            if (!spriteCanvas) {
+            const sprite = column.sprite;
+            if (!sprite) {
                 return;
             }
 
@@ -2981,13 +2889,14 @@ function drawBackground(ctx, palette, timestamp) {
                 height: app.viewportHeight,
                 timestamp
             });
+            if (frame.y >= app.viewportHeight || frame.y + sprite.height <= 0) {
+                return;
+            }
             ctx.globalAlpha = frame.opacity;
             ctx.drawImage(
-                spriteCanvas,
-                app.viewportWidth * frame.x - (column.spriteWidth || 0) / 2,
-                frame.y - (column.spritePaddingY || 0),
-                column.spriteWidth || spriteCanvas.width,
-                column.spriteHeight || spriteCanvas.height
+                sprite.canvas,
+                Math.round(app.viewportWidth * frame.x - sprite.width / 2),
+                Math.round(frame.y)
             );
         });
         ctx.restore();
@@ -4601,22 +4510,12 @@ function bindEvents() {
     ensureTextInputProxy();
 }
 
-export function refreshTerminalInputPrompt() {
-    syncTextInputProxyValue();
-    markLayoutDirty();
-    scrollToBottom();
-}
-
 export function refreshTerminalVisitorStats() {
     markLayoutDirty();
 }
 
-export function syncTerminalSessionAwareLines() {
-    refreshBinaryColumns();
-    markLayoutDirty();
-}
-
-export function syncTerminalVisualEffects() {
+export function syncTerminalSessionUi() {
+    syncTextInputProxyValue();
     refreshBinaryColumns();
     markLayoutDirty();
 }

@@ -1,5 +1,5 @@
 ﻿let terminalCanvasCore = null;
-const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=native-ios')
+const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=smooth-rain')
     .then(core => {
         terminalCanvasCore = core;
         return core;
@@ -16,10 +16,8 @@ window.getPromptPath = () => terminalCanvasCore ? terminalCanvasCore.getPromptPa
 window.getPromptUser = () => terminalCanvasCore ? terminalCanvasCore.getPromptUser() : 'guest';
 window.getPromptHost = () => terminalCanvasCore ? terminalCanvasCore.getPromptHost() : 'localhost';
 window.getTerminalCommandHistory = () => terminalCanvasCore ? terminalCanvasCore.getCommandHistory() : [];
-window.refreshTerminalInputPrompt = () => withTerminalCanvasCore(core => core.refreshTerminalInputPrompt());
 window.refreshTerminalVisitorStats = () => withTerminalCanvasCore(core => core.refreshTerminalVisitorStats());
-window.syncTerminalSessionAwareLines = () => withTerminalCanvasCore(core => core.syncTerminalSessionAwareLines());
-window.syncTerminalVisualEffects = () => withTerminalCanvasCore(core => core.syncTerminalVisualEffects());
+window.syncTerminalSessionUi = () => withTerminalCanvasCore(core => core.syncTerminalSessionUi());
 window.showAsciiStill = (asciiLines, options) => withTerminalCanvasCore(core => core.showAsciiStill(asciiLines, options));
 window.showImageStill = (imageUrl, options) => withTerminalCanvasCore(core => core.showImageStill(imageUrl, options));
 window.showVideo = args => withTerminalCanvasCore(core => core.showVideo(args));

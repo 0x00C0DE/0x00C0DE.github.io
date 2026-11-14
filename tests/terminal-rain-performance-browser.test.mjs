@@ -100,7 +100,7 @@ async function stubTerminalApis(page) {
     }));
 }
 
-async function createVisualsPage(browser, origin, user) {
+async function createVisualsPage(browser, origin) {
     const page = await browser.newPage({
         viewport: { height: 822, width: 1188 }
     });
@@ -117,15 +117,11 @@ async function createVisualsPage(browser, origin, user) {
             };
             Document.prototype.__rainCanvasCounterInstalled = true;
         }
-        window.prompt = () => 'pw';
+        window.prompt = () => 'pw123456';
     });
     await stubTerminalApis(page);
-    await page.goto(origin, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(2000);
-    await page.evaluate(async nextUser => {
-        await window.executeCommand(`su ${nextUser}`);
-    }, user);
-    await page.waitForTimeout(300);
+    await page.goto(`${origin}/?command=echo%20ready`, { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => window.getTerminalCommandHistory?.().includes('echo ready'));
     return page;
 }
 
@@ -136,7 +132,7 @@ async function measureCanvasChurn(page, durationMs = 900) {
     return after - before;
 }
 
-test('root and godlike rain animation stop allocating new canvases after startup', { timeout: 120000 }, async t => {
+test('su switches sessions without building rain canvases in the command path', { timeout: 120000 }, async t => {
     const server = await createStaticServer(REPO_ROOT);
     t.after(async () => {
         await server.close();
@@ -150,17 +146,31 @@ test('root and godlike rain animation stop allocating new canvases after startup
         await browser.close();
     });
 
-    for (const user of ['root', 'godlike']) {
-        const page = await createVisualsPage(browser, server.origin, user);
-        t.after(async () => {
-            await page.close();
-        });
-
+    const page = await createVisualsPage(browser, server.origin);
+    const switches = [];
+    for (const [command, user] of [['su', 'root'], ['su godlike', 'godlike']]) {
+        const result = await page.evaluate(async commandLine => {
+            const before = window.__canvasCreateCount;
+            const started = performance.now();
+            await window.executeCommand(commandLine);
+            return {
+                before,
+                canvases: window.__canvasCreateCount - before,
+                duration: Math.round(performance.now() - started),
+                user: window.getPromptUser()
+            };
+        }, command);
+        t.diagnostic(`${command}: ${JSON.stringify(result)}`);
+        assert.equal(result.user, user);
+        switches.push({ command, ...result });
+        // The 1188px fixture viewport generates 27 rain columns per session.
+        await page.waitForFunction(before => window.__canvasCreateCount - before >= 27, result.before);
         const churn = await measureCanvasChurn(page);
-        assert.ok(
-            churn <= 1,
-            `expected ${user} rain to reuse startup canvases, but it allocated ${churn} additional canvases`
-        );
-        await page.close();
+        assert.ok(churn <= 1, `expected ${user} rain to reuse startup canvases, allocated ${churn}`);
+    }
+    await page.evaluate(() => window.executeCommand('su guest'));
+    assert.equal(await page.evaluate(() => window.getPromptUser()), 'guest');
+    for (const { command, canvases } of switches) {
+        assert.ok(canvases <= 2, `${command} allocated ${canvases} canvases before completing`);
     }
 });
