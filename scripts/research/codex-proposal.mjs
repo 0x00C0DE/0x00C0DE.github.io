@@ -24,13 +24,16 @@ export function verifyEvaluation(trending, evaluation) {
     if (windows.some(window => ![...expected].some(key => key.startsWith(window + '/')))) {
         throw new Error('Trending coverage is missing an entire window');
     }
-    const readmes = new Map(trending.repositories.map(repo => [repo.name, repo.readme?.text]));
+    const normalizeExcerpt = text => text.replace(/\s+/g, ' ').trim();
+    const readmes = new Map(trending.repositories.map(repo => [
+        repo.name, repo.readme?.text && normalizeExcerpt(repo.readme.text),
+    ]));
     for (const { window, repository, reason, readmeEvidence } of evaluation.assessments ?? []) {
         if (!reason?.trim() || !expected.delete(window + '/' + repository)) {
             throw new Error('Invalid or duplicate Trending assessment coverage');
         }
         const readme = readmes.get(repository);
-        const evidence = typeof readmeEvidence === 'string' && readmeEvidence.trim();
+        const evidence = typeof readmeEvidence === 'string' && normalizeExcerpt(readmeEvidence);
         if (readme ? !evidence || !readme.includes(evidence) : readmeEvidence !== '') {
             throw new Error('Invalid README evidence for ' + repository);
         }
@@ -62,7 +65,7 @@ export function selectLead(report, revision, acceptsSurface = () => true) {
 
 export function validateChanges(changes) {
     const allowed = /^(?:README\.md|pages\/[a-z0-9-]+\.(?:html|css|mjs)|src\/codex-feature-[a-z0-9-]+\.(?:mjs|css)|tests\/codex-feature-[a-z0-9-]+\.test\.mjs)$/;
-    if (changes.length < 3 || changes.length > 8
+    if (changes.length < 3 || changes.length > 10
         || changes.some(({ mode, previousMode, path }) => !allowed.test(path)
             || (mode !== '100644' && !(mode === '100755' && previousMode === mode)))
         || !changes.some(change => change.path === 'README.md')

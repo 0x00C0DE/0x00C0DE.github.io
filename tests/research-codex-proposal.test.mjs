@@ -32,3 +32,15 @@ test('automated review fails closed unless it explicitly approves with zero find
         assert.equal(reviewApproved(value), false);
     }
 });
+
+test('allows native details on all seven project pages in one release', () => {
+    const paths = [
+        'README.md',
+        ...Array.from({ length: 7 }, (_, index) => 'pages/project-' + index + '.html'),
+        'src/codex-feature-project-details.css',
+        'tests/codex-feature-project-details.test.mjs',
+    ];
+    const changes = paths.map(path => ({ path, mode: '100644' }));
+    assert.doesNotThrow(() => validateChanges(changes));
+    assert.throws(() => validateChanges([...changes, { path: 'pages/other.html', mode: '100644' }]));
+});

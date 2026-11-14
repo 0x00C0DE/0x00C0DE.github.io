@@ -73,7 +73,6 @@ try {
     $removeCheckout = $true
     try {
         if (-not $handoff) {
-            $attempt | Set-Content -LiteralPath $attemptPath -Encoding ascii
             Write-Output "Researching GitHub Trending locally for $main ($runId)."
             $env:GITHUB_SHA = $main
             Push-Location -LiteralPath $checkout
@@ -112,11 +111,14 @@ try {
         }
         if ($Publish) { $options += '-Publish' }
         "run=$runId" | Set-Content -LiteralPath $claim -Encoding utf8
+        [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() |
+            Set-Content -LiteralPath (Join-Path $state.FullName 'last-local-research.txt') -Encoding ascii
         '{"status":"started"}' | Set-Content -LiteralPath $receipt -Encoding utf8
         Write-Output "Handing off $leadName ($runId)."
         $removeCheckout = $false
         $runnerLog = Join-Path $state.FullName "runner-$runId.log"
-        & pwsh -NoProfile -NonInteractive -File (Join-Path $checkout 'scripts/research/run-codex-local.ps1') @options *> $runnerLog
+        & (Get-Process -Id $PID).Path -NoProfile -NonInteractive -WindowStyle Hidden -File `
+            (Join-Path $checkout 'scripts/research/run-codex-local.ps1') @options *> $runnerLog
         $runnerExit = $LASTEXITCODE
         foreach ($artifact in 'trending-evaluation.json', 'trending-selection.json', 'feature-browser-plan.json') {
             $source = Join-Path $checkout "tmp/$artifact"
@@ -127,11 +129,14 @@ try {
         $status = switch ($runnerExit) {
             0 { if ($Publish) { 'published' } else { 'previewed' } }
             20 { 'no-proposal' }
+            21 { 'needs-review' }
+            22 { if ($Publish) { 'partially-published' } else { 'partially-previewed' } }
             default { throw "Local runner failed for $runId (exit $runnerExit). Inspect $runnerLog and $checkout before retrying." }
         }
         @{ status = $status } | ConvertTo-Json -Compress | Set-Content -LiteralPath $receipt -Encoding utf8
         Write-Output "Handoff result: $status ($runId)."
-        $removeCheckout = $status -ne 'previewed'
+        $removeCheckout = $status -in ('published', 'no-proposal')
+        if ($runnerExit -in (21, 22)) { exit $runnerExit }
     } catch {
         @{ status = 'needs-review'; phase = $_.InvocationInfo.ScriptLineNumber } |
             ConvertTo-Json -Compress | Set-Content -LiteralPath $receipt -Encoding utf8

@@ -161,13 +161,14 @@ local runner. Stop the host schedule to stop new local cycles.
 ### Automatic Windows handoff
 
 The hosted workflow announces an eligible lead in a successful handoff job.
-The signed-in host runs `poll-local-handoff.ps1 -Publish` every 2 hours and 30 minutes
-while the Windows user is signed in. It prefers a successful handoff for current
-main. If current main has no successful or pending hosted run in the last six
-hours, the host can research Trending locally, once per six hours. It checks
-that main still matches before starting the isolated worktree and again before
-publication. A recent, successful hosted run with no lead counts as completed research.
-Once the Projects page exposes native navigation, that specific lead is skipped.
+The signed-in host polls every 15 minutes with
+`poll-local-handoff.ps1 -Publish`. It consumes a successful handoff for
+current main as soon as one is available. Once six hours have elapsed since
+the last local runner launch, the host can collect and evaluate Trending
+directly. An in-progress hosted scan on current main defers fallback for at
+most 30 minutes. Completed hosted scans cannot defer overdue local evaluation.
+The host checks that main still matches before creating the isolated
+worktree and again before publication.
 
 The bridge records claims and receipts under `tmp/local-handoff` before running
 Codex. A receipt distinguishes `no-handoff`, `no-proposal`, `previewed`, `published`,
@@ -199,17 +200,20 @@ read-only Codex evaluation for every repository in each daily, weekly, and
 monthly list. Repositories that rank in several lists get an assessment in
 each. The evaluator explores documented interactions and workflows for small
 adaptations with concrete visitor benefits. It takes a second pass before
-returning no proposal. The runner checks every assessment against an exact
-README excerpt when text is available. A repository with an unavailable
+returning no proposal. The runner checks every assessment against a verbatim
+README excerpt (allowing spacing and line-wrap differences) when text is available. A repository with an unavailable
 README cannot supply a feature. An unavailable Trending list or incomplete
 assessment coverage stops the run for review.
 
 Each Windows cycle selects distinct features across the three lists and
 implements them one at a time in isolated worktrees with ephemeral Codex
 sessions. Each candidate starts from the latest revision verified by that
-batch. An unrelated change to main or an implementation or verification
-failure stops the batch and retains its worktrees for inspection. Each
-successful feature has its own release branch, commit, and deployment.
+batch. Implementation, independent review, and browser failures before
+publication retain the failed worktree and allow the next candidate to
+proceed. The receipt distinguishes a partial publication from a batch that
+needs review. A changed base, failed push, or unverified deployment stops
+the batch for reconciliation. Each successful feature has its own release
+branch, commit, and deployment.
 The runner independently
 reviews the changes and the browser test plan, builds the Pages artifact,
 and runs the plan in desktop and touch-sized Chromium outside the model's

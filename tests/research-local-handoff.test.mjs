@@ -15,8 +15,7 @@ test('a missing or stale hosted cycle permits local research once per six hours'
     const run = { head_sha: 'base', status: 'completed', conclusion: 'success', created_at: '2026-11-13T16:30:00Z' };
     assert.equal(handoff.shouldResearchLocally([], 'base', null, now), true);
     assert.equal(handoff.shouldResearchLocally([run], 'new-main', null, now), true);
-    assert.equal(handoff.shouldResearchLocally([run], 'base', null, now), false);
-    assert.equal(handoff.shouldResearchLocally([{ ...run, status: 'in_progress' }], 'base', null, now), false);
+    assert.equal(handoff.shouldResearchLocally([run], 'base', now - 60_000, now), false);
     assert.equal(handoff.shouldResearchLocally([{ ...run, conclusion: 'failure' }], 'base', null, now), true);
     assert.equal(handoff.shouldResearchLocally([], 'base', now - 60_000, now), false);
     assert.equal(handoff.shouldResearchLocally([{ ...run, created_at: '2026-11-13T11:30:00Z' }], 'base', now - 7 * 3_600_000, now), true);
@@ -48,4 +47,13 @@ test('open-ended handoff accepts ranked unmatched repositories and preserves the
     const run = { head_sha: 'base', conclusion: 'success' };
     assert.deepEqual(readHandoff(run, [{ name: 'Local Codex handoff | Trending discovery', conclusion: 'success' }], 'base'),
         { revision: 'base', discovery: true });
+});
+
+test('a completed hosted scan cannot postpone overdue local evaluation', () => {
+    const now = Date.parse('2026-11-14T19:00:00Z');
+    const scan = { head_sha: 'base', status: 'completed', conclusion: 'success', created_at: '2026-11-14T18:55:00Z' };
+    assert.equal(handoff.shouldResearchLocally([scan], 'base', null, now), true);
+    assert.equal(handoff.shouldResearchLocally([{ ...scan, status: 'in_progress' }], 'base', null, now), false);
+    assert.equal(handoff.shouldResearchLocally([{ ...scan, status: 'in_progress', created_at: '2026-11-14T17:00:00Z' }],
+        'base', null, now), true);
 });

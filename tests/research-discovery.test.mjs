@@ -51,3 +51,17 @@ test('rejects invented README evidence and features sourced from unreadable READ
         assessments, features: [{ title: 'New feature', repository: 'a/missing', brief: 'Missing evidence.' }],
     }), /invalid selected Trending feature/i);
 });
+
+test('README evidence can cross source line breaks without accepting paraphrases', () => {
+    const repo = {
+        name: 'example/tool', ranks: { daily: 1, weekly: 1, monthly: 1 },
+        readme: { text: 'Open the project\r\nand choose a saved view.' },
+    };
+    const assessments = Object.keys(repo.ranks).map(window => ({
+        window, repository: repo.name, reason: 'Useful navigation', readmeEvidence: 'project and choose',
+    }));
+    assert.deepEqual(discovery.verifyEvaluation({ repositories: [repo] }, { assessments, features: [] }), []);
+    assessments[0].readmeEvidence = 'project then choose';
+    assert.throws(() => discovery.verifyEvaluation({ repositories: [repo] }, { assessments, features: [] }),
+        /README evidence/);
+});

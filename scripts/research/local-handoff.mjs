@@ -9,6 +9,7 @@ const namePattern = /^Local Codex handoff \| ([\w-]+\/[\w.-]+) \| ([a-z0-9./-]+)
 const surfaces = new Set(['index.html', 'pages/bitcoin.html', 'pages/projects.html',
     'src/terminal-canvas-core.mjs']);
 const researchInterval = 6 * 60 * 60 * 1000;
+const hostedGracePeriod = 30 * 60 * 1000;
 
 export function selectHandoff(report, revision) {
     const lead = selectLead(report, revision, surface => surfaces.has(surface));
@@ -17,8 +18,8 @@ export function selectHandoff(report, revision) {
 
 export function shouldResearchLocally(runs, revision, lastAttempt, now = Date.now()) {
     if (!revision || (Number.isFinite(lastAttempt) && now - lastAttempt < researchInterval)) return false;
-    return !runs.some(run => run.head_sha === revision && now - Date.parse(run.created_at) < researchInterval
-        && (run.status !== 'completed' || run.conclusion === 'success'));
+    return !runs.some(run => run.head_sha === revision && run.status !== 'completed'
+        && now - Date.parse(run.created_at) < hostedGracePeriod);
 }
 
 export function readHandoff(run, jobs, revision) {
