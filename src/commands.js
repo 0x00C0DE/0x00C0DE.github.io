@@ -699,20 +699,10 @@ function renderTerminalLineContent(container, line) {
         return;
     }
 
-    if (typeof window.renderTerminalTextWithPretext === 'function') {
-        const handled = window.renderTerminalTextWithPretext(container, text, {
-            normalizeTextFilename,
-            buildLinkElement: buildTerminalLinkElement
-        });
-        if (handled) {
-            return;
-        }
-    }
-
     renderTerminalLineContentFallback(container, text);
 }
 
-function renderTerminalEditorialLineContent(container, line, options = {}) {
+function renderTerminalEditorialLineContent(container, line) {
     const text = typeof line === 'string' ? line : String(line ?? '');
     if (!text) {
         container.replaceChildren();
@@ -721,17 +711,6 @@ function renderTerminalEditorialLineContent(container, line, options = {}) {
             lineCount: 0,
             lines: []
         };
-    }
-
-    if (typeof window.renderTerminalEditorialTextWithPretext === 'function') {
-        const handled = window.renderTerminalEditorialTextWithPretext(container, text, {
-            ...options,
-            buildLinkElement: buildTerminalLinkElement,
-            normalizeTextFilename
-        });
-        if (handled) {
-            return handled;
-        }
     }
 
     renderTerminalLineContent(container, line);
@@ -1058,7 +1037,7 @@ function help_command() {
             ['youtube', 'Open YouTube in a new tab'],
             ['discord', 'Open the Discord server for stock market updates from #stock-bot'],
             ['qr-totp', 'Browser QR enrollment + TOTP generator for the cs370 project'],
-            ['pretext [lab] [text]', 'Show terminal Pretext status or open the layout lab'],
+            ['pretext [lab] [text]', 'Open the standalone Pretext layout lab'],
         ]],
         ['Media and publishing', [
             ['mypic [w h]', 'Display 0x00C0DE\'s picture as ASCII art at size w x h'],
@@ -2897,8 +2876,6 @@ function pretext_command(args) {
     }
 
     return [
-        'pretext: terminal text wrapping is active on this page',
-        'pretext: plain terminal output and echoed commands now flow through the Pretext layout engine',
         'pretext: run `pretext lab` to open the standalone layout lab'
     ];
 }

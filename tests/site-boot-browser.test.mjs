@@ -77,7 +77,7 @@ async function createStaticServer(rootDirectory) {
     };
 }
 
-test('site boot loads the vendored pretext generated assets without module failures', { timeout: 120000 }, async t => {
+test('terminal boots without loading Pretext', { timeout: 120000 }, async t => {
     const server = await createStaticServer(REPO_ROOT);
     t.after(async () => {
         await server.close();
@@ -115,20 +115,14 @@ test('site boot loads the vendored pretext generated assets without module failu
         responses.set(response.url(), response.status());
     });
 
-    await page.goto(server.origin, { waitUntil: 'load' });
-    await page.waitForTimeout(2500);
+    await page.goto(`${server.origin}/?command=echo%20ready`, { waitUntil: 'load' });
 
-    const generatedAssetUrl = `${server.origin}/vendor/pretext/generated/bidi-data.js`;
-    const legacyPretextRuntimeRequests = [...responses.keys()].filter(url => url.includes('terminal-pretext-runtime.mjs'));
-    assert.equal(
-        responses.get(generatedAssetUrl),
-        200,
-        'expected the generated Pretext bidi data module to be served'
-    );
+    await page.waitForFunction(() => window.getTerminalCommandHistory?.().includes('echo ready'));
+    const pretextRequests = [...responses.keys()].filter(url => /(?:vendor\/pretext\/|pretext-browser|terminal-pretext)/.test(url));
     assert.deepEqual(
-        legacyPretextRuntimeRequests,
+        pretextRequests,
         [],
-        'expected site boot to skip the legacy terminal-pretext runtime shim'
+        'expected site boot to skip all Pretext modules'
     );
     assert.deepEqual(pageErrors, [], 'expected site boot to avoid browser page errors');
     assert.deepEqual(

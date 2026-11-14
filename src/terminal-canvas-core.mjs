@@ -5,13 +5,7 @@ import {
     inspectBitcoinDashboardPoint,
     renderBitcoinDashboard
 } from './bitcoin-dashboard-core.mjs?v=20261111b';
-import * as pretext from './pretext-browser.mjs';
-import {
-    layoutPreparedTerminalEditorialText,
-    layoutPreparedTerminalText,
-    prepareTerminalText,
-    tokenizeTerminalText
-} from './terminal-pretext-core.mjs';
+import { layoutTerminalText, measureTerminalText, tokenizeTerminalText } from './terminal-text-layout.mjs';
 import {
     advanceBinaryRainColumn,
     createBinaryRainColumns,
@@ -960,16 +954,6 @@ function ensureSlot(block, slotName) {
     return block[slotName];
 }
 
-function ensurePrepared(block, slotName, key, options) {
-    const slot = ensureSlot(block, slotName);
-    if (slot.key === key && slot.value) {
-        return slot.value;
-    }
-    slot.key = key;
-    slot.value = prepareTerminalText(pretext, options);
-    return slot.value;
-}
-
 function buildFragmentPlans(fragments, font) {
     const ctx = ensureMeasureContext();
     ctx.font = font;
@@ -1051,143 +1035,74 @@ function drawFragmentPlans(ctx, plans, originX, originY, lineHeight, font, palet
 
 function buildTextLayout(block, text, width, font, lineHeight, options = {}) {
     const safeText = typeof text === 'string' ? text : String(text ?? '');
-    const tokens = options.tokens || (
-        options.tokenizeLinks === false
-            ? (safeText ? [buildTextToken(safeText, options.tokenExtra)] : [])
-            : tokenizeTerminalText(safeText, { normalizeTextFilename })
-    );
-    const cacheKey = JSON.stringify({
-        font,
-        text: tokens.map(token => ({
-            href: token.href || '',
-            newTab: Boolean(token.newTab),
-            role: token.role || '',
-            text: token.text || '',
-            type: token.type || 'text'
-        })),
-        whiteSpace: options.whiteSpace || 'pre-wrap'
-    });
-    const prepared = ensurePrepared(
-        block,
-        options.slotName || '__text',
-        cacheKey,
-        {
-            font,
-            tokens,
-            whiteSpace: options.whiteSpace || 'pre-wrap'
-        }
-    );
-    const layout = layoutPreparedTerminalText(pretext, prepared, {
-        lineHeight,
-        maxWidth: width
-    });
-    const linePlans = (layout.lines.length > 0 ? layout.lines : [{ fragments: [] }]).map((line, index) => ({
-        plans: buildFragmentPlans(line.fragments || [], font),
-        y: index * lineHeight
-    }));
-    const hitRegions = [];
-    linePlans.forEach(linePlan => {
-        linePlan.plans.forEach(plan => {
-            if (plan.fragment?.type !== 'link') {
-                return;
+    const ctx = ensureMeasureContext();
+    const slot = ensureSlot(block, options.slotName || '__text');
+    const key = JSON.stringify([font, safeText, options.tokens, options.tokenizeLinks, options.tokenExtra]);
+    if (slot.key !== key) {
+        const tokens = options.tokens || (
+            options.tokenizeLinks === false
+                ? (safeText ? [buildTextToken(safeText, options.tokenExtra)] : [])
+                : tokenizeTerminalText(safeText, { normalizeTextFilename })
+        );
+        const widths = new Map();
+        slot.value = {
+            measure(value) {
+                if (!widths.has(value)) {
+                    ctx.font = font;
+                    widths.set(value, ctx.measureText(value).width);
+                }
+                return widths.get(value);
             }
-            hitRegions.push({
-                action: 'link',
-                data: plan.fragment,
-                height: lineHeight,
-                width: plan.width,
-                x: plan.x,
-                y: linePlan.y
-            });
-        });
-    });
+        };
+        slot.value.pieces = measureTerminalText(tokens, slot.value.measure);
+        slot.key = key;
+    }
 
+    const linePlans = layoutTerminalText(slot.value.pieces, {
+        width: Math.max(1, width),
+        lineHeight,
+        obstacles: options.obstacles,
+        minSegmentWidth: options.minSegmentWidth,
+        measure: slot.value.measure
+    });
+    const hitRegions = [];
+    for (const line of linePlans) {
+        for (const plan of line.plans) {
+            if (plan.fragment.type === 'link') {
+                hitRegions.push({
+                    action: 'link',
+                    data: plan.fragment,
+                    height: lineHeight,
+                    width: plan.width,
+                    x: line.x + plan.x,
+                    y: line.y
+                });
+            }
+        }
+    }
+
+    const height = linePlans.at(-1).y + lineHeight;
     return {
-        height: Math.max(lineHeight, layout.height || linePlans.length * lineHeight || lineHeight),
+        height,
         hitRegions,
         lineHeight,
         plans: linePlans,
-        render(ctx, originX, originY, palette, fallback = null) {
-            linePlans.forEach(linePlan => {
-                drawFragmentPlans(ctx, linePlan.plans, originX, originY + linePlan.y, lineHeight, font, palette, fallback);
-            });
+        textHeight: height,
+        render(context, originX, originY, palette, fallback = null) {
+            for (const line of linePlans) {
+                drawFragmentPlans(context, line.plans, originX + line.x, originY + line.y, lineHeight, font, palette, fallback);
+            }
         }
     };
 }
 
 function buildEditorialTextLayout(block, slotName, text, width, font, lineHeight, obstacles, options = {}) {
-    const safeText = typeof text === 'string' ? text : String(text ?? '');
-    if (!safeText) {
-        return {
-            height: lineHeight,
-            hitRegions: [],
-            plans: [],
-            render() {},
-            textHeight: lineHeight
-        };
-    }
-
-    const tokens = options.tokens || (
-        options.tokenizeLinks === false
-            ? [buildTextToken(safeText, options.tokenExtra)]
-            : tokenizeTerminalText(safeText, { normalizeTextFilename })
-    );
-    const cacheKey = JSON.stringify({
-        font,
-        text: tokens.map(token => ({
-            href: token.href || '',
-            newTab: Boolean(token.newTab),
-            role: token.role || '',
-            text: token.text || '',
-            type: token.type || 'text'
-        })),
-        whiteSpace: options.whiteSpace || 'pre-wrap'
+    return buildTextLayout(block, text, width, font, lineHeight, {
+        ...options,
+        slotName,
+        obstacles,
+        minSegmentWidth: Math.max(24, options.minSegmentWidth || 18)
     });
-    const prepared = ensurePrepared(block, slotName, cacheKey, {
-        font,
-        tokens,
-        whiteSpace: options.whiteSpace || 'pre-wrap'
-    });
-    const layout = layoutPreparedTerminalEditorialText(pretext, prepared, {
-        lineHeight,
-        maxWidth: width,
-        minSegmentWidth: options.minSegmentWidth || 18,
-        obstacles
-    });
-    const linePlans = layout.lines.map(line => ({
-        plans: buildFragmentPlans(line.fragments || [], font),
-        x: line.x || 0,
-        y: line.y || 0
-    }));
-    const hitRegions = [];
-    linePlans.forEach(linePlan => {
-        linePlan.plans.forEach(plan => {
-            if (plan.fragment?.type !== 'link') {
-                return;
-            }
-            hitRegions.push({
-                action: 'link',
-                data: plan.fragment,
-                height: lineHeight,
-                width: plan.width,
-                x: linePlan.x + plan.x,
-                y: linePlan.y
-            });
-        });
-    });
-
-    return {
-        height: Math.max(lineHeight, Number(layout.textHeight) || Number(layout.height) || lineHeight),
-        hitRegions,
-        lineHeight,
-        plans: linePlans,
-        render(ctx, originX, originY, palette, fallback = null) {
-            linePlans.forEach(linePlan => {
-                drawFragmentPlans(ctx, linePlan.plans, originX + linePlan.x, originY + linePlan.y, lineHeight, font, palette, fallback);
-            });
-        },
-        textHeight: Math.max(lineHeight, Number(layout.textHeight) || Number(layout.height) || lineHeight)
-    };
 }
 
 function getLinePlanWidth(linePlan) {

@@ -44,19 +44,19 @@ No frameworks. No frontend build step. No DOM reflow-driven text layout in the l
 
 ## Overview
 
-`0x00C0DE.github.io` is a **browser-based Unix-like terminal** that serves as a developer portfolio. The live UI is now rendered directly into a visible `<canvas>` instead of being composed out of styled DOM rows, and multiline text layout is delegated to Cheng Lou's [Pretext](https://github.com/chenglou/pretext) so the terminal can wrap, relayout, and route text without relying on `getBoundingClientRect`, `offsetHeight`, or browser reflow as part of the main rendering path.
+`0x00C0DE.github.io` is a **browser-based Unix-like terminal** that serves as a developer portfolio. The live UI measures and wraps text with the Canvas 2D API.
 
 The design philosophy is still **file-system-first**: documentation lives as real `.txt` files fetched over HTTP at runtime, mirroring how a real terminal would `cat` files off disk. This keeps content versionable, diffable, and human-readable without introducing a database or a frontend toolchain.
 
 The live blog still centers on `blog.txt`, and the Worker still supports three media storage modes inside that document: inline `[image-base64]` blocks for `png/jpg/jpeg/webp`, compact reversible `[image-z85]` blocks for smaller GIF payloads, and hosted `[image-url]` blocks for larger GIF or MP4 assets served through the Worker from `R2` with private `B2` fallback. The public `post` flow now also supports mixed text/media templates with repeated `[image]` placeholders, exact-count file picking, and required Turnstile verification before the Worker accepts staged uploads or writes blog content. Inline uploads, staged uploads, and compact GIF payloads are now all signature-checked against the declared `png/jpg/jpeg/webp/gif/mp4` MIME type before the Worker writes anything into `blog.txt` or hosted storage, and hosted media responses now ship with `X-Content-Type-Options: nosniff`.
 
-The latest terminal update is the big one: the production terminal now follows the intended Pretext flow much more closely. Text is tokenized once, prepared once, and then laid out repeatedly for different widths or obstacle maps before the resulting fragments are drawn manually into canvas. That means plain terminal output, echoed commands, wrapped links, and the editorial `cat blog.txt` layout all avoid DOM measurement and CSS-driven text wrapping in the live render path.
+The terminal caches word measurements and uses them to wrap plain output, echoed commands, and links. The editorial `cat blog.txt` view reuses those measurements when text flows around dragged media.
 
 Elevated sessions still split responsibilities: `root` enables the red animated glyph-rain background and unlocks a root-only editorial `cat blog.txt` view where images, GIFs, and MP4 blocks can be dragged across the terminal to live-reflow the banner, visitor widget, timestamps, and blog text, while `godlike` requires the blog/image deletion password plus a time-based one-time password and is the only session that can see or trigger inline delete controls. Switching back with `su guest` restores the original guest prompt and default background styling. Elevated rain builds and updates a few reusable, low-resolution column canvases per frame so session changes can render the prompt before the animation finishes starting.
 
 In `su` and `su godlike`, the canvas updates dragged blog images and their surrounding text together on the animation frame.
 
-Credit to Cheng Lou for the original [Pretext](https://github.com/chenglou/pretext) project, the pure JavaScript/TypeScript multiline text measurement and layout library this terminal integration builds on.
+The standalone layout lab uses Cheng Lou's [Pretext](https://github.com/chenglou/pretext).
 
 ---
 
@@ -77,12 +77,12 @@ Credit to Cheng Lou for the original [Pretext](https://github.com/chenglou/prete
 │                                └──────────────┬─────────────┘  │             │
 │                                               │                │             │
 │                     ┌───────────────┐      ┌──▼────────────────▼───┐         │
-│                     │ pictures.js   │      │ terminal-pretext-core │         │
+│                     │ pictures.js   │      │ terminal-text-layout  │         │
 │                     │ ASCII / video │      │ prepare/layout adapter│         │
 │                     └───────────────┘      └────────────┬──────────┘         │
 │                                                         │                    │
 │                                ┌────────────────────────▼──────────────────┐ │
-│                                │ pretext-browser.mjs / vendor/pretext      │ │
+│                                │ Canvas 2D text measurement                │ │
 │                                │ Cheng Lou's text measurement + layout     │ │
 │                                └────────────────────────┬──────────────────┘ │
 │                                                         │                    │
@@ -125,7 +125,7 @@ fetch("/content/blog.txt") over HTTP
 commands.js parses blog text/media blocks and terminal links
       │
       ▼
-terminal-pretext-core prepares + lays out wrapped fragments via Pretext
+terminal-text-layout wraps measured text and routes it around media
       │
       ▼
 terminal-canvas-core draws the resulting text, widgets, and media into canvas
@@ -182,7 +182,7 @@ The universal `post ... [image] ...` flow shares the same Worker path as text-on
 │   ├── banner-wave-core.mjs            # Grapheme-aware banner wave segmentation helpers
 │   ├── terminal-session-core.mjs       # Pure session state for guest/root/godlike prompt behavior
 │   ├── terminal-visuals-core.mjs       # Pure helpers for elevated animated glyph rain
-│   ├── terminal-pretext-core.mjs       # Link-aware tokenization plus Pretext prepare/layout helpers
+│   ├── terminal-text-layout.mjs        # Canvas text wrapping, links, and media obstacles
 │   ├── terminal-pretext-runtime.mjs    # Legacy no-op shim retained for older compatibility expectations
 │   ├── blog-upload-core.mjs            # Incremental multi-media post upload helpers
 │   ├── pretext-lab.mjs                 # Browser controller for the lab
@@ -287,7 +287,7 @@ The terminal command map routes each shell verb to its handler, with most comman
 | `video [w h]` | Activates webcam to live ASCII/glyph output in the zoomable viewer |
 | `mypic [w h]` | Renders a built-in ASCII portrait |
 | `post [text] ... [image] ...` | Appends a blog entry; omit `[image]` for text-only posts or use one selected `png/jpg/jpeg/webp/gif/mp4` file per placeholder (up to 10). Mixed-media uploads are signature-checked before the Worker appends or hosts them, and Turnstile is required. Direct posts submit a fresh token. Staged media uses a short-lived upload grant. Example: `post first [image] second [image] third` |
-| `pretext [text]` | Reports terminal Pretext status or opens the lab with `pretext lab [text]` |
+| `pretext [text]` | Opens the standalone layout lab with `pretext lab [text]` |
 | `projects` | Opens the dedicated projects terminal page |
 | `pwd` | Prints the simulated working directory |
 | `qr-totp ...` | Browser-side QR enrollment, Base32-backed TOTP generation/verification, and optional authenticator provisioning for `su godlike` |
@@ -387,14 +387,10 @@ Responsibilities:
 - Builds randomized falling glyph columns for the elevated shell visual mode
 - Mutates glyph streams over time so columns change while they fall instead of remaining static
 
-### `terminal-pretext-core.mjs` — Link-aware Wrapping Adapter
+### `terminal-text-layout.mjs` — Canvas Text Layout
 
-Responsibilities:
-- Tokenizes terminal strings into plain-text and link fragments
-- Preserves terminal link metadata while Pretext splits content into visual lines
-- Prepares reusable text layouts once and relayouts them cheaply for width changes
-- Adds obstacle-aware line routing for the root-only editorial `blog.txt` view
-- Provides a pure, testable adapter shared by the browser runtime and unit tests
+- Preserves terminal links and wraps text using cached canvas measurements.
+- Routes editorial text through the available space around blog media.
 
 ### `terminal-pretext-runtime.mjs` — Compatibility Shim
 
@@ -655,7 +651,7 @@ Plain terminal output, echoed commands, and `help` descriptions now use Pretext-
   cat links.txt              View curated links
   cat readme.txt             In-terminal orientation
   ls                         List available text files
-  pretext                    Show terminal Pretext status
+  pretext                    Show the command for the standalone layout lab
   pretext lab hello world    Open the standalone layout lab with preloaded text
   github                     Open GitHub in a new tab
   linkedin                   Open LinkedIn in a new tab

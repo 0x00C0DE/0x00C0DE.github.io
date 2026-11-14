@@ -1,5 +1,5 @@
 ﻿let terminalCanvasCore = null;
-const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=smooth-rain')
+const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=canvas-layout')
     .then(core => {
         terminalCanvasCore = core;
         return core;

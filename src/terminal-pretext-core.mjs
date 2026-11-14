@@ -1,4 +1,5 @@
-const TERMINAL_LINK_PATTERN = /\bhttps?:\/\/[^\s<]+|\bproject-[a-z0-9-]+\.html\b|\bprojects\.html\b|\bresume-intro\.html\b|\bresume\.pdf\b|\b[A-Za-z0-9-]+\.txt\b/gi;
+import { tokenizeTerminalText } from './terminal-text-layout.mjs';
+export { tokenizeTerminalText };
 
 let sharedGraphemeSegmenter = null;
 
@@ -8,104 +9,6 @@ function getGraphemeSegmenter() {
     }
 
     return sharedGraphemeSegmenter;
-}
-
-// Map a bare terminal filename onto the reorganized site layout (pages in
-// /pages, downloadable assets in /assets). Site is served from the domain
-// root, so absolute paths resolve correctly from any page.
-function resolveTerminalFileHref(name) {
-    if (/\.pdf$/i.test(name)) {
-        return `/assets/${name}`;
-    }
-    if (/\.html$/i.test(name)) {
-        return `/pages/${name}`;
-    }
-    return name;
-}
-
-function resolveTerminalLinkToken(tokenText, options = {}) {
-    if (/^https?:\/\//i.test(tokenText)) {
-        return {
-            type: 'link',
-            text: tokenText,
-            href: tokenText,
-            newTab: true
-        };
-    }
-
-    if (/\.txt$/i.test(tokenText)) {
-        const normalized = typeof options.normalizeTextFilename === 'function'
-            ? options.normalizeTextFilename(tokenText)
-            : tokenText;
-
-        if (!normalized) {
-            return {
-                type: 'text',
-                text: tokenText
-            };
-        }
-
-        return {
-            type: 'link',
-            text: normalized,
-            href: `?command=${encodeURIComponent(`cat ${normalized}`)}`,
-            newTab: false
-        };
-    }
-
-    return {
-        type: 'link',
-        text: tokenText,
-        href: resolveTerminalFileHref(tokenText),
-        newTab: /\.pdf$/i.test(tokenText)
-    };
-}
-
-export function tokenizeTerminalText(text, options = {}) {
-    const safeText = typeof text === 'string' ? text : String(text ?? '');
-    if (!safeText) {
-        return [];
-    }
-
-    const tokens = [];
-    let lastIndex = 0;
-    let match = TERMINAL_LINK_PATTERN.exec(safeText);
-
-    while (match) {
-        const matchText = match[0];
-        const start = match.index;
-        const end = start + matchText.length;
-
-        if (start > lastIndex) {
-            tokens.push({
-                type: 'text',
-                text: safeText.slice(lastIndex, start),
-                start: lastIndex,
-                end: start
-            });
-        }
-
-        const resolved = resolveTerminalLinkToken(matchText, options);
-        tokens.push({
-            ...resolved,
-            start,
-            end
-        });
-
-        lastIndex = end;
-        match = TERMINAL_LINK_PATTERN.exec(safeText);
-    }
-
-    if (lastIndex < safeText.length) {
-        tokens.push({
-            type: 'text',
-            text: safeText.slice(lastIndex),
-            start: lastIndex,
-            end: safeText.length
-        });
-    }
-
-    return tokens;
 }
 
 export function getTerminalTextFromTokens(tokens) {
