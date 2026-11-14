@@ -14,10 +14,36 @@
     <script src="/src/pictures.js?v=20260331b"></script>
     <script src="/src/commands.js?v=canvas-layout"></script>
     <script src="/src/term.js?v=editorial-pretext"></script>
+    <link rel="stylesheet" href="/src/codex-feature-project-browser.css">
+    <script type="module" src="/src/codex-feature-project-details.mjs"></script>
 </head>
 <body>
     <canvas id="terminal-canvas"></canvas>
     <canvas id="canvas" hidden></canvas>
+    <details id="project-details" class="project-browser">
+        <summary>Project details</summary>
+        <nav id="project-facts" aria-label="Project facts and sources">
+            <h1>Unix Small Shell Implementation</h1>
+            <p>Descriptions of the project, not executed demonstrations. The terminal below reads the same write-up.</p>
+            <dl>
+                <dt>Domain</dt>
+                <dd>systems programming and command interpreter design</dd>
+                <dt>Primary stack</dt>
+                <dd>C, POSIX process primitives, signal handling, and file-descriptor redirection</dd>
+                <dt>Core behavior</dt>
+                <dd>tokenizes shell input, launches foreground and background jobs, and tracks process lifecycle events</dd>
+                <dt>Engineering notes</dt>
+                <dd>exercises fork, exec, waitpid, and signal coordination to reproduce core Unix shell semantics in a compact codebase</dd>
+            </dl>
+            <a href="https://github.com/0x00C0DE/CS344-assign3">Repository</a>
+            <a href="/content/smallsh.txt">Read original write-up</a>
+            <a href="/pages/projects.html">Browse all projects</a>
+            <label for="project-command">Read in the site terminal</label>
+            <input id="project-command" value="cat smallsh.txt" readonly size="28">
+            <button id="project-copy" type="button" hidden>Copy command</button>
+            <p id="project-copy-status" role="status" aria-live="polite"></p>
+        </nav>
+    </details>
     <script>
         bootTerminalSite(DEFAULT_COMMAND);
     </script>
