@@ -24,9 +24,15 @@ export function verifyEvaluation(trending, evaluation) {
     if (windows.some(window => ![...expected].some(key => key.startsWith(window + '/')))) {
         throw new Error('Trending coverage is missing an entire window');
     }
-    for (const { window, repository, reason } of evaluation.assessments ?? []) {
+    const readmes = new Map(trending.repositories.map(repo => [repo.name, repo.readme?.text]));
+    for (const { window, repository, reason, readmeEvidence } of evaluation.assessments ?? []) {
         if (!reason?.trim() || !expected.delete(window + '/' + repository)) {
             throw new Error('Invalid or duplicate Trending assessment coverage');
+        }
+        const readme = readmes.get(repository);
+        const evidence = typeof readmeEvidence === 'string' && readmeEvidence.trim();
+        if (readme ? !evidence || !readme.includes(evidence) : readmeEvidence !== '') {
+            throw new Error('Invalid README evidence for ' + repository);
         }
     }
     if (expected.size) throw new Error('Incomplete Trending assessment coverage');
@@ -37,7 +43,7 @@ export function verifyEvaluation(trending, evaluation) {
             || /[\u0000-\u001f\u007f]/.test(feature.title) || feature.title.length > 80
             || typeof feature.brief !== 'string' || !feature.brief.trim()
             || feature.brief.length > 3000 || feature.brief.includes('\0')
-            || !trending.repositories.some(repo => repo.name === feature.repository)) {
+            || !readmes.get(feature.repository)) {
             throw new Error('Invalid selected Trending feature');
         }
         const title = feature.title.trim().replace(/\s+/g, ' ').toLowerCase();

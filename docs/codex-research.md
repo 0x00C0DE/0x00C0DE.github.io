@@ -106,10 +106,12 @@ job summary before retrying a failed or interrupted release.
 ## GitHub Trending evaluation
 
 Every scheduled report reads GitHub Trending's Today, This week, and This
-month lists. It records repository ranks, merges duplicates within the run,
-and maps matching descriptions to a site surface, a possible use, and a
-verification check. Unmatched repositories have no proposed use. A window
-is marked unavailable if GitHub is unreachable or the page format changes.
+month lists. It records repository ranks and fetches the default-branch
+`README.md` once per distinct repository, including those with no site-specific
+keyword match. If the root file is missing, it checks `.github/` and `docs/`.
+The report records unavailable READMEs and caps each response
+at 32,000 bytes of text, with truncation recorded. A window is marked
+unavailable if GitHub is unreachable or the page format changes.
 
 Trending results are research leads. The implementation job currently ships
 only reviewed, predefined changes with an artifact test and production check.
@@ -195,8 +197,12 @@ The hosted job signals discovery when its report contains Trending repositories.
 The Windows runner refreshes the report against current main and requests a
 read-only Codex evaluation for every repository in each daily, weekly, and
 monthly list. Repositories that rank in several lists get an assessment in
-each. The runner verifies coverage and stops for review if a list was
-unavailable or an assessment was missing.
+each. The evaluator explores documented interactions and workflows for small
+adaptations with concrete visitor benefits. It takes a second pass before
+returning no proposal. The runner checks every assessment against an exact
+README excerpt when text is available. A repository with an unavailable
+README cannot supply a feature. An unavailable Trending list or incomplete
+assessment coverage stops the run for review.
 
 Each Windows cycle selects distinct features across the three lists and
 implements them one at a time in isolated worktrees with ephemeral Codex

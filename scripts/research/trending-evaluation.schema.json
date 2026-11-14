@@ -8,11 +8,12 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["window", "repository", "reason"],
+        "required": ["window", "repository", "reason", "readmeEvidence"],
         "properties": {
           "window": { "type": "string", "enum": ["daily", "weekly", "monthly"] },
           "repository": { "type": "string" },
-          "reason": { "type": "string" }
+          "reason": { "type": "string" },
+          "readmeEvidence": { "type": "string" }
         }
       }
     },

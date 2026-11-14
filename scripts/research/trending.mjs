@@ -24,6 +24,41 @@ const rules = [
         'Identify a concrete reader failure or missing capability before proposing a change.'],
 ];
 
+const readmeLimit = 32_000;
+const readmeBatchSize = 8;
+
+async function fetchReadme(name, fetchPage) {
+    const base = 'https://raw.githubusercontent.com/' + name + '/HEAD/';
+    const options = { redirect: 'error', signal: AbortSignal.timeout(12_000) };
+    try {
+        let response = await fetchPage(new URL('README.md', base), options);
+        for (const directory of ['.github/', 'docs/']) {
+            if (response.status !== 404) break;
+            await response.body?.cancel();
+            response = await fetchPage(new URL(directory + 'README.md', base), options);
+        }
+        if (!response.ok || !response.body) {
+            await response.body?.cancel();
+            return { status: 'unavailable' };
+        }
+        const chunks = [];
+        let remaining = readmeLimit;
+        let truncated = false;
+        for await (const chunk of response.body) {
+            chunks.push(chunk.subarray(0, remaining));
+            if (chunk.byteLength > remaining) {
+                truncated = true;
+                break;
+            }
+            remaining -= chunk.byteLength;
+        }
+        const text = Buffer.concat(chunks).toString('utf8').trim();
+        return text ? { status: truncated ? 'truncated' : 'available', text } : { status: 'unavailable' };
+    } catch {
+        return { status: 'unavailable' };
+    }
+}
+
 async function fetchTrending(window, fetchPage) {
     const url = new URL('https://github.com/trending');
     url.searchParams.set('since', window);
@@ -69,5 +104,11 @@ export async function discoverTrending(fetchPage = fetch) {
             byName.get(key).ranks[window] ??= rank + 1;
         });
     });
-    return { repositories: [...byName.values()], unavailable };
+    const repositories = [...byName.values()];
+    for (let offset = 0; offset < repositories.length; offset += readmeBatchSize) {
+        await Promise.all(repositories.slice(offset, offset + readmeBatchSize).map(async repo => {
+            repo.readme = await fetchReadme(repo.name, fetchPage);
+        }));
+    }
+    return { repositories, unavailable };
 }
