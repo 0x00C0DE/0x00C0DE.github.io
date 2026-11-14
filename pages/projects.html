@@ -9,6 +9,7 @@
     <meta http-equiv="Cache-Control" content="no-cache">
     <title>Projects | 0x00C0DE</title>
     <link rel="stylesheet" href="/src/codex-feature-project-browser.css">
+    <link rel="stylesheet" href="/src/codex-feature-project-filter.css">
     <script>
         const DEFAULT_COMMAND = "cat projects.txt";
     </script>
@@ -16,12 +17,19 @@
     <script src="/src/commands.js?v=20261113-upload"></script>
     <script src="/src/term.js?v=20261111b"></script>
     <script type="module" src="/src/codex-feature-project-browser.mjs"></script>
+    <script type="module" src="/src/codex-feature-project-filter.mjs"></script>
 </head>
 <body>
     <canvas id="terminal-canvas"></canvas>
     <canvas id="canvas" hidden></canvas>
     <details class="project-browser">
         <summary>Browse projects</summary>
+        <div id="project-filter-controls" hidden>
+            <label for="project-filter">Filter by project title</label>
+            <input id="project-filter" type="search" autocomplete="off" aria-controls="project-links" aria-describedby="project-filter-count">
+            <p id="project-filter-count" role="status" aria-live="polite" aria-atomic="true"></p>
+        </div>
+        <div id="project-links">
         <nav aria-label="Pinned projects">
             <a href="project-proprts.html">PROPR Nearest Neighbor Crypto Trading System</a>
             <a href="project-qr-totp.html">Secure QR-TOTP Authenticator</a>
@@ -31,6 +39,8 @@
             <a href="project-bloom-filters.html">Bloom Filter Password Screening</a>
             <a href="project-doublehitcollectibles.html">Double Hit Collectibles</a>
         </nav>
+        </div>
+        <p id="project-filter-empty" hidden>No projects match. Clear the search to see all projects.</p>
     </details>
     <script>
         bootTerminalSite(DEFAULT_COMMAND);
