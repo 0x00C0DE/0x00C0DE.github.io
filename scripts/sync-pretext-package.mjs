@@ -154,10 +154,35 @@ export function parseFontSize(font) {
     await writeFile(targetPath, source, 'utf8');
 }
 
-async function applySecurityPatches() {
+async function patchCanvasOnlyLayout() {
+    const targetPath = path.join(vendorRoot, 'layout.js');
+    let source = await readFile(targetPath, 'utf8');
+    source = replaceRequired(
+        source,
+        'function measureAnalysis(analysis, font, includeSegments, wordBreak) {',
+        'function measureAnalysis(analysis, font, includeSegments, wordBreak, canvasOnly) {',
+        'canvas-only measurement option'
+    );
+    source = replaceRequired(
+        source,
+        'getFontMeasurementState(font, textMayContainEmoji(analysis.normalized))',
+        'getFontMeasurementState(font, !canvasOnly && textMayContainEmoji(analysis.normalized))',
+        'skip DOM emoji calibration for canvas rendering'
+    );
+    source = replaceRequired(
+        source,
+        'return measureAnalysis(analysis, font, includeSegments, wordBreak);',
+        'return measureAnalysis(analysis, font, includeSegments, wordBreak, options?.canvasOnly);',
+        'forward canvas-only measurement option'
+    );
+    await writeFile(targetPath, source, 'utf8');
+}
+
+async function applyVendorPatches() {
     await Promise.all([
         patchRichInline(),
-        patchMeasurement()
+        patchMeasurement(),
+        patchCanvasOnlyLayout()
     ]);
 }
 
@@ -171,7 +196,7 @@ async function syncPretextPackage() {
     await copyDistFiles(packageDistRoot, vendorRoot);
     await copyFile(path.join(packageRoot, 'LICENSE'), path.join(vendorRoot, 'LICENSE'));
     await copyFile(path.join(packageRoot, 'package.json'), path.join(vendorRoot, 'package.json'));
-    await applySecurityPatches();
+    await applyVendorPatches();
 
     const packageName = '@chenglou/pretext';
     const vendorPath = path.relative(repoRoot, vendorRoot);

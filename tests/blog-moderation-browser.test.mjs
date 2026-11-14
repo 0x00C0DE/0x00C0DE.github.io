@@ -656,7 +656,7 @@ test('godlike multi media posts render text delete controls above each text segm
     assert.equal(remainingTextDeleteLabels.length, 2, 'expected removing one text block to leave the other text delete controls intact');
 });
 
-test('editorial media drag defers layout until the next frame', { timeout: 120000 }, async t => {
+test('editorial media drag uses Pretext without DOM geometry reads', { timeout: 120000 }, async t => {
     const server = await createStaticServer(REPO_ROOT);
     t.after(async () => {
         await server.close();
@@ -679,14 +679,28 @@ test('editorial media drag defers layout until the next frame', { timeout: 12000
 
     const blogContent = [
         '[2026-04-03T01:33:28.178Z]',
-        'drag target',
+        'drag target 😃',
         '[image-base64]',
         'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAAAAAAcD2kOAAAAJUlEQVR4nO3BMQEAAADCoPVPbQlPoAAAAAAAAAAAAAAAAAAAPgY4uAABCbhRfwAAAABJRU5ErkJggg==',
         '[/image-base64]',
         ''
     ].join('\n');
 
+    let pretextLoaded = false;
+    page.on('response', response => {
+        if (response.url().includes('/vendor/pretext/layout.js')) pretextLoaded = response.ok();
+    });
+    await page.addInitScript(() => {
+        window.__emojiProbes = 0;
+        const append = Node.prototype.appendChild;
+        Node.prototype.appendChild = function(child) {
+            if (child.tagName === 'SPAN' && child.style.visibility === 'hidden') window.__emojiProbes++;
+            return append.call(this, child);
+        };
+    });
     await setupModerationPage(page, server.origin, { blogContent });
+    assert.ok(pretextLoaded, 'opening the blog should load Pretext');
+    assert.equal(await page.evaluate(() => window.__emojiProbes), 0);
 
     const mediaCenter = await page.evaluate(() => {
         const hooks = window.__terminalCanvasTestHooks;

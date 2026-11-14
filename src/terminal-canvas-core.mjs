@@ -180,6 +180,9 @@ const PALETTES = Object.freeze({
     }
 });
 
+let blogPretext;
+let blogTextLayout;
+
 const app = {
     backgroundLayer: null,
     binaryColumns: [],
@@ -954,7 +957,7 @@ function ensureSlot(block, slotName) {
     return block[slotName];
 }
 
-function buildFragmentPlans(fragments, font) {
+function buildFragmentPlans(fragments, font, widths) {
     const ctx = ensureMeasureContext();
     ctx.font = font;
     let cursorX = 0;
@@ -965,7 +968,11 @@ function buildFragmentPlans(fragments, font) {
         if (!text) {
             return;
         }
-        const width = ctx.measureText(text).width;
+        let width = widths?.get(text);
+        if (width === undefined) {
+            width = ctx.measureText(text).width;
+            if (widths && widths.size < 512) widths.set(text, width);
+        }
         plans.push({
             fragment,
             text,
@@ -1096,6 +1103,60 @@ function buildTextLayout(block, text, width, font, lineHeight, options = {}) {
     };
 }
 
+function buildBlogTextLayout(block, slotName, text, width, font, lineHeight, obstacles = [], tokenizeLinks = true) {
+    const slot = ensureSlot(block, slotName);
+    const key = JSON.stringify([font, text, tokenizeLinks]);
+    if (slot.key !== key) {
+        const tokens = tokenizeLinks ? tokenizeTerminalText(text, { normalizeTextFilename }) : [buildTextToken(text)];
+        const prepared = blogTextLayout.prepareTerminalText(blogPretext, { font, tokens, canvasOnly: true });
+        slot.value = { prepared, flat: null, widths: new Map() };
+        slot.key = key;
+    }
+
+    const state = slot.value;
+    const resolvedWidth = Math.max(1, width);
+    const layoutKey = `${resolvedWidth}|${lineHeight}`;
+    const flat = state.flat?.key === layoutKey ? state.flat.layout : null;
+    if (flat && !obstacles.some(rect => rect.y < flat.height && rect.y + rect.height > 0)) return flat;
+
+    const options = { lineHeight, maxWidth: resolvedWidth, minSegmentWidth: 24, obstacles };
+    const flow = obstacles.length
+        ? blogTextLayout.layoutPreparedTerminalEditorialText(blogPretext, state.prepared, options)
+        : blogTextLayout.layoutPreparedTerminalText(blogPretext, state.prepared, options);
+    const plans = flow.lines.map((line, index) => ({
+        x: line.x ?? 0,
+        y: line.y ?? index * lineHeight,
+        plans: buildFragmentPlans(line.fragments, font, state.widths)
+    }));
+    const hitRegions = [];
+    for (const line of plans) {
+        for (const plan of line.plans) {
+            if (plan.fragment.type === 'link') {
+                hitRegions.push({
+                    action: 'link', data: plan.fragment, height: lineHeight,
+                    width: plan.width, x: line.x + plan.x, y: line.y
+                });
+            }
+        }
+    }
+
+    const height = Math.max(lineHeight, flow.textHeight ?? flow.height);
+    const layout = {
+        height,
+        textHeight: height,
+        hitRegions,
+        plans,
+        render(ctx, x, y, palette, fallback = null) {
+            for (const line of plans) {
+                drawFragmentPlans(ctx, line.plans, x + line.x, y + line.y, lineHeight, font, palette, fallback);
+            }
+        }
+    };
+    if (!obstacles.length) state.flat = { key: layoutKey, layout };
+    return layout;
+}
+
+// Other terminal text keeps its existing wrapper when a blog image crosses it.
 function buildEditorialTextLayout(block, slotName, text, width, font, lineHeight, obstacles, options = {}) {
     return buildTextLayout(block, text, width, font, lineHeight, {
         ...options,
@@ -2111,9 +2172,7 @@ function getEditorialMediaRects(block, width, metrics, headerHeight, blockTop = 
                     cursorY += metrics.lineHeight;
                     return;
                 }
-                const layout = buildTextLayout(block, lineText, width, metrics.textFont, metrics.lineHeight, {
-                    slotName: `__blogEditorialSeed${segmentIndex}-${lineIndex}`
-                });
+                const layout = buildBlogTextLayout(block, `__blogText${segmentIndex}-${lineIndex}`, lineText, width, metrics.textFont, metrics.lineHeight);
                 cursorY += layout.height;
             });
             cursorY += metrics.blockGap;
@@ -2124,7 +2183,7 @@ function getEditorialMediaRects(block, width, metrics, headerHeight, blockTop = 
             return;
         }
 
-        const id = `${segment.imageKey || segment.src || `media-${segmentIndex}`}`;
+        const id = segment;
         const type = segment.type === 'inline-video' ? 'video' : 'image';
         const entry = getMediaEntry(segment.src, type, { mimeType: segment.mimeType });
         const dimensions = getMediaDimensions(entry, metrics.mediaMaxWidth);
@@ -2184,10 +2243,7 @@ function layoutBlogEntry(block, width, metrics, editorial, context = {}) {
         : null;
     const deleteEntryGap = deleteEntryButton ? Math.max(3, round(metrics.lineHeight * 0.18)) : 0;
     const deleteEntryOffset = deleteEntryButton ? deleteEntryButton.height + deleteEntryGap : 0;
-    const flatHeader = buildTextLayout(block, block.data.text || '', width, metrics.textFont, metrics.lineHeight, {
-        slotName: '__blogHeaderFlat',
-        tokenizeLinks: false
-    });
+    const flatHeader = buildBlogTextLayout(block, '__blogHeader', block.data.text || '', width, metrics.textFont, metrics.lineHeight, [], false);
     const mediaRects = editorial ? getEditorialMediaRects(block, width, metrics, deleteEntryOffset + flatHeader.height, blockTop) : [];
     const localObstacleRects = mediaRects.map(rect => ({
         height: rect.height + rect.deleteOffset + 10,
@@ -2205,9 +2261,7 @@ function layoutBlogEntry(block, width, metrics, editorial, context = {}) {
         : localObstacleRects;
     let cursorY = deleteEntryOffset;
     const header = editorial
-        ? buildEditorialTextLayout(block, '__blogHeaderEditorial', block.data.text || '', width, metrics.textFont, metrics.lineHeight, shiftObstacles(obstacleRects, cursorY), {
-            tokenizeLinks: false
-        })
+        ? buildBlogTextLayout(block, '__blogHeader', block.data.text || '', width, metrics.textFont, metrics.lineHeight, shiftObstacles(obstacleRects, cursorY), false)
         : flatHeader;
 
     if (deleteEntryButton) {
@@ -2249,11 +2303,10 @@ function layoutBlogEntry(block, width, metrics, editorial, context = {}) {
                     cursorY += metrics.lineHeight;
                     return;
                 }
-                const layout = editorial
-                    ? buildEditorialTextLayout(block, `__blogEditorial${segmentIndex}-${lineIndex}`, lineText, width, metrics.textFont, metrics.lineHeight, shiftObstacles(obstacleRects, cursorY))
-                    : buildTextLayout(block, lineText, width, metrics.textFont, metrics.lineHeight, {
-                        slotName: `__blogFlat${segmentIndex}-${lineIndex}`
-                    });
+                const layout = buildBlogTextLayout(
+                    block, `__blogText${segmentIndex}-${lineIndex}`, lineText, width, metrics.textFont, metrics.lineHeight,
+                    editorial ? shiftObstacles(obstacleRects, cursorY) : []
+                );
                 children.push({ layout, x: 0, y: cursorY });
                 cursorY += editorial ? layout.textHeight : layout.height;
             });
@@ -2711,11 +2764,16 @@ function relayoutScene() {
     app.layoutDirty = false;
     const metrics = resolveMetrics();
     const nearBottom = app.scrollTop >= Math.max(0, app.contentHeight - app.viewportHeight - metrics.lineHeight * 2);
-    let pass = layoutScenePass(metrics, []);
-    if (isEditorialModeActive() && pass.editorialRects.length > 0) {
-        pass = layoutScenePass(metrics, pass.editorialRects);
-        pass = layoutScenePass(metrics, pass.editorialRects);
+    const obstacles = [];
+    if (isEditorialModeActive()) {
+        for (const block of app.blocks) {
+            for (const rect of block.layout?.editorialMediaRects || []) {
+                const position = block.editorialMediaState?.get(rect.id);
+                if (position?.pinned) obstacles.push({ ...rect, x: position.x, y: position.y, blockId: block.id });
+            }
+        }
     }
+    const pass = layoutScenePass(metrics, obstacles);
 
     app.inputLayout = pass.inputLayout;
     app.inputTop = pass.inputTop;
@@ -3213,6 +3271,12 @@ export async function executeCommand(commandLine) {
         output = [`bash: ${command}: command not found`];
     }
 
+    if (!blogPretext && Array.isArray(output) && output.some(item => item?.type === 'blog-entry')) {
+        [blogPretext, blogTextLayout] = await Promise.all([
+            import('./pretext-browser.mjs?v=editorial-canvas'),
+            import('./terminal-pretext-core.mjs?v=editorial-canvas')
+        ]);
+    }
     appendOutput(output);
     app.inputValue = '';
     syncTextInputProxyValue();
@@ -3943,6 +4007,7 @@ function onPointerDown(event) {
         app.pointerDrag = {
             blockId: block.id,
             mediaId: region.data.mediaId,
+            maxX: resolveMetrics().contentWidth - region.width,
             moved: false,
             originX: mediaState.x,
             originY: mediaState.y,
@@ -4089,7 +4154,7 @@ function onPointerMove(event) {
     }
 
     mediaState.pinned = true;
-    mediaState.x = Math.max(0, app.pointerDrag.originX + deltaX);
+    mediaState.x = clamp(app.pointerDrag.originX + deltaX, 0, Math.max(0, app.pointerDrag.maxX));
     mediaState.y = Math.max(0, app.pointerDrag.originY + deltaY);
     markLayoutDirty();
 }
@@ -4555,7 +4620,7 @@ function syncLocalTestHooks() {
                 editorialMediaRects: (Array.isArray(app.editorialMediaRects) ? app.editorialMediaRects : []).map(rect => ({
                     blockId: rect.blockId || null,
                     height: rect.height,
-                    id: rect.id || null,
+                    id: rect.block?.imageKey || null,
                     width: rect.width,
                     x: rect.x,
                     y: rect.y

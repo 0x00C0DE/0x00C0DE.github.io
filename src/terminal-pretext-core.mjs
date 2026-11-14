@@ -28,49 +28,34 @@ function compareLayoutCursor(left, right) {
     return (Number(left?.graphemeIndex) || 0) - (Number(right?.graphemeIndex) || 0);
 }
 
-function getSegmentCodeUnitOffset(segmentText, graphemeIndex) {
-    if (!graphemeIndex) {
-        return 0;
-    }
-
-    let offset = 0;
-    let count = 0;
-    for (const part of getGraphemeSegmenter().segment(segmentText)) {
-        if (count >= graphemeIndex) {
-            break;
+function buildOffsetResolver(segments) {
+    const offsets = [0];
+    for (const segment of segments) offsets.push(offsets.at(-1) + segment.length);
+    const graphemeOffsets = new Map();
+    return ({ segmentIndex, graphemeIndex }) => {
+        if (!graphemeIndex) return offsets[segmentIndex];
+        if (!graphemeOffsets.has(segmentIndex)) {
+            const text = segments[segmentIndex];
+            graphemeOffsets.set(segmentIndex, [
+                ...Array.from(getGraphemeSegmenter().segment(text), part => part.index),
+                text.length
+            ]);
         }
-        offset += part.segment.length;
-        count += 1;
-    }
-
-    return offset;
-}
-
-function getAbsoluteOffsetFromPreparedRange(prepared, position) {
-    const segments = Array.isArray(prepared?.segments) ? prepared.segments : [];
-    const safeSegmentIndex = Math.max(0, Math.min(Number(position?.segmentIndex) || 0, segments.length));
-    let offset = 0;
-
-    for (let index = 0; index < safeSegmentIndex; index += 1) {
-        offset += segments[index].length;
-    }
-
-    if (safeSegmentIndex < segments.length) {
-        offset += getSegmentCodeUnitOffset(
-            segments[safeSegmentIndex],
-            Math.max(0, Number(position?.graphemeIndex) || 0)
-        );
-    }
-
-    return offset;
+        return offsets[segmentIndex] + graphemeOffsets.get(segmentIndex)[graphemeIndex];
+    };
 }
 
 function sliceTerminalTokensByOffsets(tokens, startOffset, endOffset) {
     const fragments = [];
-    for (const token of tokens) {
-        if (token.end <= startOffset || token.start >= endOffset) {
-            continue;
-        }
+    let low = 0;
+    let high = tokens.length;
+    while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (tokens[middle].end <= startOffset) low = middle + 1;
+        else high = middle;
+    }
+    for (let index = low; index < tokens.length && tokens[index].start < endOffset; index += 1) {
+        const token = tokens[index];
 
         const sliceStart = Math.max(startOffset, token.start) - token.start;
         const sliceEnd = Math.min(endOffset, token.end) - token.start;
@@ -202,6 +187,7 @@ export function prepareTerminalText(pretextApi, options = {}) {
         ? options.wordBreak
         : null;
     const preparedOptions = { whiteSpace };
+    if (options.canvasOnly) preparedOptions.canvasOnly = true;
     if (wordBreak) {
         preparedOptions.wordBreak = wordBreak;
     }
@@ -210,6 +196,7 @@ export function prepareTerminalText(pretextApi, options = {}) {
     return {
         font,
         prepared,
+        resolveOffset: buildOffsetResolver(prepared.segments || []),
         text,
         tokens,
         whiteSpace,
@@ -241,8 +228,8 @@ export function layoutPreparedTerminalText(pretextApi, preparedTextState, option
         whiteSpace,
         lines: Array.isArray(layout.lines)
             ? layout.lines.map(line => {
-                const startOffset = getAbsoluteOffsetFromPreparedRange(prepared, line.start);
-                const endOffset = getAbsoluteOffsetFromPreparedRange(prepared, line.end);
+                const startOffset = preparedTextState.resolveOffset(line.start);
+                const endOffset = preparedTextState.resolveOffset(line.end);
                 return {
                     ...line,
                     startOffset,
@@ -267,15 +254,20 @@ export function layoutPreparedTerminalEditorialText(pretextApi, preparedTextStat
     const whiteSpace = preparedTextState.whiteSpace || options.whiteSpace || 'pre-wrap';
     const lineHeight = Math.max(1, Number(options.lineHeight) || 20);
     const maxWidth = Math.max(0, Number(options.maxWidth) || 0);
-    const minSegmentWidth = Math.max(24, Number(options.minSegmentWidth) || Math.min(72, Math.max(32, Math.round(maxWidth * 0.18))));
+    const minSegmentWidth = Math.min(maxWidth, Math.max(24, Number(options.minSegmentWidth) || Math.min(72, Math.max(32, Math.round(maxWidth * 0.18)))));
     const obstacleRects = Array.isArray(options.obstacles)
         ? options.obstacles
-            .map(rect => ({
-                x: clampNumber(rect?.x, 0, maxWidth),
-                y: Math.max(0, Number(rect?.y) || 0),
-                width: Math.max(0, Math.min(maxWidth, Number(rect?.width) || 0)),
-                height: Math.max(0, Number(rect?.height) || 0)
-            }))
+            .map(rect => {
+                const x = Number(rect?.x) || 0;
+                const y = Number(rect?.y) || 0;
+                const left = clampNumber(x, 0, maxWidth);
+                return {
+                    x: left,
+                    y: Math.max(0, y),
+                    width: clampNumber(x + (Number(rect?.width) || 0), 0, maxWidth) - left,
+                    height: Math.max(0, (Number(rect?.height) || 0) + Math.min(0, y))
+                };
+            })
             .filter(rect => rect.width > 0 && rect.height > 0)
         : [];
 
@@ -338,8 +330,8 @@ export function layoutPreparedTerminalEditorialText(pretextApi, preparedTextStat
                 continue;
             }
 
-            const startOffset = getAbsoluteOffsetFromPreparedRange(prepared, line.start);
-            const endOffset = getAbsoluteOffsetFromPreparedRange(prepared, line.end);
+            const startOffset = preparedTextState.resolveOffset(line.start);
+            const endOffset = preparedTextState.resolveOffset(line.end);
             lines.push({
                 ...line,
                 x: segment.x,

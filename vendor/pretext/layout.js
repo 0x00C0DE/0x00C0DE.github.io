@@ -172,9 +172,9 @@ function mergeKeepAllTextUnits(units) {
     flushCurrent();
     return merged;
 }
-function measureAnalysis(analysis, font, includeSegments, wordBreak) {
+function measureAnalysis(analysis, font, includeSegments, wordBreak, canvasOnly) {
     const engineProfile = getEngineProfile();
-    const { cache, emojiCorrection } = getFontMeasurementState(font, textMayContainEmoji(analysis.normalized));
+    const { cache, emojiCorrection } = getFontMeasurementState(font, !canvasOnly && textMayContainEmoji(analysis.normalized));
     const discretionaryHyphenWidth = getCorrectedSegmentWidth('-', getSegmentMetrics('-', cache), emojiCorrection);
     const spaceWidth = getCorrectedSegmentWidth(' ', getSegmentMetrics(' ', cache), emojiCorrection);
     const tabStopAdvance = spaceWidth * 8;
@@ -311,7 +311,7 @@ function mapAnalysisChunksToPreparedChunks(chunks, preparedStartByAnalysisIndex,
 function prepareInternal(text, font, includeSegments, options) {
     const wordBreak = options?.wordBreak ?? 'normal';
     const analysis = analyzeText(text, getEngineProfile(), options?.whiteSpace, wordBreak);
-    return measureAnalysis(analysis, font, includeSegments, wordBreak);
+    return measureAnalysis(analysis, font, includeSegments, wordBreak, options?.canvasOnly);
 }
 // Prepare text for layout. Segments the text, measures each segment via canvas,
 // and stores the widths for fast relayout at any width. Call once per text block

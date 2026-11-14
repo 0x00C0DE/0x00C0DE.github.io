@@ -50,11 +50,11 @@ The design philosophy is still **file-system-first**: documentation lives as rea
 
 The live blog still centers on `blog.txt`, and the Worker still supports three media storage modes inside that document: inline `[image-base64]` blocks for `png/jpg/jpeg/webp`, compact reversible `[image-z85]` blocks for smaller GIF payloads, and hosted `[image-url]` blocks for larger GIF or MP4 assets served through the Worker from `R2` with private `B2` fallback. The public `post` flow now also supports mixed text/media templates with repeated `[image]` placeholders, exact-count file picking, and required Turnstile verification before the Worker accepts staged uploads or writes blog content. Inline uploads, staged uploads, and compact GIF payloads are now all signature-checked against the declared `png/jpg/jpeg/webp/gif/mp4` MIME type before the Worker writes anything into `blog.txt` or hosted storage, and hosted media responses now ship with `X-Content-Type-Options: nosniff`.
 
-The terminal caches word measurements and uses them to wrap plain output, echoed commands, and links. The editorial `cat blog.txt` view reuses those measurements when text flows around dragged media.
+The terminal uses Canvas 2D for plain output and commands. Opening `cat blog.txt` loads Pretext for blog text. Each line is prepared once per text and font, and the renderer caches its fixed-width layout and fragment measurements.
 
 Elevated sessions still split responsibilities: `root` enables the red animated glyph-rain background and unlocks a root-only editorial `cat blog.txt` view where images, GIFs, and MP4 blocks can be dragged across the terminal to live-reflow the banner, visitor widget, timestamps, and blog text, while `godlike` requires the blog/image deletion password plus a time-based one-time password and is the only session that can see or trigger inline delete controls. Switching back with `su guest` restores the original guest prompt and default background styling. Elevated rain builds and updates a few reusable, low-resolution column canvases per frame so session changes can render the prompt before the animation finishes starting.
 
-In `su` and `su godlike`, the canvas updates dragged blog images and their surrounding text together on the animation frame.
+In `su` and `su godlike`, pointer moves update media coordinates. The next animation frame lays out the terminal in one pass and uses Pretext line ranges for blog text around the media. Canvas measurements are used for emoji as well, so the layout does not need DOM geometry reads.
 
 The standalone layout lab uses Cheng Lou's [Pretext](https://github.com/chenglou/pretext).
 

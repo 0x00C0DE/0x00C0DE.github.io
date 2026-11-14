@@ -1,5 +1,5 @@
 ﻿let terminalCanvasCore = null;
-const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=canvas-layout')
+const terminalCanvasCorePromise = import('./terminal-canvas-core.mjs?v=editorial-pretext')
     .then(core => {
         terminalCanvasCore = core;
         return core;

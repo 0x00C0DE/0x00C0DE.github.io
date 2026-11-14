@@ -1,1 +1,1 @@
-export * from '../vendor/pretext/layout.js';
+export * from '../vendor/pretext/layout.js?v=canvas-only';
