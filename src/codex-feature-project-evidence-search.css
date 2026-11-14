@@ -1,0 +1,14 @@
+.project-evidence-ready .project-path-excerpt { display: none; }
+.project-evidence-excerpt { display: block; overflow-wrap: anywhere; padding-bottom: 0.65rem; }
+.project-evidence-excerpt[hidden] { display: none; }
+#project-evidence-clear {
+    min-height: 2.75rem;
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    border: 1px solid var(--project-accent);
+    background: var(--project-surface);
+    color: var(--project-link);
+    font: inherit;
+    cursor: pointer;
+}
+#project-evidence-clear:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }

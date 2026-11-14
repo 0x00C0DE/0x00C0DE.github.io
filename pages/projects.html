@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/src/codex-feature-project-browser.css">
     <link rel="stylesheet" href="/src/codex-feature-project-filter.css">
     <link rel="stylesheet" href="/src/codex-feature-project-paths.css">
+    <link rel="stylesheet" href="/src/codex-feature-project-evidence-search.css">
     <script>
         const DEFAULT_COMMAND = "cat projects.txt";
     </script>
@@ -20,6 +21,7 @@
     <script type="module" src="/src/codex-feature-project-browser.mjs"></script>
     <script type="module" src="/src/codex-feature-project-filter.mjs"></script>
     <script type="module" src="/src/codex-feature-project-paths.mjs"></script>
+    <script type="module" src="/src/codex-feature-project-evidence-search.mjs"></script>
 </head>
 <body>
     <canvas id="terminal-canvas"></canvas>
@@ -40,6 +42,8 @@
                     <option value="web">Web</option>
                 </select>
             </div>
+            <button id="project-evidence-clear" type="button" hidden>Clear filters</button>
+            <p id="project-evidence-status" role="status" aria-live="polite"></p>
             <p id="project-filter-count" role="status" aria-live="polite" aria-atomic="true"></p>
         </div>
         <div id="project-links">
