@@ -1,0 +1,19 @@
+#project-path-controls { margin-top: 0.75rem; }
+#project-interest {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0.5rem;
+    border: 1px solid var(--project-accent);
+    border-radius: 0.25rem;
+    background: var(--project-surface);
+    color: var(--project-link);
+    font: inherit;
+    color-scheme: dark;
+}
+#project-interest:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}
+.project-path-excerpt { padding-bottom: 0.65rem; }
+.project-path-excerpt[hidden] { display: none; }

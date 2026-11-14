@@ -10,6 +10,7 @@
     <title>Projects | 0x00C0DE</title>
     <link rel="stylesheet" href="/src/codex-feature-project-browser.css">
     <link rel="stylesheet" href="/src/codex-feature-project-filter.css">
+    <link rel="stylesheet" href="/src/codex-feature-project-paths.css">
     <script>
         const DEFAULT_COMMAND = "cat projects.txt";
     </script>
@@ -18,6 +19,7 @@
     <script src="/src/term.js?v=editorial-pretext"></script>
     <script type="module" src="/src/codex-feature-project-browser.mjs"></script>
     <script type="module" src="/src/codex-feature-project-filter.mjs"></script>
+    <script type="module" src="/src/codex-feature-project-paths.mjs"></script>
 </head>
 <body>
     <canvas id="terminal-canvas"></canvas>
@@ -27,6 +29,17 @@
         <div id="project-filter-controls" hidden>
             <label for="project-filter">Filter by project title</label>
             <input id="project-filter" type="search" autocomplete="off" aria-controls="project-links" aria-describedby="project-filter-count">
+            <div id="project-path-controls" hidden>
+                <label for="project-interest">Explore an engineering interest</label>
+                <select id="project-interest" aria-controls="project-links" aria-describedby="project-filter-count">
+                    <option value="">All interests</option>
+                    <option value="systems">Systems</option>
+                    <option value="security">Security</option>
+                    <option value="robotics">Robotics</option>
+                    <option value="data">Data / algorithms</option>
+                    <option value="web">Web</option>
+                </select>
+            </div>
             <p id="project-filter-count" role="status" aria-live="polite" aria-atomic="true"></p>
         </div>
         <div id="project-links">
@@ -40,7 +53,7 @@
             <a href="project-doublehitcollectibles.html">Double Hit Collectibles</a>
         </nav>
         </div>
-        <p id="project-filter-empty" hidden>No projects match. Clear the search to see all projects.</p>
+        <p id="project-filter-empty" hidden>No projects match. Clear the title search and choose All interests to see all projects.</p>
     </details>
     <script>
         bootTerminalSite(DEFAULT_COMMAND);
