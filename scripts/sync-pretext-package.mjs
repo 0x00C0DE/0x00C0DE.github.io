@@ -178,11 +178,10 @@ async function patchCanvasOnlyLayout() {
     await writeFile(targetPath, source, 'utf8');
 }
 
-async function applyVendorPatches() {
+async function applySecurityPatches() {
     await Promise.all([
         patchRichInline(),
-        patchMeasurement(),
-        patchCanvasOnlyLayout()
+        patchMeasurement()
     ]);
 }
 
@@ -196,7 +195,7 @@ async function syncPretextPackage() {
     await copyDistFiles(packageDistRoot, vendorRoot);
     await copyFile(path.join(packageRoot, 'LICENSE'), path.join(vendorRoot, 'LICENSE'));
     await copyFile(path.join(packageRoot, 'package.json'), path.join(vendorRoot, 'package.json'));
-    await applyVendorPatches();
+    await Promise.all([applySecurityPatches(), patchCanvasOnlyLayout()]);
 
     const packageName = '@chenglou/pretext';
     const vendorPath = path.relative(repoRoot, vendorRoot);
