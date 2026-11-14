@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 
 import { chromium } from 'playwright';
+import { removeImageBlock } from '../worker/src/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -182,7 +183,7 @@ async function setupModerationPage(page, origin, options = {}) {
 
     await page.goto(`${origin}/?command=cat%20blog.txt`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(2000);
-    await page.evaluate(async () => {
+    await page.evaluate(async useRealMediaDelete => {
         window.__deleteCalls = {
             entry: [],
             media: [],
@@ -192,16 +193,18 @@ async function setupModerationPage(page, origin, options = {}) {
             window.__deleteCalls.entry.push(args);
             return { ok: true };
         };
-        window.deleteBlogImageByBlockIndex = async (...args) => {
-            window.__deleteCalls.media.push(args);
-            return { ok: true };
-        };
+        if (!useRealMediaDelete) {
+            window.deleteBlogImageByBlockIndex = async (...args) => {
+                window.__deleteCalls.media.push(args);
+                return { ok: true };
+            };
+        }
         window.deleteBlogTextBlockByContext = async (...args) => {
             window.__deleteCalls.text.push(args);
             return { ok: true };
         };
         await window.executeCommand('su godlike');
-    });
+    }, Boolean(options.useRealMediaDelete));
     await page.waitForTimeout(1500);
 }
 
@@ -463,6 +466,72 @@ async function getLatestBannerGlyphCenters(page) {
         return centers.map(group => group.reduce((sum, value) => sum + value, 0) / group.length);
     });
 }
+test('godlike deletes a large inline attachment by reference', { timeout: 120000 }, async t => {
+    const server = await createStaticServer(REPO_ROOT);
+    t.after(() => server.close());
+    const browser = await chromium.launch({ executablePath: CHROME_PATH, headless: true });
+    t.after(() => browser.close());
+    const page = await browser.newPage({ viewport: { height: 822, width: 679 } });
+
+    const timestamp = '[2026-04-03T01:33:28.178Z]';
+    const smallGif = 'R0lGODlhAQABAIAAAAUEBA==';
+    const largeGif = Buffer.concat([
+        Buffer.from(smallGif, 'base64'),
+        Buffer.alloc(24 * 1024)
+    ]).toString('base64');
+    let blogContent = [
+        timestamp, 'aaa',
+        '[image-base64]', `data:image/gif;base64,${largeGif}`, '[/image-base64]',
+        'bbb',
+        '[image-base64]', `data:image/gif;base64,${smallGif}`, '[/image-base64]',
+        'ccc', ''
+    ].join('\n');
+
+    const deleteUrl = `${server.origin}/api/blog/delete-image`;
+    await page.addInitScript(url => { window.BLOG_DELETE_IMAGE_API_URL = url; }, deleteUrl);
+    await page.route(deleteUrl, async route => {
+        const request = route.request();
+        if (request.postDataBuffer().length > 16 * 1024) {
+            await route.fulfill({ status: 413, json: { error: 'request body is too large' } });
+            return;
+        }
+        const body = request.postDataJSON();
+        const removal = removeImageBlock(blogContent, {
+            targetImageKey: body.imageKey,
+            targetEntryTimestamp: body.entryTimestamp,
+            targetEntryImageIndex: body.entryImageIndex,
+            targetPreviousTextLine: body.previousTextLine,
+            targetNextTextLine: body.nextTextLine
+        });
+        blogContent = removal.content;
+        await route.fulfill({ status: removal.removed ? 200 : 404, json: { ok: removal.removed } });
+    });
+
+    await setupModerationPage(page, server.origin, { blogContent, useRealMediaDelete: true });
+    const [deletion] = await Promise.all([
+        page.waitForResponse(deleteUrl),
+        page.evaluate(async content => {
+            const [entry] = parseBlogTextFile(content.split('\n'));
+            const target = entry.blocks.find(block => block.type === 'inline-image');
+            await window.deleteBlogImageByBlockIndex(
+                target.imageBlockIndex, '', target.imageKey, target.src,
+                target.entryTimestamp, target.entryImageIndex, target.previousTextLine, target.nextTextLine
+            );
+        }, blogContent)
+    ]);
+    assert.equal(deletion.status(), 200);
+    const body = deletion.request().postDataJSON();
+    assert.equal(body.moderationToken, 'fixture-moderation-token');
+    assert.equal(body.entryTimestamp, timestamp);
+    assert.equal(body.entryImageIndex, 0);
+    assert.ok(body.imageKey);
+    assert.ok(!body.imageDataUrl);
+    assert.ok(!blogContent.includes(largeGif));
+    assert.ok(blogContent.includes(smallGif));
+    assert.match(blogContent, /aaa\nbbb\n/);
+    assert.match(blogContent, /ccc/);
+});
+
 test('godlike delete controls respond when clicking the rendered label centers', { timeout: 120000 }, async t => {
     const server = await createStaticServer(REPO_ROOT);
     t.after(async () => {

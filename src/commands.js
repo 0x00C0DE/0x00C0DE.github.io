@@ -1737,7 +1737,7 @@ async function deleteBlogImageByBlockIndex(
     imageBlockIndex,
     moderationToken,
     imageKey = '',
-    imageDataUrl = '',
+    imageSource = '',
     entryTimestamp = '',
     entryImageIndex = null,
     previousTextLine = '',
@@ -1750,11 +1750,13 @@ async function deleteBlogImageByBlockIndex(
         ? entryImageIndex
         : Number.parseInt(entryImageIndex, 10);
     const normalizedPreviousTextLine = typeof previousTextLine === 'string' ? previousTextLine.trim() : '';
-    const normalizedImageDataUrl = normalizeBlogImageDataUrl(imageDataUrl);
-    const normalizedImageUrl = normalizedImageDataUrl ? '' : normalizeBlogImageUrl(imageDataUrl);
+    const source = typeof imageSource === 'string' ? imageSource.trim() : '';
+    const isInlineImage = /^data:/i.test(source);
+    const resolvedImageKey = imageKey || (isInlineImage ? createBlogImageKey(source) : '');
+    const normalizedImageUrl = source && !isInlineImage ? normalizeBlogImageUrl(source) : '';
     const normalizedNextTextLine = typeof nextTextLine === 'string' ? nextTextLine.trim() : '';
 
-    if ((!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) && !imageKey && !normalizedEntryTimestamp && !normalizedPreviousTextLine) {
+    if ((!Number.isInteger(imageBlockIndex) || imageBlockIndex < 0) && !resolvedImageKey && !normalizedImageUrl && !normalizedEntryTimestamp && !normalizedPreviousTextLine) {
         return {
             ok: false,
             error: 'invalid image reference'
@@ -1768,18 +1770,17 @@ async function deleteBlogImageByBlockIndex(
         },
         body: JSON.stringify({
             imageBlockIndex,
-            imageKey,
-            imageDataUrl: normalizedImageDataUrl,
+            imageKey: resolvedImageKey,
             imageUrl: normalizedImageUrl,
             entryTimestamp: normalizedEntryTimestamp,
-              entryImageIndex: Number.isInteger(normalizedEntryImageIndex) && normalizedEntryImageIndex >= 0
-                  ? normalizedEntryImageIndex
-                  : null,
-              previousTextLine: normalizedPreviousTextLine,
-              nextTextLine: normalizedNextTextLine,
-              moderationToken: resolvedToken
-          })
-      });
+            entryImageIndex: Number.isInteger(normalizedEntryImageIndex) && normalizedEntryImageIndex >= 0
+                ? normalizedEntryImageIndex
+                : null,
+            previousTextLine: normalizedPreviousTextLine,
+            nextTextLine: normalizedNextTextLine,
+            moderationToken: resolvedToken
+        })
+    });
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
