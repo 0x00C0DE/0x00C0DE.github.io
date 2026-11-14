@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Interactive Pretext layout lab for 0x00C0DE.">
     <title>Pretext Lab | 0x00C0DE</title>
+    <link rel="stylesheet" href="/src/codex-feature-pretext-baseline.css">
     <style>
         :root {
             color-scheme: dark;
@@ -438,8 +439,8 @@
                 </div>
 
                 <div class="panel-section">
-                    <h2 class="panel-title">Measured Preview</h2>
-                    <div class="preview-shell">
+                    <h2 class="panel-title">Current preview</h2>
+                    <div class="preview-shell" tabindex="0" role="region" aria-label="Current preview, scroll horizontally for wide lines">
                         <p class="preview-width" id="preview-width-label"></p>
                         <div class="preview-frame" id="preview-frame">
                             <div class="preview-lines" id="preview-lines"></div>
@@ -448,6 +449,29 @@
                 </div>
 
                 <div class="panel-section">
+                    <h2 class="panel-title">Compare typography</h2>
+                    <p class="footnote">Pin the current layout, then edit the controls to compare. The baseline stays fixed until replaced or cleared; it is not saved on reload.</p>
+                    <div class="sample-grid">
+                        <button id="baseline-pin" type="button">Pin baseline</button>
+                        <button id="baseline-clear" type="button" disabled>Clear baseline</button>
+                    </div>
+                    <p class="footnote" id="baseline-status" role="status"></p>
+                </div>
+                <section class="panel-section" id="baseline-comparison" aria-labelledby="baseline-title" hidden>
+                    <h2 class="panel-title" id="baseline-title">Pinned baseline</h2>
+                    <p class="footnote" id="baseline-metrics"></p>
+                    <p class="footnote">Change from baseline (current minus pinned):</p>
+                    <div class="metrics" aria-live="polite" aria-atomic="true">
+                        <div class="metric"><span class="metric-label">Line-count delta</span><strong id="baseline-delta-lines">0</strong></div>
+                        <div class="metric"><span class="metric-label">Height delta</span><strong id="baseline-delta-height">0px</strong></div>
+                        <div class="metric"><span class="metric-label">Widest-line delta</span><strong id="baseline-delta-widest">0px</strong></div>
+                    </div>
+                    <div class="preview-shell" tabindex="0" role="region" aria-label="Pinned baseline preview, scroll horizontally for wide lines">
+                        <p class="preview-width" id="baseline-settings"></p>
+                        <div class="preview-frame" id="baseline-frame"><div class="preview-lines" id="baseline-lines"></div></div>
+                    </div>
+                </section>
+                <div class="panel-section">
                     <h2 class="panel-title">Line Inventory</h2>
                     <ol class="line-list" id="line-list"></ol>
                 </div>
@@ -455,6 +479,6 @@
         </section>
     </main>
 
-    <script type="module" src="/src/pretext-lab.mjs?v=20260403b"></script>
+    <script type="module" src="/src/codex-feature-pretext-baseline.mjs"></script>
 </body>
 </html>

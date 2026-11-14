@@ -1,0 +1,10 @@
+#baseline-comparison[hidden] { display: none; }
+#baseline-comparison { min-width: 0; }
+#baseline-status { margin-top: 12px; }
+#baseline-comparison .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#baseline-comparison .preview-shell { margin-top: 14px; }
+#baseline-clear:disabled { opacity: 0.5; cursor: default; }
+button:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+@media (max-width: 720px) {
+    #baseline-comparison .metrics { grid-template-columns: 1fr; }
+}
