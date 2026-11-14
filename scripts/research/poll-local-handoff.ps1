@@ -131,7 +131,7 @@ try {
         }
         @{ status = $status } | ConvertTo-Json -Compress | Set-Content -LiteralPath $receipt -Encoding utf8
         Write-Output "Handoff result: $status ($runId)."
-        $removeCheckout = $true
+        $removeCheckout = $status -ne 'previewed'
     } catch {
         @{ status = 'needs-review'; phase = $_.InvocationInfo.ScriptLineNumber } |
             ConvertTo-Json -Compress | Set-Content -LiteralPath $receipt -Encoding utf8

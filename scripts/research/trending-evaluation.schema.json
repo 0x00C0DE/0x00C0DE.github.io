@@ -1,7 +1,7 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["assessments", "feature"],
+  "required": ["assessments", "features"],
   "properties": {
     "assessments": {
       "type": "array",
@@ -16,14 +16,17 @@
         }
       }
     },
-    "feature": {
-      "type": ["object", "null"],
-      "additionalProperties": false,
-      "required": ["title", "repository", "brief"],
-      "properties": {
-        "title": { "type": "string" },
-        "repository": { "type": "string" },
-        "brief": { "type": "string" }
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "repository", "brief"],
+        "properties": {
+          "title": { "type": "string" },
+          "repository": { "type": "string" },
+          "brief": { "type": "string" }
+        }
       }
     }
   }

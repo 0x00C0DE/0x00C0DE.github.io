@@ -198,8 +198,13 @@ monthly list. Repositories that rank in several lists get an assessment in
 each. The runner verifies coverage and stops for review if a list was
 unavailable or an assessment was missing.
 
-Each cycle selects at most one original feature and implements it in an
-ephemeral Codex session in the isolated checkout. The runner independently
+Each Windows cycle selects distinct features across the three lists and
+implements them one at a time in isolated worktrees with ephemeral Codex
+sessions. Each candidate starts from the latest revision verified by that
+batch. An unrelated change to main or an implementation or verification
+failure stops the batch and retains its worktrees for inspection. Each
+successful feature has its own release branch, commit, and deployment.
+The runner independently
 reviews the changes and the browser test plan, builds the Pages artifact,
 and runs the plan in desktop and touch-sized Chromium outside the model's
 sandbox. Install the repository's Playwright dependency and Chromium in the
@@ -208,6 +213,8 @@ The Windows poller uses that checkout by default. Set
 `CODEX_RESEARCH_BROWSER_ROOT` to the directory containing the trusted
 `node_modules/playwright` installation to override it.
 
-The reporting automation opens a project chat after the exact release SHA
-deploys and the changed public files are verified. A cycle with no qualifying
+The reporting automation opens one project chat per feature after its exact
+release SHA deploys and the changed public files are verified. The chat
+title includes the feature name and release SHA. The chat describes the
+shipped behavior, how to use it, and the visitor benefit. A cycle with no qualifying
 feature records `no-proposal`. Failed browser checks retain the proposal for review.

@@ -30,14 +30,21 @@ export function verifyEvaluation(trending, evaluation) {
         }
     }
     if (expected.size) throw new Error('Incomplete Trending assessment coverage');
-    const feature = evaluation.feature;
-    if (feature === null) return null;
-    if (!feature?.title?.trim() || /[\r\n]/.test(feature.title) || feature.title.length > 80
-        || !feature.brief?.trim() || feature.brief.length > 3000
-        || !trending.repositories.some(repo => repo.name === feature.repository)) {
-        throw new Error('Invalid selected Trending feature');
+    if (!Array.isArray(evaluation.features)) throw new Error('Missing Trending feature list');
+    const titles = new Set();
+    for (const feature of evaluation.features) {
+        if (typeof feature?.title !== 'string' || !feature.title.trim()
+            || /[\u0000-\u001f\u007f]/.test(feature.title) || feature.title.length > 80
+            || typeof feature.brief !== 'string' || !feature.brief.trim()
+            || feature.brief.length > 3000 || feature.brief.includes('\0')
+            || !trending.repositories.some(repo => repo.name === feature.repository)) {
+            throw new Error('Invalid selected Trending feature');
+        }
+        const title = feature.title.trim().replace(/\s+/g, ' ').toLowerCase();
+        if (titles.has(title)) throw new Error('Duplicate Trending feature title');
+        titles.add(title);
     }
-    return feature;
+    return evaluation.features;
 }
 
 export function selectLead(report, revision, acceptsSurface = () => true) {

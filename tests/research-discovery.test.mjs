@@ -19,7 +19,12 @@ test('evaluation accounts for every repository rank in all three windows', () =>
         { window: 'monthly', repository: 'a/second', reason: 'Useful filter' },
     ];
     const feature = { title: 'Project filters', repository: 'a/second', brief: 'Filter by category.' };
-    assert.equal(discovery.verifyEvaluation(trending, { assessments, feature }), feature);
+    const second = { title: 'Saved views', repository: 'a/first', brief: 'Save a view locally.' };
+    assert.deepEqual(discovery.verifyEvaluation(trending, { assessments, features: [feature, second] }),
+        [feature, second]);
+    assert.deepEqual(discovery.verifyEvaluation(trending, { assessments, features: [] }), []);
+    assert.throws(() => discovery.verifyEvaluation(trending,
+        { assessments, features: [feature, { ...feature, title: ' project FILTERS ' }] }), /duplicate/i);
     assert.throws(() => discovery.verifyEvaluation(trending, { assessments: assessments.slice(1), feature }), /coverage/i);
     assert.throws(() => discovery.verifyEvaluation({ ...trending, unavailable: ['daily'] },
         { assessments, feature }), /unavailable/i);
