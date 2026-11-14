@@ -75,6 +75,7 @@ if ($FeatureIndex -lt 0) {
     examples, and workflows for patterns that can solve a concrete visitor problem on today's site, even when
     the source project serves a different audience. Before returning an empty list, take a second pass over
     the strongest README ideas and look for a smaller adaptation with the site's current components.
+    Propose features implementable in pages/ using existing public content and new src/codex-feature-* modules.
     Return all distinct qualifying ideas strongest first. Reject duplicates, unsafe proposals, and ideas requiring
     new dependencies or services. Merge overlaps across windows. For each feature identify its README source,
     give it a title under 80 characters, and describe the visitor-facing benefit and acceptance criteria.

@@ -16,6 +16,14 @@ export function describeHandoff(candidate, runId) {
 }
 
 export function verifyEvaluation(trending, evaluation) {
+    const result = selectVerifiedFeatures(trending, evaluation);
+    if (result.invalidEvidence.length) {
+        throw new Error('Invalid README evidence for ' + result.invalidEvidence.join(', '));
+    }
+    return result.features;
+}
+
+export function selectVerifiedFeatures(trending, evaluation) {
     if (trending.unavailable?.length) throw new Error('Trending windows unavailable: ' + trending.unavailable.join(', '));
     const windows = ['daily', 'weekly', 'monthly'];
     const expected = new Set(trending.repositories.flatMap(repo => windows
@@ -28,6 +36,7 @@ export function verifyEvaluation(trending, evaluation) {
     const readmes = new Map(trending.repositories.map(repo => [
         repo.name, repo.readme?.text && normalizeExcerpt(repo.readme.text),
     ]));
+    const invalidEvidence = new Set();
     for (const { window, repository, reason, readmeEvidence } of evaluation.assessments ?? []) {
         if (!reason?.trim() || !expected.delete(window + '/' + repository)) {
             throw new Error('Invalid or duplicate Trending assessment coverage');
@@ -35,7 +44,7 @@ export function verifyEvaluation(trending, evaluation) {
         const readme = readmes.get(repository);
         const evidence = typeof readmeEvidence === 'string' && normalizeExcerpt(readmeEvidence);
         if (readme ? !evidence || !readme.includes(evidence) : readmeEvidence !== '') {
-            throw new Error('Invalid README evidence for ' + repository);
+            invalidEvidence.add(repository);
         }
     }
     if (expected.size) throw new Error('Incomplete Trending assessment coverage');
@@ -53,7 +62,10 @@ export function verifyEvaluation(trending, evaluation) {
         if (titles.has(title)) throw new Error('Duplicate Trending feature title');
         titles.add(title);
     }
-    return evaluation.features;
+    return {
+        features: evaluation.features.filter(feature => !invalidEvidence.has(feature.repository)),
+        invalidEvidence: [...invalidEvidence],
+    };
 }
 
 export function selectLead(report, revision, acceptsSurface = () => true) {
@@ -117,8 +129,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         const [, , , reportPath, evaluationPath, selectionPath] = process.argv;
         const report = JSON.parse(await readFile(reportPath, 'utf8'));
         const evaluation = JSON.parse(await readFile(evaluationPath, 'utf8'));
-        const feature = verifyEvaluation(report.trending, evaluation);
-        await writeFile(selectionPath, JSON.stringify(feature));
+        const { features, invalidEvidence } = selectVerifiedFeatures(report.trending, evaluation);
+        if (invalidEvidence.length) {
+            console.warn('Excluded repositories with invalid README evidence: ' + invalidEvidence.join(', '));
+            if (!features.length) throw new Error('No verified feature selection with complete README evidence');
+        }
+        await writeFile(selectionPath, JSON.stringify(features));
         console.log(`Verified ${evaluation.assessments.length} daily, weekly, and monthly Trending assessments.`);
     } else if (process.argv[2] === 'verify') {
         verifyIndex();

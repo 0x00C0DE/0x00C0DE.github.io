@@ -203,7 +203,10 @@ adaptations with concrete visitor benefits. It takes a second pass before
 returning no proposal. The runner checks every assessment against a verbatim
 README excerpt (allowing spacing and line-wrap differences) when text is available. A repository with an unavailable
 README cannot supply a feature. An unavailable Trending list or incomplete
-assessment coverage stops the run for review.
+assessment coverage stops the run for review. An invalid excerpt excludes
+its source repository and leaves verified candidates from other repositories
+eligible. The runner retains an incomplete evaluation for review when it has
+invalid excerpts and no verified candidates.
 
 Each Windows cycle selects distinct features across the three lists and
 implements them one at a time in isolated worktrees with ephemeral Codex

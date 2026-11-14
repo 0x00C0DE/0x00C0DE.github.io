@@ -65,3 +65,22 @@ test('README evidence can cross source line breaks without accepting paraphrases
     assert.throws(() => discovery.verifyEvaluation({ repositories: [repo] }, { assessments, features: [] }),
         /README evidence/);
 });
+
+test('keeps verified candidates when another repository has an invalid excerpt', () => {
+    const trending = { repositories: [
+        { name: 'example/good', ranks: { daily: 1, weekly: 1 }, readme: { text: 'Browse by topic.' } },
+        { name: 'example/bad', ranks: { monthly: 1 }, readme: { text: 'Possible ideas.' } },
+    ] };
+    const assessments = [
+        ...['daily', 'weekly'].map(window => ({
+            window, repository: 'example/good', reason: 'Useful filter', readmeEvidence: 'Browse by topic.',
+        })),
+        { window: 'monthly', repository: 'example/bad', reason: 'Proposed', readmeEvidence: 'Altered quote' },
+    ];
+    const good = { title: 'Browse by topic', repository: 'example/good', brief: 'Show topic filters.' };
+    const bad = { title: 'More ideas', repository: 'example/bad', brief: 'Show ideas.' };
+    const result = discovery.selectVerifiedFeatures(trending, { assessments, features: [good, bad] });
+    assert.deepEqual(result, { features: [good], invalidEvidence: ['example/bad'] });
+    assert.throws(() => discovery.selectVerifiedFeatures(trending, { assessments: assessments.slice(1), features: [good] }),
+        /coverage/i);
+});
