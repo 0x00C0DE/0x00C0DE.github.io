@@ -6,7 +6,7 @@
 
 #project-filter-controls {
     padding: 0.5rem 0.75rem;
-    border-top: 1px solid rgba(0, 255, 102, 0.35);
+    border-top: 1px solid var(--project-divider);
 }
 
 #project-filter-controls label {
@@ -18,11 +18,11 @@
     box-sizing: border-box;
     width: 100%;
     min-height: 2.75rem;
-    border: 1px solid #00ff66;
+    border: 1px solid var(--project-accent);
     border-radius: 0.25rem;
     padding: 0.5rem;
-    background: #000c05;
-    color: #8dffb7;
+    background: var(--project-surface);
+    color: var(--project-link);
     font: inherit;
     font-size: 1rem;
     color-scheme: dark;

@@ -1,13 +1,17 @@
 .project-browser {
+    --project-accent: #ff6b78;
+    --project-link: #ff8585;
+    --project-surface: #100507;
+    --project-divider: #6a101c;
     position: fixed;
     z-index: 2;
     top: 0.75rem;
     right: 0.75rem;
     max-width: min(28rem, calc(100vw - 1.5rem));
-    border: 1px solid #00ff66;
+    border: 1px solid var(--project-accent);
     border-radius: 0.25rem;
-    background: rgba(0, 12, 5, 0.96);
-    color: #00ff66;
+    background: var(--project-surface);
+    color: var(--project-accent);
     font: 1rem/1.4 "Courier New", monospace;
 }
 
@@ -24,12 +28,12 @@
     overflow: auto;
     overscroll-behavior: contain;
     padding: 0.5rem 0.75rem;
-    border-top: 1px solid rgba(0, 255, 102, 0.35);
+    border-top: 1px solid var(--project-divider);
 }
 
 .project-browser a {
     padding: 0.45rem 0;
-    color: #8dffb7;
+    color: var(--project-link);
     text-decoration-thickness: 1px;
     text-underline-offset: 0.2em;
 }
