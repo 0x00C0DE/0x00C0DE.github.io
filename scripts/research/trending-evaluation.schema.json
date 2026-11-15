@@ -23,11 +23,12 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["title", "repository", "brief", "reactBitsComponents"],
+        "required": ["title", "repository", "brief", "reactBitsComponents", "route"],
         "properties": {
           "title": { "type": "string" },
           "repository": { "type": "string" },
           "brief": { "type": "string" },
+          "route": { "type": "string" },
           "reactBitsComponents": { "type": "array", "items": { "type": "string" } }
         }
       }

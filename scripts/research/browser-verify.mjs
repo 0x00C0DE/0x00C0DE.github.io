@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { designRoutePattern } from './codex-proposal.mjs';
 
 export function artifactPath(root, url) {
     const path = decodeURIComponent(url.split('?')[0]).replaceAll('\\', '/');
@@ -16,9 +17,10 @@ export function artifactPath(root, url) {
 const types = { '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript',
     '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
 
-async function verify(root, planPath, dependencyRoot) {
+async function verify(root, planPath, dependencyRoot, expectedRoute) {
     const plan = JSON.parse(await readFile(planPath, 'utf8'));
-    assert.match(plan.route, /^\/pages\/[a-z0-9-]+\.html$/);
+    assert.match(plan.route, designRoutePattern);
+    if (expectedRoute) assert.equal(plan.route, expectedRoute, 'Browser plan must exercise the selected feature route');
     assert.ok(Array.isArray(plan.steps) && plan.steps.length > 0 && plan.steps.length <= 40);
     assert.ok(plan.steps.some(step => ['visible', 'hidden', 'text'].includes(step.action)));
     const require = createRequire(resolve(dependencyRoot, 'package.json'));

@@ -3,6 +3,21 @@ import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { verifyReactBits } from './react-bits.mjs';
 
+export const designRoutePattern = /^(?:\/|\/pages\/[a-z0-9-]+\.html)$/;
+
+export function prioritizeSiteDesigns(features) {
+    const site = [];
+    const projects = [];
+    for (const feature of features) {
+        if (typeof feature.route !== 'string' || !designRoutePattern.test(feature.route)) {
+            throw new Error('Invalid public design route: ' + feature.route);
+        }
+        const group = /^\/pages\/projects?[-.]/.test(feature.route) ? projects : site;
+        group.push(feature);
+    }
+    return site.length ? [...site, ...projects] : [];
+}
+
 export function selectDiscovery(report, revision) {
     if (!revision || report?.revision !== revision || !Array.isArray(report.trending?.repositories)) return null;
     const repositories = report.trending.repositories.filter(repo =>
@@ -80,13 +95,13 @@ export function selectLead(report, revision, acceptsSurface = () => true) {
 }
 
 export function validateChanges(changes) {
-    const allowed = /^(?:README\.md|pages\/[a-z0-9-]+\.(?:html|css|mjs)|src\/codex-feature-[a-z0-9-]+\.(?:mjs|css)|tests\/codex-feature-[a-z0-9-]+\.test\.mjs)$/;
+    const allowed = /^(?:README\.md|index\.html|pages\/[a-z0-9-]+\.(?:html|css|mjs)|src\/codex-feature-[a-z0-9-]+\.(?:mjs|css)|tests\/codex-feature-[a-z0-9-]+\.test\.mjs)$/;
     if (changes.length < 3 || changes.length > 10
         || changes.some(({ mode, previousMode, path }) => !allowed.test(path)
             || (mode !== '100644' && !(mode === '100755' && previousMode === mode)))
         || !changes.some(change => change.path === 'README.md')
         || !changes.some(change => change.path.startsWith('tests/'))
-        || !changes.some(change => /^(pages|src)\//.test(change.path))) {
+        || !changes.some(change => change.path === 'index.html' || /^(pages|src)\//.test(change.path))) {
         throw new Error('Proposal must include a README update, a feature test, and only allowed regular files');
     }
 }
@@ -139,7 +154,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
             console.warn('Excluded repositories with invalid README evidence: ' + invalidEvidence.join(', '));
             if (!features.length) throw new Error('No verified feature selection with complete README evidence');
         }
-        await writeFile(selectionPath, JSON.stringify(features));
+        const prioritized = prioritizeSiteDesigns(features);
+        if (features.length && !prioritized.length) console.log('Project-only proposals deferred pending a site-wide design.');
+        await writeFile(selectionPath, JSON.stringify(prioritized));
         console.log(`Verified ${evaluation.assessments.length} daily, weekly, and monthly Trending assessments.`);
     } else if (process.argv[2] === 'verify') {
         verifyIndex();

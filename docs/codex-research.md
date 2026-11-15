@@ -226,7 +226,14 @@ them with the site's existing stack and preserve keyboard, touch, and
 reduced-motion behavior. If the catalog cannot be collected or no candidate
 passes verification, that scan produces no React Bits release.
 
-Each Windows cycle selects distinct verified React Bits candidates and
+Each Windows cycle prioritizes verified React Bits designs for the homepage,
+résumé, public blog reading, Explore, or Bitcoin presentation. A shortlist
+limited to Projects and project write-ups is deferred. Candidates declare a
+public route and the browser plan must test that route, including the
+homepage when selected. Successful release commits record the live route
+and inspiration so visitors can find the visible change.
+
+The runner takes distinct verified candidates and
 implements them one at a time in isolated worktrees with ephemeral Codex
 sessions. Each candidate starts from the latest revision verified by that
 batch. Implementation, independent review, and browser failures before
