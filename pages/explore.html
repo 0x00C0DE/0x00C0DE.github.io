@@ -7,6 +7,8 @@
     <title>Follow a question | 0x00C0DE</title>
     <link rel="stylesheet" href="/src/codex-feature-explore-style.css">
     <script type="module" src="/src/codex-feature-explore-ui.mjs"></script>
+    <link rel="stylesheet" href="/src/codex-feature-practice-style.css">
+    <script type="module" src="/src/codex-feature-practice-ui.mjs"></script>
 </head>
 <body>
 <main>
@@ -16,6 +18,65 @@
         <h1>Follow a question.</h1>
         <p>Start with a claim. Inspect an example. Decide what to try next.</p>
     </header>
+    <section id="practice" aria-labelledby="practice-title">
+        <p class="eyebrow">prediction / evidence / revision</p>
+        <h2 id="practice-title">Commit to a prediction.</h2>
+        <p>Choose an outcome, inspect the evidence, then revise. Three teaching questions before the demos. Answers stay on this page; reload resets practice.</p>
+        <article id="practice-bloom" class="practice-card" data-practice="bloom" aria-labelledby="bloom-title">
+            <h3 id="bloom-title">When bits collide</h3>
+            <ol data-progress hidden aria-label="bloom practice stages"><li data-practice-step>Predict</li><li data-practice-step>Evidence</li><li data-practice-step>Retry</li></ol>
+            <form id="bloom-prediction" hidden>
+                <fieldset><legend>After inserting cat and dog into the eight-bit model, what does testing the absent word god report?</legend>
+                    <label for="bloom-a"><input id="bloom-a" type="radio" name="bloom" value="a" required> Definitely absent</label>
+                    <label for="bloom-b"><input id="bloom-b" type="radio" name="bloom" value="b" required> Probably present</label>
+                    <label for="bloom-c"><input id="bloom-c" type="radio" name="bloom" value="c" required> Definitely inserted</label>
+                </fieldset>
+                <button id="bloom-reveal" type="submit">Reveal model result</button>
+                <button id="bloom-retry" type="button" data-retry hidden>Revise prediction</button>
+            </form>
+            <p id="bloom-feedback" role="status" aria-live="polite"></p>
+            <details id="bloom-evidence"><summary>Question &amp; answer / When bits collide</summary>
+                <p>After inserting cat and dog into the eight-bit model, what does testing the absent word god report?</p><p>cat maps to [0, 1]; dog to [2, 7]. Set bits: [0, 1, 2, 7]. god maps to [2, 1], both set: probably present, a false positive. Set bits cannot prove insertion.</p>
+                <p><a href="/pages/project-bloom-filters.html#bloom-demo">Inspect the demo</a> / <a href="/src/codex-feature-bloom-demo-model.mjs">Read the model source</a></p>
+            </details>
+        </article>
+        <article id="practice-robot" class="practice-card" data-practice="robot" aria-labelledby="robot-title">
+            <h3 id="robot-title">Check the whole move</h3>
+            <ol data-progress hidden aria-label="robot practice stages"><li data-practice-step>Predict</li><li data-practice-step>Evidence</li><li data-practice-step>Retry</li></ol>
+            <form id="robot-prediction" hidden>
+                <fieldset><legend>Robot (15, 50), radius 5; obstacle (45, 50), radius 10. Required gap: 8. Can the robot move 8 units directly forward?</legend>
+                    <label for="robot-a"><input id="robot-a" type="radio" name="robot" value="a" required> Yes: current clearance is 15</label>
+                    <label for="robot-b"><input id="robot-b" type="radio" name="robot" value="b" required> No: forward clearance would be 7</label>
+                    <label for="robot-c"><input id="robot-c" type="radio" name="robot" value="c" required> No: every direction is blocked</label>
+                </fieldset>
+                <button id="robot-reveal" type="submit">Reveal model result</button>
+                <button id="robot-retry" type="button" data-retry hidden>Revise prediction</button>
+            </form>
+            <p id="robot-feedback" role="status" aria-live="polite"></p>
+            <details id="robot-evidence"><summary>Question &amp; answer / Check the whole move</summary>
+                <p>Robot (15, 50), radius 5; obstacle (45, 50), radius 10. Required gap: 8. Can the robot move 8 units directly forward?</p><p>Current surface clearance is 30 - 5 - 10 = 15. Forward ends at (23, 50), leaving 22 - 5 - 10 = 7. This is below 8, so the model rejects forward and checks steering candidates. This is a teaching schematic, not robot software.</p>
+                <p><a href="/pages/project-collision-avoidance.html#collision-demo">Inspect the demo</a> / <a href="/src/codex-feature-collision-demo-core.mjs">Read the model source</a></p>
+            </details>
+        </article>
+        <article id="practice-layout" class="practice-card" data-practice="layout" aria-labelledby="layout-title">
+            <h3 id="layout-title">Predict a narrower line</h3>
+            <ol data-progress hidden aria-label="layout practice stages"><li data-practice-step>Predict</li><li data-practice-step>Evidence</li><li data-practice-step>Retry</li></ol>
+            <form id="layout-prediction" hidden>
+                <fieldset><legend>Keep text and font fixed in the layout lab, then narrow the width. Which claim is justified?</legend>
+                    <label for="layout-a"><input id="layout-a" type="radio" name="layout" value="a" required> Wrapping can increase line count and height</label>
+                    <label for="layout-b"><input id="layout-b" type="radio" name="layout" value="b" required> The font automatically shrinks</label>
+                    <label for="layout-c"><input id="layout-c" type="radio" name="layout" value="c" required> The widest line always equals available width</label>
+                </fieldset>
+                <button id="layout-reveal" type="submit">Reveal model result</button>
+                <button id="layout-retry" type="button" data-retry hidden>Revise prediction</button>
+            </form>
+            <p id="layout-feedback" role="status" aria-live="polite"></p>
+            <details id="layout-evidence"><summary>Question &amp; answer / Predict a narrower line</summary>
+                <p>Keep text and font fixed in the layout lab, then narrow the width. Which claim is justified?</p><p>Narrowing width can move words onto more lines and increase height. A line need not fill the available width. Pin a baseline and inspect measured deltas; short text may still fit on one line.</p>
+                <p><a href="/pages/pretext-lab.html#baseline-pin">Inspect the demo</a> / <a href="/src/terminal-text-layout.mjs">Read the model source</a></p>
+            </details>
+        </article>
+    </section>
     <section aria-labelledby="choose-title">
         <h2 id="choose-title">What would you like to understand?</h2>
         <p>Two optional, three-stop journeys. Open links in a new tab to keep your place.</p>

@@ -1,0 +1,14 @@
+#practice { margin: 3rem 0; border-top: 2px solid #ff6b78; padding-top: 1rem; }
+.practice-card { margin: 1.5rem 0; padding: clamp(.8rem, 3vw, 1.5rem); border: 1px solid #a64b58; background: #19070b; }
+.practice-card h3 { margin-top: 0; }
+.practice-card fieldset { border: 0; padding: 0; margin: 1rem 0; min-width: 0; }
+.practice-card legend { margin-bottom: .75rem; }
+.practice-card label { display: flex; gap: .75rem; align-items: center; min-height: 48px; padding: .6rem; border: 1px solid #6a101c; margin: .5rem 0; cursor: pointer; }
+.practice-card label:has(input:checked) { border-color: #ff9aa4; background: #3b1018; }
+.practice-card input { accent-color: #ff9aa4; flex-shrink: 0; width: 1.2rem; height: 1.2rem; }
+.practice-card button[type="submit"] { background: #ff9aa4; color: #190004; font-weight: bold; }
+.practice-card ol { display: flex; flex-wrap: wrap; gap: 1.5rem; padding-left: 1.5rem; font-size: .85rem; }
+.practice-card details { border-left: 3px solid #ff9aa4; padding: .75rem 1rem; }
+.practice-card summary { cursor: pointer; min-height: 44px; }
+.practice-card [role="status"] { font-weight: bold; }
+/* Immediate reveals for all visitors, including prefers-reduced-motion. */
