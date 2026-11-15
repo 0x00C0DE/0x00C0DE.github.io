@@ -217,14 +217,23 @@ its source repository and leaves verified candidates from other repositories
 eligible. The runner retains an incomplete evaluation for review when it has
 invalid excerpts and no verified candidates.
 
-Each report also reads the official free React Bits registry and keeps one
+Each report also reads the official free React Bits registry at the pinned
+upstream Git commit and keeps one
 metadata entry per visual component across JavaScript, TypeScript, CSS, and
 Tailwind variants. The runner requires an assessment covering every catalog
-ID. Each candidate must combine at least two verified React Bits patterns
+ID. Each candidate must combine two to six upstream React Bits components
 into one visitor-facing feature or a substantive refinement of an existing
-design. The README and release commit record the patterns used. Implement
-them with the site's existing stack and preserve keyboard, touch, and
-reduced-motion behavior. If the catalog cannot be collected or no candidate
+design. The README and release commit record the components used. The Pages
+build reads the feature's `src/codex-feature-*.react-bits.json` manifest,
+fetches the original upstream JSX and CSS, and bundles them into local
+assets with the locked React and esbuild toolchain. The source pin is in
+`scripts/research/react-bits-build.mjs`; update it deliberately after reviewing
+the upstream changes and license. This workflow currently accepts free JS/CSS
+variants with no additional dependencies. The build includes the upstream
+license, and the browser loads the bundle only from the selected post-entry page.
+For a local build with React Bits manifests, run
+`npm.cmd ci --ignore-scripts --prefix scripts/research/react-bits-tooling`
+before `node scripts/build-pages.mjs`. If the catalog cannot be collected or no candidate
 passes verification, that scan produces no React Bits release.
 
 Each Windows cycle prioritizes verified React Bits designs for post-entry

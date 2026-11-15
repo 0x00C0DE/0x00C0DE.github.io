@@ -1,4 +1,5 @@
 import { renderSitemap, sitemapDirective } from './research/sitemap.mjs';
+import { buildReactBits } from './research/react-bits-build.mjs';
 import { feedLink, renderFeedFile } from './research/blog-feed.mjs';
 import { appendFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { relative, sep } from 'node:path';
@@ -18,10 +19,12 @@ for (const entry of publicEntries) {
             if ((await lstat(source)).isSymbolicLink()) return false;
             const segments = relative(root, source).split(sep);
             if (segments.length === 1 && segments[0] === '.nojekyll') return true;
-            return !segments.some(part => part.startsWith('.') || part === 'node_modules');
+            return !segments.some(part => part.startsWith('.') || part === 'node_modules')
+                && !(segments[0] === 'src' && /\.jsx$|\.react-bits\.json$/.test(segments.at(-1)));
         }
     });
 }
+await buildReactBits(root, output);
 if ((await readFile(new URL('index.html', sourceRoot), 'utf8')).includes(feedLink)) {
     const feed = await renderFeedFile(new URL('content/blog.txt', sourceRoot));
     await writeFile(output + sep + 'content' + sep + 'feed.xml', feed);

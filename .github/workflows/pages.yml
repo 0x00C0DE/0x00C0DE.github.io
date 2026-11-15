@@ -6,6 +6,8 @@ on:
     paths:
       - .github/workflows/pages.yml
       - scripts/build-pages.mjs
+      - scripts/research/react-bits-build.mjs
+      - scripts/research/react-bits-tooling/**
       - robots.txt
       - .nojekyll
       - index.html
@@ -33,6 +35,10 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/configure-pages@v5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts --prefix scripts/research/react-bits-tooling
       - id: package
         run: node scripts/build-pages.mjs
       - uses: actions/upload-pages-artifact@v4

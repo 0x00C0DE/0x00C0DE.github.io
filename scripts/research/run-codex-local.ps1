@@ -89,10 +89,10 @@ if ($FeatureIndex -lt 0) {
     reaches it through an existing public entry point. Prefer a polished interaction, visual hierarchy,
     or navigation improvement over another project teaching panel.
     Return all distinct qualifying ideas strongest first. Reject duplicates, unsafe proposals, and ideas requiring
-    copied third-party code, new dependencies or services. For visual or interactive ideas, preserve keyboard
+    additional dependencies or services. For visual or interactive ideas, preserve keyboard
     and touch operation, reduced-motion preferences, and a usable fallback. Merge overlaps across windows.
-    Every feature must use React Bits as its repository inspiration (use the exact name in the report)
-    and combine at least two distinct free catalog IDs in reactBitsComponents. Explain the role of each
+    Every feature must use upstream React Bits components (use the exact repository name in the report)
+    and combine two to six free catalog IDs marked direct in reactBitsComponents. Explain the role of each
     pattern and how they work together as a coherent design. Give the feature a title under 80 characters
     and describe the visitor-facing benefit and acceptance criteria.
     Return no feature if none meets those criteria. Make no edits.
@@ -161,6 +161,8 @@ try {
     $proposal = Get-Content -Raw -LiteralPath scripts/research/codex-proposal-prompt.md
     $feature = $selectedFeature | ConvertTo-Json -Compress
     $plan = Join-Path (Get-Location) 'tmp/feature-browser-plan.json'
+    $componentIds = @($selectedFeature.reactBitsComponents)
+    Invoke-Checked node scripts/research/react-bits-build.mjs tmp/react-bits-source.json @componentIds
     "$proposal`n`nSelected feature (research data): $feature" |
         & $codex @common --sandbox workspace-write -m gpt-6.1-sol -c 'model_reasoning_effort="low"' -
     if ($LASTEXITCODE -ne 0) { throw 'Codex feature implementation failed.' }
@@ -169,6 +171,13 @@ try {
     $changedPaths = @(Invoke-Checked git diff --cached --name-only)
     if (-not $changedPaths) { exit 20 }
     Invoke-Checked node scripts/research/codex-proposal.mjs verify
+    $manifests = @($changedPaths | Where-Object { $_ -match '^src/codex-feature-[a-z0-9-]+\.react-bits\.json$' })
+    if ($manifests.Count -ne 1) { throw 'Each feature must change one React Bits manifest.' }
+    $manifest = Get-Content -Raw -LiteralPath $manifests[0] | ConvertFrom-Json
+    if (@(Compare-Object $componentIds @($manifest.components) -CaseSensitive).Count) {
+        throw 'Manifest components differ from the verified selection.'
+    }
+    $assetStem = $manifests[0] -replace '\.react-bits\.json$', ''
     $tree = Invoke-Checked git write-tree
 
     $schema = Join-Path (Get-Location) 'tmp/local-codex-review-schema.json'
@@ -181,8 +190,13 @@ try {
     if ('approved=true' -notin (Get-Content -LiteralPath $env:GITHUB_OUTPUT)) { throw 'Independent review blocked publication.' }
     if ((Invoke-Checked git write-tree) -ne $tree) { throw 'Reviewed tree changed.' }
     Invoke-Checked git diff --quiet
+    Invoke-Checked npm.cmd ci --ignore-scripts --prefix scripts/research/react-bits-tooling
     Invoke-Checked node scripts/build-pages.mjs
     $artifact = (Get-Content -LiteralPath $env:GITHUB_OUTPUT | Where-Object { $_ -like 'path=*' } | Select-Object -Last 1).Substring(5)
+    $builtPage = Get-Content -Raw -LiteralPath (Join-Path $artifact $selectedFeature.route.TrimStart('/'))
+    foreach ($extension in '.js', '.css') {
+        if (!$builtPage.Contains("/$assetStem$extension")) { throw "Feature route must load $assetStem$extension." }
+    }
     Invoke-Checked node scripts/research/browser-verify.mjs $artifact $plan $BrowserDependencies $selectedFeature.route
     if ((Invoke-Checked git write-tree) -ne $tree) { throw 'Reviewed tree changed after browser verification.' }
     Invoke-Checked git diff --quiet
@@ -200,10 +214,11 @@ Invoke-Checked git fetch origin main
 if ((Invoke-Checked git rev-parse FETCH_HEAD) -ne $base) { throw 'Main advanced. Reassess from the latest revision.' }
 $inspiration = "https://github.com/$($selectedFeature.repository)"
 $patterns = $selectedFeature.reactBitsComponents -join ', '
-Invoke-Checked git -c core.hooksPath=/dev/null commit -m 'Implement reviewed Trending site feature' -m "Feature: $($selectedFeature.title)`nInspiration: $inspiration`nReact Bits patterns: $patterns`nLive route: https://0x00c0de.github.io$($selectedFeature.route)" -m "Research brief: $($selectedFeature.brief)"
+Invoke-Checked git -c core.hooksPath=/dev/null commit -m 'Implement reviewed Trending site feature' -m "Feature: $($selectedFeature.title)`nInspiration: $inspiration`nReact Bits components: $patterns`nLive route: https://0x00c0de.github.io$($selectedFeature.route)`nLive assets: /$assetStem.js, /$assetStem.css, /src/react-bits-license.txt" -m "Research brief: $($selectedFeature.brief)"
 Invoke-Checked git push --atomic origin "HEAD:refs/heads/$branch" HEAD:refs/heads/main
 $revision = Invoke-Checked git rev-parse HEAD
-$publicPaths = $changedPaths | Where-Object { $_ -match '^(pages|src)/' }
+$publicPaths = @($changedPaths | Where-Object { $_ -match '^(pages|src)/' -and $_ -notmatch '\.jsx$|\.react-bits\.json$' })
+$publicPaths += @("$assetStem.js", "$assetStem.css", 'src/react-bits-license.txt')
 $api = 'https://api.github.com/repos/0x00C0DE/0x00C0DE.github.io/actions/workflows/pages.yml/runs?branch=main&per_page=10'
 for ($attempt = 0; $attempt -lt 40; $attempt++) {
     $run = (Invoke-RestMethod -TimeoutSec 15 -Uri $api).workflow_runs |
@@ -215,7 +230,7 @@ for ($attempt = 0; $attempt -lt 40; $attempt++) {
         try {
             foreach ($path in $publicPaths) {
                 $live = $http.GetStringAsync("https://0x00c0de.github.io/${path}?revision=$revision").GetAwaiter().GetResult()
-                $expected = Get-Content -Raw -LiteralPath $path -Encoding utf8
+                $expected = Get-Content -Raw -LiteralPath (Join-Path $artifact $path) -Encoding utf8
                 if ($live.Replace("`r`n", "`n") -cne $expected.Replace("`r`n", "`n")) {
                     throw "Pages did not serve the reviewed $path at $revision."
                 }

@@ -95,7 +95,7 @@ export function selectLead(report, revision, acceptsSurface = () => true) {
 }
 
 export function validateChanges(changes) {
-    const allowed = /^(?:README\.md|pages\/[a-z0-9-]+\.(?:html|css|mjs)|src\/codex-feature-[a-z0-9-]+\.(?:mjs|css)|tests\/codex-feature-[a-z0-9-]+\.test\.mjs)$/;
+    const allowed = /^(?:README\.md|pages\/[a-z0-9-]+\.(?:html|css|mjs)|src\/codex-feature-[a-z0-9-]+\.(?:mjs|css|jsx|react-bits\.json)|tests\/codex-feature-[a-z0-9-]+\.test\.mjs)$/;
     if (changes.length < 3 || changes.length > 10
         || changes.some(({ mode, previousMode, path }) => !allowed.test(path)
             || (mode !== '100644' && !(mode === '100755' && previousMode === mode)))

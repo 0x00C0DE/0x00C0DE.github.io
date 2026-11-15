@@ -127,6 +127,7 @@ jobs:
           done < <(git status --porcelain --untracked-files=all)
           git diff --cached --check
           node --test tests/research-implementation.test.mjs
+          npm ci --ignore-scripts --prefix scripts/research/react-bits-tooling
           GITHUB_OUTPUT="$RUNNER_TEMP/pages-build-output" node scripts/build-pages.mjs
           artifact=$(sed -n 's/^path=//p' "$RUNNER_TEMP/pages-build-output")
           python scripts/research/verify-public-feature.py "$feature" "$artifact/$path"

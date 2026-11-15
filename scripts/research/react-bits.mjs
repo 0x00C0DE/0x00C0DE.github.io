@@ -1,4 +1,7 @@
-const registryUrl = 'https://reactbits.dev/r/registry.json';
+import { reactBitsRevision } from './react-bits-build.mjs';
+
+const registryUrl = 'https://raw.githubusercontent.com/DavidHDev/react-bits/'
+    + reactBitsRevision + '/public/r/registry.json';
 
 export async function collectReactBits(fetchPage = fetch) {
     const response = await fetchPage(registryUrl, {
@@ -26,6 +29,9 @@ export async function collectReactBits(fetchPage = fetch) {
             }
             designs.set(id, { id, description: item.description.trim().slice(0, 500) });
         }
+        if (item.name === id + '-JS-CSS' && !item.dependencies?.length && !item.registryDependencies?.length) {
+            designs.get(id).direct = true;
+        }
     }
     if (designs.size < 2) throw new Error('React Bits registry has insufficient visual components');
     return [...designs.values()];
@@ -33,6 +39,7 @@ export async function collectReactBits(fetchPage = fetch) {
 
 export function verifyReactBits(catalog, evaluation) {
     const ids = new Set(catalog.map(design => design.id));
+    const direct = new Set(catalog.filter(design => design.direct).map(design => design.id));
     const reviewed = evaluation.reactBitsReviewed;
     if (!Array.isArray(reviewed) || reviewed.length !== ids.size
         || new Set(reviewed).size !== ids.size || reviewed.some(id => !ids.has(id))) {
@@ -41,8 +48,8 @@ export function verifyReactBits(catalog, evaluation) {
     for (const feature of evaluation.features ?? []) {
         const components = feature.reactBitsComponents;
         if (feature.repository?.toLowerCase() !== 'davidhdev/react-bits' || !Array.isArray(components)
-            || components.length < 2 || new Set(components).size !== components.length
-            || components.some(id => !ids.has(id))) {
+            || components.length < 2 || components.length > 6 || new Set(components).size !== components.length
+            || components.some(id => !direct.has(id))) {
             throw new Error('Invalid React Bits component combination: ' + feature.title);
         }
     }
