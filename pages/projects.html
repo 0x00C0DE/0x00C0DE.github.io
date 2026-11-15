@@ -9,6 +9,8 @@
     <meta http-equiv="Cache-Control" content="no-cache">
     <title>Projects | 0x00C0DE</title>
     <link rel="stylesheet" href="/src/codex-feature-project-browser.css">
+    <link rel="stylesheet" href="/src/codex-feature-project-compare.css">
+    <script type="module" src="/src/codex-feature-project-compare-ui.mjs"></script>
     <link rel="stylesheet" href="/src/codex-feature-project-filter.css">
     <link rel="stylesheet" href="/src/codex-feature-project-paths.css">
     <link rel="stylesheet" href="/src/codex-feature-project-evidence-search.css">
@@ -58,6 +60,15 @@
         </nav>
         </div>
         <p id="project-filter-empty" hidden>No projects match. Clear the title search and choose All interests to see all projects.</p>
+        <section id="project-compare" aria-labelledby="compare-heading" hidden>
+            <h2 id="compare-heading">Compare project facts</h2>
+            <p>Choose two or three projects. Selections stay while you filter; reload clears them.
+                These descriptions are not executed demonstrations or rankings.</p>
+            <fieldset id="compare-choices"><legend>Projects to compare (maximum three)</legend></fieldset>
+            <p id="compare-status" role="status" aria-live="polite"></p>
+            <button id="compare-clear" type="button">Clear comparison</button>
+            <div id="compare-results" hidden></div>
+        </section>
     </details>
     <script>
         bootTerminalSite(DEFAULT_COMMAND);
