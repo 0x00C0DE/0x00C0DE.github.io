@@ -1,0 +1,25 @@
+#shell-lifecycle { border-top: 1px solid var(--project-divider); margin-top: 1rem; }
+#shell-lifecycle h2 { font-size: 1.25rem; }
+#shell-controls { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+#shell-controls[hidden], #shell-live[hidden] { display: none; }
+#shell-controls button, #shell-controls select {
+    font: inherit; min-height: 44px; max-width: 100%; padding: .5rem;
+    color: inherit; background: #100507; border: 1px solid var(--project-accent);
+}
+#shell-controls #shell-next { background: #ff6b78; color: #100507; font-weight: bold; }
+#shell-next[aria-disabled="true"] { opacity: .65; }
+#shell-controls :focus-visible { outline: 2px solid white; outline-offset: 2px; }
+#shell-stages { padding-left: 1.6rem; }
+#shell-stages [aria-current] { color: white; font-weight: bold; text-decoration: underline; }
+#shell-prompt { display: inline-block; border: 1px solid currentColor; padding: .2rem .4rem; }
+#shell-prompt::before { content: '○ '; }
+#shell-prompt[data-state="ready"]::before { content: '✓ '; }
+#shell-child::before { content: '● '; }
+#shell-trace { padding-left: 1.6rem; }
+#shell-trace li { margin-block: .65rem; animation: shell-event .18s ease-out; }
+#shell-lifecycle table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+#shell-lifecycle th, #shell-lifecycle td {
+    text-align: left; vertical-align: top; padding: .4rem; border: 1px solid var(--project-divider);
+}
+@keyframes shell-event { from { opacity: .4; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { #shell-trace li { animation: none; } }

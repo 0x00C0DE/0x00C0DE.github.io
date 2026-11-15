@@ -17,6 +17,8 @@
     <link rel="stylesheet" href="/src/codex-feature-project-browser.css">
     <script type="module" src="/src/codex-feature-project-details.mjs"></script>
 <link rel="stylesheet" href="/src/codex-feature-project-flow.css">
+    <link rel="stylesheet" href="/src/codex-feature-shell-lifecycle-style.css">
+    <script type="module" src="/src/codex-feature-shell-lifecycle-ui.mjs"></script>
 </head>
 <body>
     <canvas id="terminal-canvas"></canvas>
@@ -74,6 +76,43 @@
                 <p>Input → jobs: the <a href="#smallsh-behavior">Core behavior description</a> pairs tokenizing shell input with launching jobs.</p>
                 <p>Jobs → lifecycle: the <a href="#smallsh-behavior">same description</a> pairs launching jobs with tracking process lifecycle events.</p>
                 <p>The numbered sequence is the textual equivalent. Connections summarize the write-up's order; internal data structures and scheduling are not specified.</p>
+            </section>
+            <section id="shell-lifecycle" aria-labelledby="shell-title">
+                <h2 id="shell-title">Step through a shell job</h2>
+                <p>A fixed teaching model of <a href="#smallsh-behavior">fork, exec, waitpid, and signals</a>, not execution of the project. One successful child, no real commands or timing. Completion and collection are separated for inspection; signal delivery is not simulated.</p>
+                <div id="shell-controls" hidden>
+                    <label for="shell-mode">Job mode</label>
+                    <select id="shell-mode">
+                        <option value="foreground">Foreground</option>
+                        <option value="background">Background</option>
+                    </select>
+                    <button id="shell-next" type="button">Launch child</button>
+                    <button id="shell-reset" type="button">Reset model</button>
+                </div>
+                <div id="shell-live" hidden>
+                    <p id="shell-stage" role="status" aria-live="polite"></p>
+                    <ol id="shell-stages" aria-label="Lifecycle stages">
+                        <li>Prepare</li><li>Launch · fork / exec</li><li>Complete · exit</li><li>Collect · waitpid</li>
+                    </ol>
+                    <p>Child: <strong id="shell-child"></strong></p>
+                    <p>Shell prompt: <strong id="shell-prompt"></strong></p>
+                    <h3>Event trace</h3>
+                    <ol id="shell-trace"></ol>
+                </div>
+                <details id="shell-fallback" open>
+                    <summary>Static event reference</summary>
+                    <table>
+                        <caption>Successful child lifecycle · foreground / background</caption>
+                        <thead><tr><th scope="col">Event</th><th scope="col">Child</th><th scope="col">Prompt</th></tr></thead>
+                        <tbody>
+                            <tr><th scope="row">Prepare</th><td>Not started</td><td>Ready / Ready</td></tr>
+                            <tr><th scope="row">fork + exec</th><td>Running</td><td>Waiting / Ready</td></tr>
+                            <tr><th scope="row">exit; status pending</th><td>Completed, not reaped</td><td>Waiting / Ready</td></tr>
+                            <tr><th scope="row">waitpid collects status</th><td>Reaped</td><td>Ready / Ready</td></tr>
+                        </tbody>
+                    </table>
+                    <p>SIGCHLD can notify the parent of completion; notification alone does not reap a child. This schematic omits failures, stopped jobs, and signal policy details unspecified by the public write-up.</p>
+                </details>
             </section>
             <a href="https://github.com/0x00C0DE/CS344-assign3">Repository</a>
             <a href="/content/smallsh.txt">Read original write-up</a>

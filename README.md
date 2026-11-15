@@ -804,3 +804,19 @@ monitor, local usage-planning inputs, and how to run the checks.
   PowerShell, verify with `node --test --test-isolation=none tests/codex-feature-bloom-demo.test.mjs`.
 
 - Predict an outcome in [Follow a question](pages/explore.html#practice) before inspecting the Bloom, robot, and layout models. Every choice receives feedback; revise preserves the question and clears the answer. Static question-and-answer disclosures remain readable without JavaScript. Original native code composes [React Bits on Trending](https://github.com/DavidHDev/react-bits) inspirations: **JellyRadio** gives native radio choices selected-state emphasis; **FlipCard** pairs each prediction with revealed evidence on the same card; **Stepper** marks predict, evidence, and retry. Reveal has visual priority. Native controls support keyboard and touch; reveals are immediate, including reduced motion. No registry source, React, remote runtime assets, services, or added dependencies. Practice is independent of journey progress and resets on reload. From the repository root in PowerShell, verify with `node --test --test-isolation=none tests/codex-feature-practice.test.mjs`.
+
+- Step through a shell job in [Small Shell](pages/project-smallsh.html) under Project details.
+  Choose foreground or background, then launch, complete, and reap one successful child.
+  Background returns the prompt while running; foreground waits until waitpid collects status.
+  Original native code composes [React Bits on Trending](https://github.com/DavidHDev/react-bits)
+  patterns: **Stepper** marks the active lifecycle stage; **AnimatedList** appends a bounded,
+  ordered event trace; **StatusMark** pairs prompt availability with a symbol and text label.
+  The next-step button has visual priority. Native controls support keyboard and touch;
+  reduced motion removes event entry animation and all state changes are immediate.
+  Changing mode starts a fresh trace; Reset model always restores foreground at Prepare.
+  A static event table remains readable without JavaScript. This teaching model grounds
+  fork, exec, waitpid, and signals in the public write-up; it does not execute the project,
+  simulate scheduling or signal policy, or cover failed/stopped jobs. No registry source,
+  React, new dependencies, services, or remote runtime assets. From the repository root
+  in PowerShell, verify with
+  `node --test --test-isolation=none tests/codex-feature-shell-lifecycle.test.mjs`.
