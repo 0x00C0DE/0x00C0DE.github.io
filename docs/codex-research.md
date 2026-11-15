@@ -241,6 +241,11 @@ sections, such as the résumé, Explore, or Bitcoin presentation. The homepage,
 intro assets, and entry transition are outside the permitted scope. A shortlist
 limited to Projects and project write-ups is deferred. Candidates declare a
 public route under `/pages/` and the browser plan must test that route.
+The Pages build registers new lowercase `pages/<name>.html` files in
+terminal `help` under **Public pages**. Visitors can open them with
+`open <name>.html`. Pages with existing dedicated commands keep those
+commands. The release verifies the generated help registry alongside the
+new page.
 Successful release commits record the live route
 and inspiration so visitors can find the visible change.
 

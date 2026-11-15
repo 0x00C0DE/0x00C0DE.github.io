@@ -1,5 +1,6 @@
 import { renderSitemap, sitemapDirective } from './research/sitemap.mjs';
 import { buildReactBits } from './research/react-bits-build.mjs';
+import { terminalPageFiles } from './research/page-help.mjs';
 import { feedLink, renderFeedFile } from './research/blog-feed.mjs';
 import { appendFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { relative, sep } from 'node:path';
@@ -25,6 +26,10 @@ for (const entry of publicEntries) {
     });
 }
 await buildReactBits(root, output);
+const pages = await readdir(output + sep + 'pages', { withFileTypes: true });
+const pageFiles = terminalPageFiles(pages);
+await appendFile(output + sep + 'src' + sep + 'commands.js',
+    '\nterminalHelpPageFiles = ' + JSON.stringify(pageFiles) + ';\n');
 if ((await readFile(new URL('index.html', sourceRoot), 'utf8')).includes(feedLink)) {
     const feed = await renderFeedFile(new URL('content/blog.txt', sourceRoot));
     await writeFile(output + sep + 'content' + sep + 'feed.xml', feed);
@@ -36,7 +41,6 @@ const robots = await readFile(new URL('robots.txt', sourceRoot), 'utf8').catch(e
 if (robots !== null) {
     await writeFile(output + sep + 'robots.txt', robots);
     if (robots.split(/\r?\n/).includes(sitemapDirective.trim())) {
-        const pages = await readdir(output + sep + 'pages', { withFileTypes: true });
         await writeFile(output + sep + 'sitemap.xml', renderSitemap(pages.filter(page => page.isFile()).map(page => page.name)));
     }
 }

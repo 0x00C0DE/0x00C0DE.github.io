@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/pages.yml
       - scripts/build-pages.mjs
+      - scripts/research/page-help.mjs
       - scripts/research/react-bits-build.mjs
       - scripts/research/react-bits-tooling/**
       - robots.txt

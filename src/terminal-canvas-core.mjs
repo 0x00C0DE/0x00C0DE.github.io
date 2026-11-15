@@ -3193,6 +3193,7 @@ function getCommandHandlers() {
         ['instagram', window.instagram_command],
         ['linkedin', window.linkedin_command],
         ['ls', window.ls_command],
+        ['open', window.open_command],
         ['video', window.video_command],
         ['mypic', window.mypic_command],
         ['movie', window.movie_command],

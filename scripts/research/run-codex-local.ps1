@@ -219,6 +219,7 @@ Invoke-Checked git push --atomic origin "HEAD:refs/heads/$branch" HEAD:refs/head
 $revision = Invoke-Checked git rev-parse HEAD
 $publicPaths = @($changedPaths | Where-Object { $_ -match '^(pages|src)/' -and $_ -notmatch '\.jsx$|\.react-bits\.json$' })
 $publicPaths += @("$assetStem.js", "$assetStem.css", 'src/react-bits-license.txt')
+if ($changedPaths -match '^pages/[a-z0-9-]+\.html$') { $publicPaths += 'src/commands.js' }
 $api = 'https://api.github.com/repos/0x00C0DE/0x00C0DE.github.io/actions/workflows/pages.yml/runs?branch=main&per_page=10'
 for ($attempt = 0; $attempt -lt 40; $attempt++) {
     $run = (Invoke-RestMethod -TimeoutSec 15 -Uri $api).workflow_runs |

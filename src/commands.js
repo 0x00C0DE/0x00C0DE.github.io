@@ -1004,6 +1004,17 @@ function buildPretextLabHref(text) {
     return `/pages/pretext-lab.html?${new URLSearchParams({ text: trimmed }).toString()}`;
 }
 
+let terminalHelpPageFiles = [];
+
+function open_command(args) {
+    const [filename] = args;
+    if (args.length !== 1 || !terminalHelpPageFiles.includes(filename)) {
+        return ['open: Choose a page listed under Public pages in help.'];
+    }
+    window.open('/pages/' + filename, '_self');
+    return [];
+}
+
 function help_command() {
     const sections = [
         ['Bitcoin analytics', [
@@ -1046,6 +1057,10 @@ function help_command() {
             ['post [text] ... [image] ...', `Append a blog entry; omit [image] for text-only posts or use one selected media file per placeholder (${BLOG_SUPPORTED_POST_MEDIA_TYPES_LABEL}, up to ${BLOG_MAX_IMAGE_ATTACHMENTS}). Example: post first [image] second [image] third`],
         ]],
     ];
+    if (terminalHelpPageFiles.length) {
+        sections.push(['Public pages', terminalHelpPageFiles.map(filename =>
+            ['open ' + filename, 'Open /pages/' + filename])]);
+    }
     const width = Math.max(...sections.flatMap(([, entries]) => entries.map(([command]) => command.length)));
     return ['Available commands:', ...sections.flatMap(([heading, entries]) => [
         ' ',
