@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Follow a portfolio question from source fact to demonstration and a hands-on next action.">
+    <title>Follow a question | 0x00C0DE</title>
+    <link rel="stylesheet" href="/src/codex-feature-explore-style.css">
+    <script type="module" src="/src/codex-feature-explore-ui.mjs"></script>
+</head>
+<body>
+<main>
+    <nav aria-label="Site"><a href="/">Terminal</a> / <a href="/pages/projects.html">Projects</a> / explore</nav>
+    <header>
+        <p class="eyebrow">0x00C0DE / field notes</p>
+        <h1>Follow a question.</h1>
+        <p>Start with a claim. Inspect an example. Decide what to try next.</p>
+    </header>
+    <section aria-labelledby="choose-title">
+        <h2 id="choose-title">What would you like to understand?</h2>
+        <p>Two optional, three-stop journeys. Open links in a new tab to keep your place.</p>
+        <div id="branch-menu" hidden>
+            <button id="choose-robot" type="button" data-branch="robot">01 / How does a robot decide to steer?</button>
+            <button id="choose-layout" type="button" data-branch="layout">02 / What changes when text gets narrower?</button>
+        </div>
+    </section>
+    <div id="journey-controls" hidden>
+        <nav aria-label="Journey steps"><ol id="stepper">
+            <li><button id="step-0" type="button" data-step="0">1 / Source fact</button></li>
+            <li><button id="step-1" type="button" data-step="1">2 / Demonstration</button></li>
+            <li><button id="step-2" type="button" data-step="2">3 / Try a variation</button></li>
+        </ol></nav>
+        <p id="journey-status" role="status" aria-live="polite"></p>
+    </div>
+    <section id="robot-journey" class="journey" aria-labelledby="robot-title">
+        <h2 id="robot-title">01 / How does a robot decide to steer?</h2>
+        <ol>
+            <li id="robot-source" data-stage="0"><h3>Source fact / perception meets control</h3>
+                <p>The project combines perception and control to react to changing obstacle geometry.</p>
+                <a href="/content/amr.txt">Read the original robot write-up</a></li>
+            <li id="robot-demo" data-stage="1"><h3>Demonstration / sense → detect → steer</h3>
+                <p>Inspect the local teaching model. Step through sensing and detection to see why forward movement is rejected. This schematic is separate from the project's robot software.</p>
+                <a href="/pages/project-collision-avoidance.html#collision-demo">Open the robot teaching model</a>
+                <p>If interactive controls are unavailable, the same section includes a static clearance calculation. <a href="/content/amr.txt">Direct source alternative</a>.</p></li>
+            <li id="robot-action" data-stage="2"><h3>Try a variation / move the obstacle</h3>
+                <p>In the model, change obstacle y from 50 to 80, apply it, then step again. Compare the hazard result with the initial scenario. Where might a local steering rule get stuck?</p>
+                <a href="/pages/project-collision-avoidance.html#collision-demo">Try the coordinate controls or read the static scenario</a></li>
+        </ol>
+    </section>
+    <section id="layout-journey" class="journey" aria-labelledby="layout-title">
+        <h2 id="layout-title">02 / What changes when text gets narrower?</h2>
+        <ol>
+            <li id="layout-source" data-stage="0"><h3>Source fact / measured lines</h3>
+                <p>The terminal layout adapter prepares text and fits it into measured line ranges.</p>
+                <a href="/src/terminal-text-layout.mjs">Read the existing layout adapter source</a></li>
+            <li id="layout-demo" data-stage="1"><h3>Demonstration / width becomes line breaks</h3>
+                <p>The layout lab exposes text, width, font size, and line metrics. Keep text and font fixed while exploring width.</p>
+                <a href="/pages/pretext-lab.html">Open the existing Pretext lab</a>
+                <p>If the lab cannot initialize, <a href="/src/terminal-text-layout.mjs">read the adapter directly</a>; the journey can still be followed.</p></li>
+            <li id="layout-action" data-stage="2"><h3>Try a variation / pin and narrow</h3>
+                <p>Pin a baseline in the lab, reduce the width, and compare the line-count and height deltas. Does the widest line always equal the available width?</p>
+                <a href="/pages/pretext-lab.html#baseline-pin">Open the baseline comparison controls</a>
+                <p>Without the lab, inspect line ranges in the <a href="/src/terminal-text-layout.mjs">direct source alternative</a>.</p></li>
+        </ol>
+    </section>
+    <div id="journey-actions" hidden>
+        <button id="journey-back" type="button">Back</button>
+        <button id="journey-next" type="button">Continue →</button>
+        <button id="journey-finish" type="button" hidden>Mark journey complete</button>
+        <p id="journey-complete" hidden>Journey complete. Revisit any step or choose another question.</p>
+    </div>
+    <footer>Reading a stage does not verify the project or run its code. Progress lasts until this page is reloaded.</footer>
+</main>
+</body>
+</html>

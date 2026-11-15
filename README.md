@@ -58,6 +58,28 @@ In `su` and `su godlike`, pointer moves update media coordinates. The next anima
 
 The standalone layout lab uses Cheng Lou's [Pretext](https://github.com/chenglou/pretext).
 
+**Follow a question:** [Explore](pages/explore.html), linked from Browse projects,
+connects source facts → existing demonstrations → a suggested variation. Robot
+decisions and text layout are optional three-stop journeys, rather than project
+filters. Inspired by the selected [React Bits Trending reference](https://github.com/DavidHDev/react-bits):
+**BranchedMenu** becomes two explicit native question buttons; **Stepper** records
+visited stages and lets visitors revisit them. Both patterns use original HTML,
+CSS, and JavaScript; no registry code, dependencies, or remote runtime assets.
+
+Back preserves the branch, switching questions retains each sequence, and only
+“Mark journey complete” completes it. Reload clears progress. Native controls
+support keyboard and touch; stage headings receive focus after navigation.
+Transitions are immediate, including reduced motion. Without JavaScript, both
+ordered journeys and all source links remain readable. Static robot calculations
+and direct layout source remain alternatives when demos cannot initialize.
+These teaching examples do not verify the underlying projects.
+
+Run `node --test --test-isolation=none tests/codex-feature-explore.test.mjs`
+from the repository root. It checks branch/revisit/completion rules and local
+destinations. The proposal's `tmp/feature-browser-plan.json` exercises both branches,
+Back, revisiting, explicit completion, and visibility in desktop/touch Chromium;
+the independent Windows runner performs that browser check before acceptance.
+
 ---
 
 ## Architecture
