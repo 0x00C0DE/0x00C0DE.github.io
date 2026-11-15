@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import { verifyReactBits } from './react-bits.mjs';
 
 export function selectDiscovery(report, revision) {
     if (!revision || report?.revision !== revision || !Array.isArray(report.trending?.repositories)) return null;
@@ -132,6 +133,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         const [, , , reportPath, evaluationPath, selectionPath] = process.argv;
         const report = JSON.parse(await readFile(reportPath, 'utf8'));
         const evaluation = JSON.parse(await readFile(evaluationPath, 'utf8'));
+        verifyReactBits(report.reactBits, evaluation);
         const { features, invalidEvidence } = selectVerifiedFeatures(report.trending, evaluation);
         if (invalidEvidence.length) {
             console.warn('Excluded repositories with invalid README evidence: ' + invalidEvidence.join(', '));

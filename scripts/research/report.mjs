@@ -1,4 +1,5 @@
 import { discoverTrending } from './trending.mjs';
+import { collectReactBits } from './react-bits.mjs';
 import { appendFile, lstat, mkdir, open, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { discoverFeatures } from './features.mjs';
@@ -20,9 +21,10 @@ if (state?.schema !== 1 || !Array.isArray(state.history)) throw new Error('Unsup
 
 const input = inputFile ? JSON.parse(await readFile(inputFile, 'utf8')) : { mode: 'research-only' };
 const decision = planCycle({ ...input, now: now.getTime() });
-const [result, trending] = await Promise.all([
+const [result, trending, reactBits] = await Promise.all([
     collectReleases({ now: now.toISOString(), history: state.history }),
     discoverTrending(),
+    collectReactBits(),
 ]);
 const root = new URL('../../', import.meta.url);
 const skillPath = '.agents/skills/0x00c0de-release/SKILL.md';
@@ -56,7 +58,7 @@ if (!existingRobots && publicPages.length >= 3) {
 }
 const report = {
     schema: 1, observedAt: now.toISOString(), revision: process.env.GITHUB_SHA ?? null,
-    decision, ...result, featureCandidates, trending,
+    decision, ...result, featureCandidates, trending, reactBits,
     projectNavigationPublished: projects.includes('<nav aria-label="Pinned projects">'),
     handoff: {
         releaseSkill: skillPath,
@@ -87,6 +89,7 @@ const summary = [
     '### GitHub Trending evaluation',
     '',
     '- Repositories collected — ' + trending.repositories.length,
+    '- Free React Bits visual components collected — ' + reactBits.length,
     '- Design references — ' + trending.repositories.filter(repo => repo.designReference)
         .map(repo => '[' + repo.name + '](https://github.com/' + repo.name + ')').join(', '),
     '- READMEs available — ' + trending.repositories.filter(repo => repo.readme.text).length,

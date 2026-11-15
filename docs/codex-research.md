@@ -216,7 +216,17 @@ its source repository and leaves verified candidates from other repositories
 eligible. The runner retains an incomplete evaluation for review when it has
 invalid excerpts and no verified candidates.
 
-Each Windows cycle selects distinct features across the three lists and
+Each report also reads the official free React Bits registry and keeps one
+metadata entry per visual component across JavaScript, TypeScript, CSS, and
+Tailwind variants. The runner requires an assessment covering every catalog
+ID. Each candidate must combine at least two verified React Bits patterns
+into one visitor-facing feature or a substantive refinement of an existing
+design. The README and release commit record the patterns used. Implement
+them with the site's existing stack and preserve keyboard, touch, and
+reduced-motion behavior. If the catalog cannot be collected or no candidate
+passes verification, that scan produces no React Bits release.
+
+Each Windows cycle selects distinct verified React Bits candidates and
 implements them one at a time in isolated worktrees with ephemeral Codex
 sessions. Each candidate starts from the latest revision verified by that
 batch. Implementation, independent review, and browser failures before
