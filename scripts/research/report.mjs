@@ -87,6 +87,8 @@ const summary = [
     '### GitHub Trending evaluation',
     '',
     '- Repositories collected — ' + trending.repositories.length,
+    '- Design references — ' + trending.repositories.filter(repo => repo.designReference)
+        .map(repo => '[' + repo.name + '](https://github.com/' + repo.name + ')').join(', '),
     '- READMEs available — ' + trending.repositories.filter(repo => repo.readme.text).length,
     '- READMEs truncated — ' + trending.repositories.filter(repo => repo.readme.status === 'truncated').length,
     '- Windows unavailable — ' + (trending.unavailable.join(', ') || 'none'),

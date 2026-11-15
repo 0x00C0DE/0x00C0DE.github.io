@@ -1,4 +1,6 @@
 const windows = ['daily', 'weekly', 'monthly'];
+const designReferences = ['DavidHDev/react-bits', 'codse/animata', 'radix-ui/primitives',
+    'argyleink/open-props'];
 const rules = [
     [/\b(?:sitemaps?|search engine optimization|web indexing)\b/i, 'sitemap.xml',
         'Help search engines discover the portfolio routes with a generated sitemap.',
@@ -88,7 +90,7 @@ async function fetchTrending(window, fetchPage) {
     return repositories;
 }
 
-export async function discoverTrending(fetchPage = fetch) {
+export async function discoverTrending(fetchPage = fetch, references = designReferences) {
     const results = await Promise.allSettled(windows.map(window => fetchTrending(window, fetchPage)));
     const byName = new Map();
     const unavailable = [];
@@ -104,6 +106,12 @@ export async function discoverTrending(fetchPage = fetch) {
             byName.get(key).ranks[window] ??= rank + 1;
         });
     });
+    for (const name of references) {
+        const key = name.toLowerCase();
+        const repo = byName.get(key) ?? { name, description: '', fit: null, ranks: {} };
+        repo.designReference = true;
+        byName.set(key, repo);
+    }
     const repositories = [...byName.values()];
     for (let offset = 0; offset < repositories.length; offset += readmeBatchSize) {
         await Promise.all(repositories.slice(offset, offset + readmeBatchSize).map(async repo => {

@@ -32,6 +32,9 @@ export function selectVerifiedFeatures(trending, evaluation) {
     if (windows.some(window => ![...expected].some(key => key.startsWith(window + '/')))) {
         throw new Error('Trending coverage is missing an entire window');
     }
+    for (const repo of trending.repositories) {
+        if (repo.designReference) expected.add('design/' + repo.name);
+    }
     const normalizeExcerpt = text => text.replace(/\s+/g, ' ').trim();
     const readmes = new Map(trending.repositories.map(repo => [
         repo.name, repo.readme?.text && normalizeExcerpt(repo.readme.text),

@@ -1,7 +1,7 @@
 # Codex research preflight
 
 The [workflow](../.github/workflows/codex-autonomous-research.yml) wakes every
-six hours on the repository default branch. A push to main that changes the
+two hours at minute 17 UTC on the repository default branch. A push to main that changes the
 workflow or research code also triggers a report. Pull requests run the mocked tests.
 Scheduled runs poll the official GitHub release endpoints for Pretext,
 Playwright, Wrangler, the Pages deploy action, and Impeccable. A release is an
@@ -162,7 +162,7 @@ local runner. Stop the host schedule to stop new local cycles.
 
 The hosted workflow announces an eligible lead in a successful handoff job.
 The signed-in host polls every 15 minutes with
-`poll-local-handoff.ps1 -Publish`. It consumes a successful handoff for
+`poll-local-handoff.ps1 -Publish` every 55 minutes. It consumes a successful handoff for
 current main as soon as one is available. Once six hours have elapsed since
 the last local runner launch, the host can collect and evaluate Trending
 directly. An in-progress hosted scan on current main defers fallback for at
@@ -194,7 +194,15 @@ Windows polling. GitHub Actions research continues on its hosted schedule.
 
 ### Open-ended Trending discovery
 
-The hosted job signals discovery when its report contains Trending repositories.
+The hosted report also collects README evidence from React Bits, Animata,
+Radix Primitives, and Open Props. These design references supplement the three
+Trending lists without receiving synthetic rankings. Codex considers patterns
+from every source, including new interactions and combinations of existing
+site features. Design ideas must fit the existing stack and preserve keyboard,
+touch, and reduced-motion behavior. Existing review, build, browser, and
+live deployment checks still apply.
+
+The hosted job signals discovery when its report contains research repositories.
 The Windows runner refreshes the report against current main and requests a
 read-only Codex evaluation for every repository in each daily, weekly, and
 monthly list. Repositories that rank in several lists get an assessment in

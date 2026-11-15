@@ -1,8 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { discoverTrending } from '../scripts/research/trending.mjs';
+import { discoverTrending as discover } from '../scripts/research/trending.mjs';
+
+const discoverTrending = fetchPage => discover(fetchPage, []);
 
 const row = (repo, text) => '<article class="Box-row"><h2><a href="/' + repo + '">Repo</a></h2><p>' + text + '</p></article>';
+test('adds design references without inventing Trending ranks or refetching overlapping READMEs', async () => {
+    const calls = [];
+    const result = await discover(async url => {
+        if (url.hostname === 'github.com') return new Response(row('DavidHDev/react-bits', 'Components'));
+        calls.push(url.pathname);
+        return new Response('# Interaction examples');
+    });
+    const reactBits = result.repositories.find(repo => repo.name === 'DavidHDev/react-bits');
+    assert.equal(reactBits.designReference, true);
+    assert.deepEqual(reactBits.ranks, { daily: 1, weekly: 1, monthly: 1 });
+    const other = result.repositories.find(repo => repo.name === 'codse/animata');
+    assert.equal(other.designReference, true);
+    assert.deepEqual(other.ranks, {});
+    assert.equal(calls.filter(path => path.includes('react-bits')).length, 1);
+});
 test('reads each actual Trending window and assigns site-specific use cases', async () => {
     const windows = [];
     const result = await discoverTrending(async url => {
