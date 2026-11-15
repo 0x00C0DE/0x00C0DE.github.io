@@ -1,0 +1,29 @@
+#resume-reader-page { color-scheme: dark; background: #0b0e0c; color: #d9e4da; font: 16px/1.6 'Courier New', monospace; margin: 0; padding: clamp(16px, 3vw, 48px); }
+#resume-reader-page * { box-sizing: border-box; }
+#resume-reader-page header { max-width: 72ch; margin-bottom: 32px; }
+#resume-reader-page h1 { color: #8fe388; font-size: clamp(26px, 4vw, 40px); margin: 16px 0 8px; }
+#resume-reader-page h2 { font-size: 17px; margin: 0 0 12px; }
+#resume-reader-page a { color: #8fe388; text-underline-offset: 4px; }
+#resume-reader-page a, #resume-reader-page input { min-height: 44px; }
+#resume-reader-page a { display: inline-block; padding: 8px 0; }
+#resume-reader-page :focus-visible { outline: 2px solid #d9ff9a; outline-offset: 4px; }
+#resume-reader-page input { display: block; width: min(100%, 600px); padding: 12px; margin-top: 8px; font: inherit; background: #151c17; color: inherit; border: 1px solid #7e9b82; border-radius: 2px; }
+#resume-reader .reader-layout { display: grid; grid-template-columns: minmax(180px, .65fr) minmax(260px, 1fr) minmax(320px, 1.4fr); gap: 28px; align-items: start; margin-top: 32px; }
+#resume-reader .reader-layout > * { min-width: 0; }
+#resume-reader .line-sidebar__label { display: block; transform: none; color: inherit; }
+#resume-reader .line-sidebar__item::before, #resume-reader .line-sidebar__item::after { display: none; }
+#resume-reader .line-sidebar__marker { transform: translateY(-50%); background: #58755b; }
+#resume-reader .line-sidebar a { width: 100%; overflow-wrap: anywhere; }
+#resume-reader .line-sidebar small { display: block; color: #b4c4b7; }
+#resume-reader .line-sidebar a[aria-current] { outline: 1px solid #8fe388; }
+#resume-reader .reader-selected { border-radius: 3px; border: 2px solid #8fe388; padding: 20px; background: #121a14; }
+#resume-reader blockquote { margin: 20px 0; font: 20px/1.65 'Courier New', monospace; overflow-wrap: anywhere; }
+#resume-reader .reader-line { display: block; margin-bottom: 8px; }
+#resume-reader mark { background: #8fe388; color: #081109; }
+#resume-reader canvas { width: 100%; height: auto; display: block; background: white; }
+#resume-reader [hidden] { display: none !important; }
+@media (max-width: 1000px) { #resume-reader .reader-layout { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) {
+    #resume-reader *, #resume-reader *::before, #resume-reader *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+    #resume-reader .spotlight-card__light, #resume-reader .spotlight-card__edge { display: none; }
+}

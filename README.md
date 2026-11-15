@@ -44,6 +44,39 @@ No frameworks. No frontend build step. No DOM reflow-driven text layout in the l
 
 ## Overview
 
+### Résumé passage reader
+
+Run `help`, then `open resume-reader.html` in the terminal, or visit
+`/pages/resume-reader.html`. Automatic public-page discovery supplies the command.
+Search a word or phrase, select a result, and read enlarged context beside its
+original PDF page. Highlighted text, page numbers, and extracted line ranges give
+each match provenance. Search joins line breaks with spaces and ignores case.
+The persistent source PDF link also works when JavaScript or PDF loading fails.
+
+This adds passage search and enlarged reading context to the portfolio's existing
+layout-preserving résumé. It uses only `/assets/resume.pdf` and existing PDF.js
+assets. Runtime extraction avoids a separately maintained résumé transcription.
+The current one-page document's nonempty text items follow descending vertical
+coordinates. Tests verify heading order and a phrase spanning a wrapped bullet.
+Future multi-column PDFs require renewed reading-order review.
+
+React Bits supplies the pinned upstream **LineSidebar** for page and match
+navigation, with original native anchor labels for keyboard and touch access.
+**SpotlightCard** frames the selected passage and source action. A persistent
+green border and current-result outline carry selection through pointer exit.
+The integration lives in `src/codex-feature-resume-reader.jsx` and its component
+manifest. Repository React Bits tooling bundles both components and their CSS
+into the page's JS/CSS outputs during the Pages build.
+
+Scoped styles retain the dark monospace identity and stack the reader on phones.
+Reduced motion suppresses visible effects. Regression risks include PDF reading
+order, preview rendering failures, and upstream navigation/pointer styles.
+Run `node --test --test-isolation=none tests/codex-feature-resume-reader.test.mjs`.
+The proposal includes `tmp/feature-browser-plan.json` for independent desktop and
+touch Chromium checks of search, keyboard selection, source navigation, empty
+results, and clearing. Build, rendered design, and browser acceptance remain
+pending that workflow check because local locked tooling is uninstalled.
+
 `0x00C0DE.github.io` is a **browser-based Unix-like terminal** that serves as a developer portfolio. The live UI measures and wraps text with the Canvas 2D API.
 
 The design philosophy is still **file-system-first**: documentation lives as real `.txt` files fetched over HTTP at runtime, mirroring how a real terminal would `cat` files off disk. This keeps content versionable, diffable, and human-readable without introducing a database or a frontend toolchain.
