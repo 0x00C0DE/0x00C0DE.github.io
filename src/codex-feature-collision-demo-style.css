@@ -1,0 +1,9 @@
+#collision-demo { border-top: 1px solid var(--project-divider); margin-top: 1rem; }
+#collision-demo svg { display: block; width: 100%; max-height: 19rem; background: #100507; border: 1px solid #ff6b78; }
+#collision-demo .collision-controls { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: .75rem; }
+#collision-demo [hidden] { display: none; }
+#collision-demo input { width: 5rem; }
+#collision-demo button, #collision-demo input { font: inherit; color: #ffb5ba; background: #210b10; border: 1px solid #ff6b78; min-height: 44px; box-sizing: border-box; }
+#collision-demo :focus-visible { outline: 2px solid white; outline-offset: 2px; }
+#collision-obstacle { cursor: grab; touch-action: none; }
+#collision-error, #collision-hazard { color: #ffd3a1; }

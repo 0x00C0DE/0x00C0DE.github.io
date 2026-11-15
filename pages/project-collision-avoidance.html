@@ -16,6 +16,8 @@
     <script src="/src/term.js?v=editorial-pretext"></script>
     <link rel="stylesheet" href="/src/codex-feature-project-browser.css">
     <script type="module" src="/src/codex-feature-project-details.mjs"></script>
+    <link rel="stylesheet" href="/src/codex-feature-collision-demo-style.css">
+    <script type="module" src="/src/codex-feature-collision-demo-ui.mjs"></script>
 </head>
 <body>
     <canvas id="terminal-canvas"></canvas>
@@ -35,6 +37,30 @@
                 <dt>Engineering notes</dt>
                 <dd>combines perception and control layers so navigation decisions can react to changing obstacle geometry in real time</dd>
             </dl>
+            <section id="collision-demo" aria-labelledby="collision-heading">
+                <h2 id="collision-heading">Sense → detect → steer</h2>
+                <p>Schematic teaching model, not the project's robot software or a physical safety guarantee. No physics, sensor noise, or path-planning claims.</p>
+                <p>100 × 100 unit arena; robot radius 5, obstacle radius 10. Every movement segment keeps at least 8 units between surfaces. Dashed ring marks the excluded robot-center region. Forward first, then up/down diagonals, otherwise hold; this local rule can get stuck.</p>
+                <svg id="collision-arena" viewBox="0 0 100 100" role="img" aria-labelledby="collision-map-title">
+                    <title id="collision-map-title">Robot circle and draggable obstacle disc in a bounded arena</title>
+                    <circle id="collision-gap" cx="45" cy="50" r="23" fill="none" stroke="#ffb5ba" stroke-width=".5" stroke-dasharray="2 2" />
+                    <circle id="collision-obstacle" cx="45" cy="50" r="10" fill="#a73746" stroke="#ffd3a1" stroke-width="1" />
+                    <circle id="collision-robot" cx="15" cy="50" r="5" fill="#ffb5ba" stroke="white" stroke-width="1" />
+                    <text x="4" y="8" fill="#ffb5ba" font-size="4">robot → right; y increases downward</text>
+                </svg>
+                <p>Static scenario: robot (15, 50), obstacle (45, 50), surface clearance 15 units. The next 8-unit forward segment would leave only 7; steering is required. With JavaScript, drag the obstacle or use coordinates below.</p>
+                <div id="collision-controls" class="collision-controls" hidden>
+                    <label for="collision-x">Obstacle x</label><input id="collision-x" type="number" min="10" max="90" step="1" value="45">
+                    <label for="collision-y">y</label><input id="collision-y" type="number" min="10" max="90" step="1" value="50">
+                    <button id="collision-apply" type="button">Move obstacle</button>
+                    <button id="collision-step" type="button">Step: sense</button>
+                    <button id="collision-reset" type="button">Reset</button>
+                </div>
+                <p>Manual steps only, including with reduced motion. Obstacle edits restart sensing; edits violating the gap are rejected.</p>
+                <p id="collision-status" role="status" aria-live="polite">Static scenario shown above.</p>
+                <p id="collision-hazard" hidden>Hazard detected: forward clearance would be below 8.</p>
+                <p id="collision-error" role="alert" hidden></p>
+            </section>
             <a href="https://github.com/jwright303/Collision-Avoidance-For-Autonomous-Mobile-Robots">Repository</a>
             <a href="/content/amr.txt">Read original write-up</a>
             <a href="/pages/projects.html">Browse all projects</a>
