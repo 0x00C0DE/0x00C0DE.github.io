@@ -769,3 +769,14 @@ monitor, local usage-planning inputs, and how to run the checks.
 - Compare two or three projects inside [Browse projects](pages/projects.html) using exact domain, stack, behavior, and engineering-note text from their public panels. Project headings link to the source panels; missing fields and unavailable panels are explicit. Native checkboxes work with keyboard and touch, selections survive filtering, and comparison columns stack on narrow screens. Clear comparison or reload to reset. Existing project links remain the fallback without JavaScript. Inspired by the side-by-side README comparison pattern in [qwen-code on Trending](https://github.com/QwenLM/qwen-code); implemented with original code and no new dependencies. From the repository root in PowerShell, verify with `node --test --test-isolation=none tests/codex-feature-project-compare.test.mjs`.
 
 - Step through sensing, hazard detection, and steering in the [collision-avoidance teaching playground](pages/project-collision-avoidance.html) under Project details. Drag the obstacle or enter coordinates; each checked movement segment maintains an 8-unit surface gap. Reset restores the same scenario. This bounded schematic uses manual steps (also for reduced motion), textual clearance, and a static fallback; it does not execute the linked robot project or simulate physics. Inspired by browser-based interactive simulation in [MuJoCo on Trending](https://github.com/google-deepmind/mujoco); original code, no new dependencies. From the repository root in PowerShell, verify with `node --test --test-isolation=none tests/codex-feature-collision-demo.test.mjs`.
+- Explore [why a Bloom filter says “probably”](pages/project-bloom-filters.html) inside Project details.
+  Insert public samples `cat` and `dog`, then test `god` to see a deterministic eight-bit false positive.
+  The original design composes three patterns inspired by [React Bits on Trending](https://github.com/DavidHDev/react-bits):
+  **CursorGrid** highlights the hash-addressed cells rather than tracking a pointer; **Stepper** connects input,
+  hash positions, and the membership decision; **ScrubField** becomes a bounded native number input (8–32,
+  steps of 8) that rebuilds all inserted samples. Test membership has visual priority. Native controls support
+  keyboard and touch, textual bit lists carry the grid's meaning, and reduced motion disables pulses.
+  Reset restores the empty eight-bit model; a worked example remains available without JavaScript.
+  This deliberately simple schematic does not execute the linked project or assess real passwords. No registry
+  source, React, remote runtime assets, services, or new dependencies are used. From the repository root in
+  PowerShell, verify with `node --test --test-isolation=none tests/codex-feature-bloom-demo.test.mjs`.

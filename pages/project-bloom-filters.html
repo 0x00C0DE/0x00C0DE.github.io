@@ -16,6 +16,8 @@
     <script src="/src/term.js?v=editorial-pretext"></script>
     <link rel="stylesheet" href="/src/codex-feature-project-browser.css">
     <script type="module" src="/src/codex-feature-project-details.mjs"></script>
+    <link rel="stylesheet" href="/src/codex-feature-bloom-demo.css">
+    <script type="module" src="/src/codex-feature-bloom-demo-ui.mjs"></script>
 </head>
 <body>
     <canvas id="terminal-canvas"></canvas>
@@ -42,6 +44,40 @@
             <input id="project-command" value="cat bloom.txt" readonly size="28">
             <button id="project-copy" type="button" hidden>Copy command</button>
             <p id="project-copy-status" role="status" aria-live="polite"></p>
+            <section id="bloom-demo" aria-labelledby="bloom-heading">
+                <h2 id="bloom-heading">Why “probably”?</h2>
+                <p>Insert two words. Test a third. Watch shared bits turn into a false positive.</p>
+                <p>Original teaching schematic, not the linked project. Toy hashes only; this does not assess real passwords. Use public sample words.</p>
+                <details id="bloom-worked">
+                    <summary>Worked example · no JavaScript needed</summary>
+                    <p>With 8 bits, cat maps to [0, 1] and dog to [2, 7]. Inserting both sets [0, 1, 2, 7]. The absent word god maps to [2, 1]: both are set, so the answer is “probably present”, a false positive.</p>
+                    <p>Hashes use lowercase ASCII letter codes: sum % size, and sum of each code times its one-based letter position % size. These deliberately simple hashes illustrate collisions, not production quality.</p>
+                </details>
+                <div id="bloom-controls" hidden>
+                    <button id="bloom-cat" type="button" data-sample="cat">Insert cat</button>
+                    <button id="bloom-dog" type="button" data-sample="dog">Insert dog</button>
+                    <form id="bloom-form">
+                        <label for="bloom-word">Public word · 1–16 letters</label>
+                        <input id="bloom-word" value="god" maxlength="16" pattern="[A-Za-z]{1,16}" required autocomplete="off" autocapitalize="none" spellcheck="false">
+                        <button id="bloom-test" type="submit">Test membership</button>
+                        <button id="bloom-insert" type="submit">Insert word</button>
+                    </form>
+                    <button id="bloom-collision" type="button">Test god · collision example</button>
+                    <label for="bloom-size">Bit-array size · rebuilds existing samples</label>
+                    <input id="bloom-size" type="number" min="8" max="32" step="8" value="8">
+                    <button id="bloom-reset" type="button">Reset</button>
+                    <p id="bloom-samples"></p>
+                    <div id="bloom-grid" aria-hidden="true"></div>
+                    <p id="bloom-bits-text"></p>
+                    <ol aria-label="Membership steps">
+                        <li><strong>Input</strong><br><span id="bloom-input-step"></span></li>
+                        <li><strong>Hash positions</strong><br><span id="bloom-hash-step"></span></li>
+                        <li><strong>Membership decision</strong><br><span id="bloom-decision-step"></span></li>
+                    </ol>
+                    <p id="bloom-false-positive" hidden>Shared positions lose the original word's identity. “Probably” is not proof.</p>
+                    <p id="bloom-status" role="status" aria-live="polite" aria-atomic="true"></p>
+                </div>
+            </section>
         </nav>
     </details>
     <script>

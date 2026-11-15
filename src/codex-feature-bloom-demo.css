@@ -1,0 +1,23 @@
+#bloom-demo { border-top: 1px solid var(--project-divider); margin-top: 1rem; padding-top: 1rem; }
+#bloom-demo h2 { font-size: 1.25rem; margin: 0 0 .5rem; color: #fff; }
+#bloom-demo p { margin: .5rem 0; }
+#bloom-demo button, #bloom-demo input {
+    box-sizing: border-box; min-height: 44px; max-width: 100%;
+    font: inherit; color: #ffb4ba; background: #1e0b10; border: 1px solid #ff6b78;
+    border-radius: 3px; padding: .5rem;
+}
+#bloom-demo button { cursor: pointer; }
+#bloom-demo button:hover { background: #431322; }
+#bloom-demo :focus-visible { outline: 2px solid white; outline-offset: 2px; }
+#bloom-demo label { display: block; margin-top: .75rem; }
+#bloom-word { width: 100%; margin-bottom: .5rem; }
+#bloom-test { background: #ffb4ba !important; color: #100507 !important; font-weight: bold !important; }
+#bloom-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .3rem; margin: 1rem 0; }
+#bloom-grid span { padding: .35rem; border: 1px solid #71333c; text-align: center; }
+#bloom-grid .affected { border: 2px solid #fff; color: white; background: #5a1728; animation: bloom-pulse .4s ease-out; }
+#bloom-demo ol { padding-left: 1.5rem; }
+#bloom-demo li { margin: .75rem 0; }
+#bloom-demo strong, #bloom-status { color: #fff; }
+#bloom-false-positive { border-left: 3px solid #ffb4ba; padding-left: .75rem; }
+@keyframes bloom-pulse { from { background: #a32b46; } to { background: #5a1728; } }
+@media (prefers-reduced-motion: reduce) { #bloom-grid .affected { animation: none; } }
