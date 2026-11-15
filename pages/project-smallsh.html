@@ -16,6 +16,7 @@
     <script src="/src/term.js?v=editorial-pretext"></script>
     <link rel="stylesheet" href="/src/codex-feature-project-browser.css">
     <script type="module" src="/src/codex-feature-project-details.mjs"></script>
+<link rel="stylesheet" href="/src/codex-feature-project-flow.css">
 </head>
 <body>
     <canvas id="terminal-canvas"></canvas>
@@ -25,7 +26,7 @@
         <nav id="project-facts" aria-label="Project facts and sources">
             <h1>Unix Small Shell Implementation</h1>
             <p>Descriptions of the project, not executed demonstrations. The terminal below reads the same write-up.</p>
-            <dl>
+            <dl id="smallsh-behavior">
                 <dt>Domain</dt>
                 <dd>systems programming and command interpreter design</dd>
                 <dt>Primary stack</dt>
@@ -35,6 +36,45 @@
                 <dt>Engineering notes</dt>
                 <dd>exercises fork, exec, waitpid, and signal coordination to reproduce core Unix shell semantics in a compact codebase</dd>
             </dl>
+            <section class="project-flow" aria-labelledby="project-flow-title">
+                <h2 id="project-flow-title">Illustrative flow</h2>
+                <p>A reading guide to documented behaviors, not a runtime trace or a complete architecture. Select a stage to inspect its evidence.</p>
+                <ol id="project-flow-order">
+                    <li>
+                        <details id="flow-input">
+                            <summary id="flow-input-select">Shell input → tokenization</summary>
+                            <div id="flow-input-evidence">
+                                <p>The write-up says it “tokenizes shell input”.</p>
+                                <a href="#smallsh-behavior">Source: Core behavior</a>
+                                <a href="/content/smallsh.txt">Original write-up</a>
+                            </div>
+                        </details>
+                    </li>
+                    <li>
+                        <details id="flow-jobs">
+                            <summary id="flow-jobs-select">Foreground and background jobs</summary>
+                            <div id="flow-jobs-evidence">
+                                <p>The write-up says it “launches foreground and background jobs”.</p>
+                                <a href="#smallsh-behavior">Source: Core behavior</a>
+                                <a href="/content/smallsh.txt">Original write-up</a>
+                            </div>
+                        </details>
+                    </li>
+                    <li>
+                        <details id="flow-lifecycle">
+                            <summary id="flow-lifecycle-select">Process lifecycle tracking</summary>
+                            <div id="flow-lifecycle-evidence">
+                                <p>The write-up says it “tracks process lifecycle events”.</p>
+                                <a href="#smallsh-behavior">Source: Core behavior</a>
+                                <a href="/content/smallsh.txt">Original write-up</a>
+                            </div>
+                        </details>
+                    </li>
+                </ol>
+                <p>Input → jobs: the <a href="#smallsh-behavior">Core behavior description</a> pairs tokenizing shell input with launching jobs.</p>
+                <p>Jobs → lifecycle: the <a href="#smallsh-behavior">same description</a> pairs launching jobs with tracking process lifecycle events.</p>
+                <p>The numbered sequence is the textual equivalent. Connections summarize the write-up's order; internal data structures and scheduling are not specified.</p>
+            </section>
             <a href="https://github.com/0x00C0DE/CS344-assign3">Repository</a>
             <a href="/content/smallsh.txt">Read original write-up</a>
             <a href="/pages/projects.html">Browse all projects</a>

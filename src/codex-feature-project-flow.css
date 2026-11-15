@@ -1,0 +1,15 @@
+.project-flow {
+    border-top: 1px solid var(--project-divider);
+    margin-top: 1rem;
+    overflow-wrap: anywhere;
+}
+
+.project-flow h2 { font-size: 1.1rem; }
+.project-flow ol { padding-left: 1.5rem; }
+.project-flow li { margin-block: 0.5rem; }
+.project-flow details { border: 1px solid var(--project-divider); }
+.project-flow summary { min-height: 44px; box-sizing: border-box; }
+.project-flow details[open] { border-color: var(--project-accent); }
+.project-flow details div { padding: 0 0.75rem 0.75rem; }
+.project-flow details a { display: block; }
+.project-flow :target { outline: 2px solid var(--project-accent); }

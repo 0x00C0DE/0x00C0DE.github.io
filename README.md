@@ -465,6 +465,15 @@ Each project has a dedicated `.html` page and, where applicable, a corresponding
 | **smallsh** | A POSIX-subset shell written in C | `content/smallsh.txt`, `pages/project-smallsh.html` |
 | **Double Hit Collectibles** | Live collectibles portfolio, pricing, search, and collection management | `content/doublehitcollectibles.txt`, `pages/project-doublehitcollectibles.html` |
 
+**Smallsh flow explorer:** Open Project details on `pages/project-smallsh.html` to
+select three documented stages in an ordered, illustrative reading guide. Each
+stage and connection links to the existing public description; this is not an
+executed shell or a complete architecture. Native disclosures support keyboard,
+pointer, and touch without animation or new dependencies. Inspired by Trending
+[morluto/rea](https://github.com/morluto/rea), with additional research cues from
+[Tencent/LoopForge](https://github.com/Tencent/LoopForge) and
+[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills).
+
 Browse from the terminal:
 
 ```text
