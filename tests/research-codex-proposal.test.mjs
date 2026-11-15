@@ -6,7 +6,8 @@ test('prioritizes site-wide design candidates and holds project-only batches', (
     const project = { route: '/pages/project-smallsh.html' };
     const home = { route: '/' };
     const resume = { route: '/pages/resume-intro.html' };
-    assert.deepEqual(prioritizeSiteDesigns([project, home, resume]), [home, resume, project]);
+    assert.deepEqual(prioritizeSiteDesigns([project, resume]), [resume, project]);
+    assert.throws(() => prioritizeSiteDesigns([home]), /route/i);
     assert.deepEqual(prioritizeSiteDesigns([project]), []);
     assert.throws(() => prioritizeSiteDesigns([{ route: '/pages/../admin.html' }]), /route/i);
 });
@@ -23,8 +24,8 @@ test('requires README and tests, and rejects privileged or nonregular paths', ()
         { path: 'tests/codex-feature-chart.test.mjs', mode: '100644' },
     ];
     assert.doesNotThrow(() => validateChanges(good));
-    assert.doesNotThrow(() => validateChanges([good[0], { path: 'index.html', mode: '100644' }, good[2]]));
-    for (const path of ['.github/workflows/pages.yml', 'src/commands.js', 'worker/src/index.js', 'pages/../index.html']) {
+    for (const path of ['index.html', 'src/home-intro.css', 'src/home-intro.mjs', 'src/refresh-to-intro.js',
+        '.github/workflows/pages.yml', 'src/commands.js', 'worker/src/index.js', 'pages/../index.html']) {
         assert.throws(() => validateChanges([...good, { path, mode: '100644' }]));
     }
     assert.throws(() => validateChanges(good.slice(1)));

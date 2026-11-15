@@ -80,11 +80,11 @@ if ($FeatureIndex -lt 0) {
     approaches regardless of keyword, framework, or source audience. Explain what is new compared with the
     current site and what evidence would show it works. Before returning an empty list, take a second pass over
     the strongest README ideas and look for a smaller adaptation with the site's current components.
-    Inspect the homepage and terminal entry experience, résumé, public blog reading experience, Explore,
+    Inspect post-entry sections such as the résumé, public blog reading experience, Explore,
     and the Bitcoin workspace's presentation, keeping analytics and privileged commands intact.
     Prioritize a visible improvement outside Projects and individual project write-ups.
-    A project-only shortlist will be deferred. Set route to the exact public page to test, using '/'
-    for the homepage or '/pages/<name>.html'. Implement with existing public content and new
+    Leave the homepage, intro, and entry behavior untouched. A project-only shortlist will be deferred.
+    Set route to the exact post-entry public page using '/pages/<name>.html'. Implement with existing public content and new
     src/codex-feature-* modules. Describe the visible before-and-after difference and how a visitor
     reaches it through an existing public entry point. Prefer a polished interaction, visual hierarchy,
     or navigation improvement over another project teaching panel.
@@ -203,7 +203,7 @@ $patterns = $selectedFeature.reactBitsComponents -join ', '
 Invoke-Checked git -c core.hooksPath=/dev/null commit -m 'Implement reviewed Trending site feature' -m "Feature: $($selectedFeature.title)`nInspiration: $inspiration`nReact Bits patterns: $patterns`nLive route: https://0x00c0de.github.io$($selectedFeature.route)" -m "Research brief: $($selectedFeature.brief)"
 Invoke-Checked git push --atomic origin "HEAD:refs/heads/$branch" HEAD:refs/heads/main
 $revision = Invoke-Checked git rev-parse HEAD
-$publicPaths = $changedPaths | Where-Object { $_ -eq 'index.html' -or $_ -match '^(pages|src)/' }
+$publicPaths = $changedPaths | Where-Object { $_ -match '^(pages|src)/' }
 $api = 'https://api.github.com/repos/0x00C0DE/0x00C0DE.github.io/actions/workflows/pages.yml/runs?branch=main&per_page=10'
 for ($attempt = 0; $attempt -lt 40; $attempt++) {
     $run = (Invoke-RestMethod -TimeoutSec 15 -Uri $api).workflow_runs |

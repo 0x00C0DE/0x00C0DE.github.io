@@ -85,8 +85,9 @@ current main, run checks, publish, integrate, and verify production.
 Feature candidates may recur while their source signals remain present.
 
 The implementation job selects at most one supported candidate at the
-current main revision. It can publish the public blog feed or generate a
-sitemap for the portfolio's public routes. A relevant Trending match is
+current main revision. It can generate a sitemap for the portfolio's public
+routes. The existing feed remains part of the Pages build; hosted research
+does not edit the homepage to activate it. A relevant Trending match is
 recorded as inspiration for the sitemap when available. The site's own
 missing sitemap and public project pages also justify that change.
 
@@ -226,11 +227,12 @@ them with the site's existing stack and preserve keyboard, touch, and
 reduced-motion behavior. If the catalog cannot be collected or no candidate
 passes verification, that scan produces no React Bits release.
 
-Each Windows cycle prioritizes verified React Bits designs for the homepage,
-résumé, public blog reading, Explore, or Bitcoin presentation. A shortlist
+Each Windows cycle prioritizes verified React Bits designs for post-entry
+sections, such as the résumé, Explore, or Bitcoin presentation. The homepage,
+intro assets, and entry transition are outside the permitted scope. A shortlist
 limited to Projects and project write-ups is deferred. Candidates declare a
-public route and the browser plan must test that route, including the
-homepage when selected. Successful release commits record the live route
+public route under `/pages/` and the browser plan must test that route.
+Successful release commits record the live route
 and inspiration so visitors can find the visible change.
 
 The runner takes distinct verified candidates and

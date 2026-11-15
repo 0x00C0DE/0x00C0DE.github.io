@@ -106,10 +106,6 @@ jobs:
           git switch -c "$branch"
           feature=$(node scripts/research/implement.mjs tmp/handoff/report.json)
           case "$feature" in
-            blog-feed)
-              changed=index.html
-              path=content/feed.xml
-              ;;
             sitemap)
               changed=robots.txt
               path=sitemap.xml
