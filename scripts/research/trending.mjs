@@ -34,10 +34,10 @@ async function fetchReadme(name, fetchPage) {
     const options = { redirect: 'error', signal: AbortSignal.timeout(12_000) };
     try {
         let response = await fetchPage(new URL('README.md', base), options);
-        for (const directory of ['.github/', 'docs/']) {
+        for (const path of ['readme.md', '.github/README.md', 'docs/README.md']) {
             if (response.status !== 404) break;
             await response.body?.cancel();
-            response = await fetchPage(new URL(directory + 'README.md', base), options);
+            response = await fetchPage(new URL(path, base), options);
         }
         if (!response.ok || !response.body) {
             await response.body?.cancel();

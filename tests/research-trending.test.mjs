@@ -71,6 +71,7 @@ test('reads README evidence once per repository across all windows', async () =>
         '/example/missing/HEAD/.github/README.md',
         '/example/missing/HEAD/README.md',
         '/example/missing/HEAD/docs/README.md',
+        '/example/missing/HEAD/readme.md',
     ]);
     assert.deepEqual(result.repositories[0].readme, {
         status: 'available', text: '# Guidance\n\nVisitors can save chart views.',
@@ -85,6 +86,16 @@ test('checks GitHub README locations when the root README is missing', async () 
         return new Response(null, { status: 404 });
     });
     assert.deepEqual(result.repositories[0].readme, { status: 'available', text: '# Nested README' });
+});
+
+test('collects design evidence from a lowercase README', async () => {
+    const result = await discover(async url => {
+        if (url.hostname === 'github.com') return new Response(row('example/tool', 'Generic tool'));
+        return url.pathname === '/argyleink/open-props/HEAD/readme.md'
+            ? new Response('# Adaptive design') : new Response(null, { status: 404 });
+    });
+    assert.deepEqual(result.repositories.find(repo => repo.name === 'argyleink/open-props').readme,
+        { status: 'available', text: '# Adaptive design' });
 });
 
 test('caps oversized README text and records truncation', async () => {
