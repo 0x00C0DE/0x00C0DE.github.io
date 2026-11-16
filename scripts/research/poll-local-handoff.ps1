@@ -2,6 +2,7 @@ param([switch]$Publish, [string]$StateDirectory = 'tmp/local-handoff')
 
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath (Resolve-Path (Join-Path $PSScriptRoot '../..'))
+. (Join-Path $PSScriptRoot 'release-recovery.ps1')
 
 function Git {
     & git.exe @args
@@ -23,15 +24,15 @@ $browserRoot = if ($env:CODEX_RESEARCH_BROWSER_ROOT) {
 $lock = [IO.File]::Open((Join-Path $state.FullName 'poll.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
 try {
     $api = 'https://api.github.com/repos/0x00C0DE/0x00C0DE.github.io'
-    $main = (Invoke-RestMethod -TimeoutSec 20 "$api/git/ref/heads/main").object.sha
+    $main = (Get-ResearchJson "$api/git/ref/heads/main").object.sha
     $query = "$api/actions/workflows/codex-autonomous-research.yml/runs?branch=main&head_sha=$main&per_page=10"
-    $runs = (Invoke-RestMethod -TimeoutSec 20 $query).workflow_runs
+    $runs = (Get-ResearchJson $query).workflow_runs
     $handoff = $null
     foreach ($run in $runs) {
         if ($run.head_sha -ne $main -or $run.conclusion -ne 'success') { continue }
         $receipt = Join-Path $state.FullName "$($run.id).json"
         if (Test-Path -LiteralPath $receipt) { continue }
-        $jobs = (Invoke-RestMethod -TimeoutSec 20 "$api/actions/runs/$($run.id)/jobs").jobs
+        $jobs = (Get-ResearchJson "$api/actions/runs/$($run.id)/jobs").jobs
         $inputPath = Join-Path $state.FullName 'candidate.json'
         @{ run = $run; jobs = $jobs } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $inputPath -Encoding utf8
         $handoff = & node scripts/research/local-handoff.mjs read $inputPath $main

@@ -30,3 +30,24 @@ $warnings = @(Remove-ResearchWorktree $PSScriptRoot (Split-Path -Parent $PSScrip
 Assert-Equal $warnings.Count 1
 if ($warnings[0].Message -notmatch 'Filename too long') { throw 'Cleanup failure was not logged.' }
 Write-Output 'Cleanup failure leaves the batch running.'
+
+. (Join-Path $PSScriptRoot '../scripts/research/release-recovery.ps1')
+$sha = 'a' * 40
+$lines = @("$sha`trefs/heads/main", "$sha`trefs/heads/US-1-codex-cli-feature-v1")
+Assert-Equal (Test-ResearchPush $lines $sha 'US-1-codex-cli-feature-v1') $true
+Assert-Equal (Test-ResearchPush $lines[1] $sha 'US-1-codex-cli-feature-v1') $false
+Assert-Equal (Test-ResearchPush $lines ('b' * 40) 'US-1-codex-cli-feature-v1') $false
+Write-Output 'Remote reconciliation requires both refs at the intended revision.'
+
+$checkpoint = [IO.Path]::GetTempFileName()
+try {
+    $record = @{ phase = 'push-pending'; revision = $sha }
+    Write-ResearchCheckpoint $checkpoint $record
+    Assert-Equal (Get-Content -Raw $checkpoint | ConvertFrom-Json).phase 'push-pending'
+    $record.phase = 'deployment-pending'
+    Write-ResearchCheckpoint $checkpoint $record
+    Assert-Equal (Get-Content -Raw $checkpoint | ConvertFrom-Json).phase 'deployment-pending'
+} finally {
+    Remove-Item -LiteralPath $checkpoint
+}
+Write-Output 'Release checkpoint survives atomic replacement.'

@@ -15,6 +15,7 @@ function Invoke-Checked {
     if ($LASTEXITCODE -ne 0) { throw "$program failed with exit code $LASTEXITCODE" }
 }
 . (Join-Path $PSScriptRoot 'worktree-cleanup.ps1')
+. (Join-Path $PSScriptRoot 'release-recovery.ps1')
 
 $remote = Invoke-Checked git remote get-url origin
 if ($remote -notmatch '^(https://github\.com/|git@github\.com:)0x00C0DE/0x00C0DE\.github\.io(\.git)?$') {
@@ -217,14 +218,30 @@ if ((Invoke-Checked git rev-parse FETCH_HEAD) -ne $base) { throw 'Main advanced.
 $inspiration = "https://github.com/$($selectedFeature.repository)"
 $patterns = $selectedFeature.reactBitsComponents -join ', '
 Invoke-Checked git -c core.hooksPath=/dev/null commit -m 'Implement reviewed Trending site feature' -m "Feature: $($selectedFeature.title)`nInspiration: $inspiration`nReact Bits components: $patterns`nLive route: https://0x00c0de.github.io$($selectedFeature.route)`nLive assets: /$assetStem.js, /$assetStem.css, /src/react-bits-license.txt" -m "Research brief: $($selectedFeature.brief)"
-Invoke-Checked git push --atomic origin "HEAD:refs/heads/$branch" HEAD:refs/heads/main
 $revision = Invoke-Checked git rev-parse HEAD
 $publicPaths = @($changedPaths | Where-Object { $_ -match '^(pages|src)/' -and $_ -notmatch '\.jsx$|\.react-bits\.json$' })
 $publicPaths += @("$assetStem.js", "$assetStem.css", 'src/react-bits-license.txt')
 if ($changedPaths -match '^pages/[a-z0-9-]+\.html$') { $publicPaths += 'src/commands.js' }
+$journal = Join-Path (Split-Path -Parent $root) "$revision.release.json"
+$release = @{
+    phase = 'push-pending'; revision = $revision; branch = $branch; base = $base
+    route = $selectedFeature.route; paths = $publicPaths; artifact = $artifact; worktree = $root
+}
+Write-ResearchCheckpoint $journal $release
+try {
+    Invoke-Checked git push --atomic origin "HEAD:refs/heads/$branch" HEAD:refs/heads/main
+} catch {
+    $remoteRefs = Invoke-Checked git ls-remote --heads origin refs/heads/main "refs/heads/$branch"
+    if (!(Test-ResearchPush $remoteRefs $revision $branch)) {
+        throw "Push outcome unresolved for $revision. Reconcile GitHub refs using $journal."
+    }
+    Write-Warning "GitHub already has both intended refs for $revision. Continuing to verify Pages."
+}
+$release.phase = 'deployment-pending'
+Write-ResearchCheckpoint $journal $release
 $api = 'https://api.github.com/repos/0x00C0DE/0x00C0DE.github.io/actions/workflows/pages.yml/runs?branch=main&per_page=10'
 for ($attempt = 0; $attempt -lt 40; $attempt++) {
-    $run = (Invoke-RestMethod -TimeoutSec 15 -Uri $api).workflow_runs |
+    $run = (Get-ResearchJson $api 15).workflow_runs |
         Where-Object head_sha -eq $revision | Select-Object -First 1
     if ($run.status -eq 'completed') {
         if ($run.conclusion -ne 'success') { throw "Pages failed: $($run.html_url)" }
@@ -241,6 +258,9 @@ for ($attempt = 0; $attempt -lt 40; $attempt++) {
         } finally {
             $http.Dispose()
         }
+        $release.phase = 'verified'
+        $release.pagesRun = $run.html_url
+        Write-ResearchCheckpoint $journal $release
         Write-Output "Verified Pages revision $revision at $($run.html_url)"
         return
     }

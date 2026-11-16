@@ -261,6 +261,18 @@ logs the worktree path and lets later candidates proceed. A changed base,
 failed push, or unverified deployment stops
 the batch for reconciliation. Each successful feature has its own release
 branch, commit, and deployment.
+
+### Recovery and recurring diagnosis
+
+GitHub metadata reads retry transient failures up to three total attempts.
+Before publishing a feature, the runner writes a checkpoint in the batch
+directory under `tmp/w/` and updates it as the push and Pages verification
+complete. If the push response fails, the runner checks both remote refs
+for the intended SHA before proceeding. A pending checkpoint identifies
+the exact revision, branch, worktree, artifact, and public paths to check
+before retrying anything. See the matching receipt and runner log under
+`tmp/local-handoff/` for failures before publication. The maintenance
+check runs on its own cadence and leaves the Windows polling interval intact.
 The runner independently
 reviews the changes and the browser test plan, builds the Pages artifact,
 and runs the plan in desktop and touch-sized Chromium outside the model's
