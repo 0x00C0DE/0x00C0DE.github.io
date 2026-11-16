@@ -809,6 +809,35 @@ changes require no Worker deployment. Existing Express fallback installations ne
 
 ## Scheduled research preflight
 
+### Search recent blog excerpts
+
+From terminal help, run `open blog-reader.html`, or visit the [Reading desk](pages/blog-reader.html).
+This new conventional HTML index complements `cat blog.txt`: dated entries appear newest
+first beside a selected text excerpt. Search titles, dates, and excerpts with literal,
+case-insensitive text; Clear search restores the list. Choose a dated link or use Previous
+entry / Next entry. Selection focuses the excerpt heading; Clear returns focus to search.
+The generated `/content/feed.xml` contains at most 20 recent entries and up to 2,000 text
+characters per entry. This is not a full archive or media reader. Persistent source-text,
+Atom, and terminal links work without JavaScript; run `cat blog.txt` for complete text/media.
+
+Original integration composes pinned [React Bits](https://github.com/DavidHDev/react-bits)
+through the existing Pages builder: **LineSidebar** renders dated native entry anchors;
+**SpecularButton** supplies Clear and previous/next actions with restrained rim feedback.
+The searchable index/detail arrangement is inspired by last30days and claude-mem, with
+chronological orientation inspired by jiangshan-map. Only the same-site feed is fetched;
+excerpts render as text. No media requests, storage, or third-party runtime requests are added.
+Styles are scoped to `#blog-reader-page`; controls have 44px minimum targets, visible focus,
+and reduced-motion overrides. The columns stack on phones. Feed failure keeps source links.
+Regression risks are feed parsing, selection/focus after filtering, and upstream CSS/graphics.
+
+From the repository root, run `node --test --test-isolation=none tests/codex-feature-blog-reader.test.mjs`.
+The desktop/touch plan is `tmp/feature-browser-plan.json` (six current feed entries).
+For additional Chromium checks against the served Pages artifact, set `BLOG_READER_TEST_ORIGIN`
+to its loopback URL and `BLOG_READER_TEST_TOOLING` to the checkout with locked Playwright,
+then run `node --test --test-isolation=none tests/codex-feature-blog-reader-browser.test.mjs`.
+These checks cover literal markup text, motion, touch, focus, overflow, failure, and no-JS links.
+Local model tests pass; Pages build and visual/browser acceptance await workflow-installed tooling.
+
 ### Keep résumé passages
 
 From terminal help, run `open resume-reader.html`, or visit [Résumé reader](pages/resume-reader.html).

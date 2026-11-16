@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Search recent public blog excerpts, newest first.">
+    <title>Reading desk | 0x00C0DE</title>
+    <link rel="stylesheet" href="/src/codex-feature-blog-reader.css">
+    <script type="module" src="/src/codex-feature-blog-reader.js"></script>
+</head>
+<body id="blog-reader-page">
+    <main>
+        <header>
+            <a href="/">← Terminal</a>
+            <h1>Reading desk</h1>
+            <p>Recent public blog entries. Find a phrase, then take a moment to read.</p>
+            <p>Limited to 20 recent entries and up to 2,000 text characters per entry. Search covers these excerpts only.</p>
+            <nav class="reader-links" aria-label="Complete blog sources">
+                <a id="reader-source" href="/content/blog.txt">Source blog text</a>
+                <a id="reader-terminal" href="/">Terminal: cat blog.txt (complete text &amp; media)</a>
+                <a href="/content/feed.xml">Atom feed</a>
+            </nav>
+        </header>
+        <section id="blog-reader" aria-label="Searchable reading desk"><p>Recent excerpts load here with JavaScript. The source links above remain available.</p></section>
+        <noscript><p>Use the source blog text or open the terminal and run <code>cat blog.txt</code>.</p></noscript>
+    </main>
+</body>
+</html>
