@@ -38,6 +38,9 @@ function Reader({ pdf, pages }) {
     const [number, setNumber] = useState(1);
     const passage = useRef(null);
     const matches = findPassages(pages, query);
+    useEffect(() => {
+        window.dispatchEvent(new CustomEvent('resume-reader-selection', { detail: selected }));
+    }, [selected]);
     useEffect(() => { if (selected) passage.current?.focus(); }, [selected]);
     const pageLinks = pages.map(page => <a href="#reader-source" key={page.number}
         id={`reader-page-${page.number}`} onClick={() => setNumber(page.number)}>Page {page.number}</a>);

@@ -809,6 +809,37 @@ changes require no Worker deployment. Existing Express fallback installations ne
 
 ## Scheduled research preflight
 
+### Keep résumé passages
+
+From terminal help, run `open resume-reader.html`, or visit [Résumé reader](pages/resume-reader.html).
+Search for Python, select a result, and activate Keep passage. Search for Skills and keep
+another result. Two outlined excerpt cards remain side by side on desktop and stack on
+phones. Each repeats the original page and match-line references, surrounding context,
+and source-PDF link. Duplicate selections stay unique. Remove either card to free a slot.
+Selections live in page memory and reset on reload.
+
+Original integration code composes pinned [React Bits](https://github.com/DavidHDev/react-bits)
+components through the repository Pages builder. SpecularButton supplies native Keep and
+Remove actions with quiet rim feedback. SpotlightCard frames retained excerpts with a
+persistent outline and subtle focus/pointer lighting. The existing reader sends selection
+events to a separate feature-specific React root, reusing extracted PDF pages and offsets.
+Controls have 44px targets, visible keyboard focus, and status announcements. Removing a
+card focuses the remaining Remove action, or the kept-passages heading when empty.
+Reduced motion hides decorative lighting and removes button transitions.
+
+Regression risks include selection-event delivery, excerpt provenance, focus after removal,
+and upstream styles. New overrides are scoped to `#resume-pins`. The static source-PDF
+link and existing PDF-load error message remain available. From the repository root run
+`node --test --test-isolation=none tests/codex-feature-resume-pins.test.mjs tests/codex-feature-resume-reader.test.mjs`.
+The workflow independently builds pinned JSX/CSS and runs `tmp/feature-browser-plan.json`
+on desktop and touch Chromium; the plan asserts full excerpt text and match-line references.
+After serving that Pages artifact locally, set RESUME_PINS_TEST_ORIGIN to its loopback URL and RESUME_PINS_TEST_TOOLING to the checkout containing Playwright. Then run
+`node --test tests/codex-feature-resume-pins-browser.test.mjs`.
+This supplemental Chromium check measures desktop columns, phone stacking and overflow,
+compares retained text/references with the selected source passage, checks computed lighting
+and transitions with both motion preferences, and aborts the PDF request to test fallback.
+It also checks touch targets, removal focus, and uncaught browser errors.
+
 [Research operations](docs/codex-research.md) describes the scheduled release
 monitor, local usage-planning inputs, and how to run the checks.
 

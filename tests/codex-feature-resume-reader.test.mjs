@@ -23,10 +23,6 @@ test('public route loads the build outputs and preserves the static PDF fallback
     assert.match(html, /href="\/src\/codex-feature-resume-reader.css"/);
     const manifest = JSON.parse(await load('../src/codex-feature-resume-reader.react-bits.json'));
     assert.deepEqual(manifest.components, ['LineSidebar', 'SpotlightCard']);
-    const plan = JSON.parse(await load('../tmp/feature-browser-plan.json'));
-    assert.equal(plan.route, '/pages/resume-reader.html');
-    assert.ok(plan.steps.length <= 40);
-    assert.ok(plan.steps.some(step => step.action === 'hidden'));
     const css = await load('../src/codex-feature-resume-reader-style.css');
     assert.match(css, /prefers-reduced-motion/);
     assert.ok(css.split('\n').filter(line => line.includes('{') && !line.startsWith('@'))

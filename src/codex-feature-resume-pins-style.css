@@ -1,0 +1,15 @@
+#resume-pins { margin-top: 36px; border-top: 1px solid #58755b; padding-top: 24px; }
+#resume-pins .resume-pins-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+#resume-pins .resume-pin { border: 1px solid #7e9b82; border-radius: 3px; background: #121a14; padding: 20px; min-width: 0; }
+#resume-pins h3 { font-size: 16px; margin-top: 0; }
+#resume-pins blockquote { margin: 16px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+#resume-pins .specular-button { border: 1px solid #7e9b82; min-height: 44px; font: inherit; }
+#resume-pins .specular-button:focus-visible { outline: 2px solid #d9ff9a; outline-offset: 4px; }
+#resume-pins a { display: block; margin-bottom: 12px; }
+@media (max-width: 700px) {
+    #resume-pins .resume-pins-grid { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+    #resume-pins .specular-button { transition: none; transform: none; }
+    #resume-pins .specular-button__light, #resume-pins .spotlight-card__light, #resume-pins .spotlight-card__edge { display: none; }
+}
