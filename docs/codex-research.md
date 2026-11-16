@@ -195,6 +195,13 @@ Windows polling. GitHub Actions research continues on its hosted schedule.
 
 ### Open-ended Trending discovery
 
+A repository can receive multiple discovery tags based on its description and
+available README. The tags cover graphics and effects, motion and interaction,
+creative tools, simulation and play, spatial experiences, typography and layout,
+audio and media, visualization and exploration, design systems and accessibility,
+and interfaces and input. Codex evaluates untagged repositories too and looks
+for new standalone experiences beyond these categories.
+
 The hosted report also collects README evidence from React Bits, Animata,
 Radix Primitives, and Open Props. These design references supplement the three
 Trending lists without receiving synthetic rankings. Codex considers patterns

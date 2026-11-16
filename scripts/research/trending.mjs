@@ -26,6 +26,19 @@ const rules = [
         'Identify a concrete reader failure or missing capability before proposing a change.'],
 ];
 
+const discoveryTags = [
+    ['graphics and effects', /\b(?:webgl|webgpu|shaders?|particles?|gradients?|lighting|rendering|3d)\b/i],
+    ['motion and interaction', /\b(?:animations?|microinteractions?|gestures?|drag.and.drop|scroll.driven|transitions?|parallax|haptics)\b/i],
+    ['creative tools', /\b(?:generative art|drawing|painting|sketching|visual composition|playgrounds?|visual editors?)\b/i],
+    ['simulation and play', /\b(?:simulations?|physics|procedural generation|game mechanics|puzzles?|games?)\b/i],
+    ['spatial experiences', /\b(?:immersive|spatial computing|augmented reality|virtual reality|virtual tours?|cartography|geospatial)\b/i],
+    ['typography and layout', /\b(?:typography|variable fonts?|letterforms?|typesetting|layout|responsive grids?)\b/i],
+    ['audio and media', /\b(?:audio|sound synthesis|music|video|multimedia|waveforms?|spectrograms?)\b/i],
+    ['visualization and exploration', /\b(?:visuali[sz]ation|charts?|diagrams?|timelines?|explorable|network graphs?|storytelling)\b/i],
+    ['design systems and accessibility', /\b(?:design systems?|design tokens?|component libraries|accessibility|reduced motion|keyboard navigation)\b/i],
+    ['interfaces and input', /\b(?:multimodal|speech recognition|voice input|hand tracking|computer vision|tangible interfaces?)\b/i],
+];
+
 const readmeLimit = 32_000;
 const readmeBatchSize = 8;
 
@@ -116,6 +129,8 @@ export async function discoverTrending(fetchPage = fetch, references = designRef
     for (let offset = 0; offset < repositories.length; offset += readmeBatchSize) {
         await Promise.all(repositories.slice(offset, offset + readmeBatchSize).map(async repo => {
             repo.readme = await fetchReadme(repo.name, fetchPage);
+            const evidence = [repo.description, repo.readme.text].join('\n');
+            repo.tags = discoveryTags.filter(([, pattern]) => pattern.test(evidence)).map(([tag]) => tag);
         }));
     }
     return { repositories, unavailable };

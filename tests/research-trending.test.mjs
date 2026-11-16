@@ -5,6 +5,17 @@ import { discoverTrending as discover } from '../scripts/research/trending.mjs';
 const discoverTrending = fetchPage => discover(fetchPage, []);
 
 const row = (repo, text) => '<article class="Box-row"><h2><a href="/' + repo + '">Repo</a></h2><p>' + text + '</p></article>';
+test('adds multiple design tags from descriptions and README evidence without filtering untagged repos', async () => {
+    const result = await discoverTrending(async url => {
+        if (url.hostname === 'github.com') {
+            return new Response(row('example/studio', 'A WebGL shader playground') + row('example/misc', 'Utility'));
+        }
+        if (url.pathname.includes('/studio/')) return new Response('Generative art and a physics simulation.');
+        return new Response(null, { status: 404 });
+    });
+    assert.deepEqual(result.repositories[0].tags, ['graphics and effects', 'creative tools', 'simulation and play']);
+    assert.deepEqual(result.repositories[1].tags, []);
+});
 test('adds design references without inventing Trending ranks or refetching overlapping READMEs', async () => {
     const calls = [];
     const result = await discover(async url => {
