@@ -25,9 +25,33 @@ $lock = [IO.File]::Open((Join-Path $state.FullName 'poll.lock'), 'OpenOrCreate',
 try {
     $api = 'https://api.github.com/repos/0x00C0DE/0x00C0DE.github.io'
     $main = (Get-ResearchJson "$api/git/ref/heads/main").object.sha
-    $query = "$api/actions/workflows/codex-autonomous-research.yml/runs?branch=main&head_sha=$main&per_page=10"
-    $runs = (Get-ResearchJson $query).workflow_runs
+    $quotaPath = Join-Path $state.FullName 'codex-quota.json'
     $handoff = $null
+    $resumeReport = $null
+    $resumeEvaluation = $null
+    if (Test-Path -LiteralPath $quotaPath) {
+        $quota = Get-Content -Raw -LiteralPath $quotaPath | ConvertFrom-Json
+        $retryAt = [DateTimeOffset]$quota.retryAt
+        if ([DateTimeOffset]::UtcNow -lt $retryAt) {
+            Write-Output "Codex quota deferred until $retryAt."
+            return
+        }
+        if ($quota.runId -notmatch '^(?:local-|resume-)?\d+$') { throw 'Invalid quota receipt run ID.' }
+        if ($quota.revision -ceq $main) {
+            $previous = Join-Path $state.FullName "run-$($quota.runId)/tmp"
+            $previousReport = Join-Path $previous 'codex-research/report.json'
+            $previousEvaluation = Join-Path $previous 'trending-evaluation.json'
+            if ((Test-Path -LiteralPath $previousReport) -and (Test-Path -LiteralPath $previousEvaluation)) {
+                $resumeReport = $previousReport
+                $resumeEvaluation = $previousEvaluation
+            }
+        }
+        $runId = "resume-$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
+        $receipt = Join-Path $state.FullName "$runId.json"
+        $handoff = '{"discovery":true}'
+    }
+    $query = "$api/actions/workflows/codex-autonomous-research.yml/runs?branch=main&head_sha=$main&per_page=10"
+    $runs = if (!$handoff) { (Get-ResearchJson $query).workflow_runs }
     foreach ($run in $runs) {
         if ($run.head_sha -ne $main -or $run.conclusion -ne 'success') { continue }
         $receipt = Join-Path $state.FullName "$($run.id).json"
@@ -107,6 +131,12 @@ try {
             return
         }
         $options = @('-BrowserDependencies', $browserRoot)
+        if ($resumeReport) {
+            $destination = Join-Path $checkout 'tmp/codex-research'
+            New-Item -ItemType Directory -Force $destination | Out-Null
+            Copy-Item -LiteralPath $resumeReport -Destination (Join-Path $destination 'report.json')
+            $options += @('-ReportPath', (Join-Path $destination 'report.json'), '-EvaluationPath', $resumeEvaluation)
+        }
         if ($attempt) {
             $options += @('-ReportPath', (Join-Path $checkout 'tmp/codex-research/report.json'))
         }
@@ -118,6 +148,9 @@ try {
         Write-Output "Handing off $leadName ($runId)."
         $removeCheckout = $false
         $runnerLog = Join-Path $state.FullName "runner-$runId.log"
+        if (Test-Path -LiteralPath $quotaPath) {
+            Move-Item -LiteralPath $quotaPath -Destination (Join-Path $state.FullName "$runId-quota-consumed.json")
+        }
         & (Get-Process -Id $PID).Path -NoProfile -NonInteractive -WindowStyle Hidden -File `
             (Join-Path $checkout 'scripts/research/run-codex-local.ps1') @options *> $runnerLog
         $runnerExit = $LASTEXITCODE
@@ -132,6 +165,13 @@ try {
             20 { 'no-proposal' }
             21 { 'needs-review' }
             22 { if ($Publish) { 'partially-published' } else { 'partially-previewed' } }
+            23 {
+                $retry = Get-Content -Raw -LiteralPath (Join-Path $checkout 'tmp/codex-quota.json') | ConvertFrom-Json
+                Write-ResearchCheckpoint $quotaPath @{
+                    retryAt = ([DateTimeOffset]$retry.retryAt).ToString('o'); revision = $main; runId = "$runId"
+                }
+                'quota-deferred'
+            }
             default { throw "Local runner failed for $runId (exit $runnerExit). Inspect $runnerLog and $checkout before retrying." }
         }
         @{ status = $status } | ConvertTo-Json -Compress | Set-Content -LiteralPath $receipt -Encoding utf8

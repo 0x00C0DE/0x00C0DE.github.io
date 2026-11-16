@@ -27,6 +27,31 @@ function Get-ResearchCandidateAction([int]$ExitCode) {
     switch ($ExitCode) {
         0 { 'complete' }
         { $_ -in (20, 21) } { 'next' }
+        23 { 'defer-quota' }
         default { 'reconcile' }
     }
+}
+
+function Get-ResearchQuotaRetry(
+    [string[]]$OutputLines,
+    [DateTimeOffset]$Now = [DateTimeOffset]::UtcNow,
+    [TimeZoneInfo]$Zone = [TimeZoneInfo]::Local
+) {
+    $failure = $OutputLines | Where-Object { $_ -match '^ERROR: .*hit your usage limit' } | Select-Object -Last 1
+    if (!$failure) { return }
+    if ($failure -notmatch '(?i)try again at (.+?)\.?$') { return $Now.AddMinutes(55) }
+    $value = $Matches[1] -replace '(?<=\d)(?:st|nd|rd|th)\b', ''
+    $culture = [Globalization.CultureInfo]::InvariantCulture
+    $localNow = [TimeZoneInfo]::ConvertTime($Now, $Zone)
+    $local = [datetime]::MinValue
+    if (![datetime]::TryParseExact($value, [string[]]@('MMM d, yyyy h:mm tt', 'MMMM d, yyyy h:mm tt'),
+        $culture, [Globalization.DateTimeStyles]::None, [ref]$local)) {
+        if (![datetime]::TryParseExact($value, 'h:mm tt', $culture,
+            [Globalization.DateTimeStyles]::NoCurrentDateDefault, [ref]$local)) { return $Now.AddMinutes(55) }
+        $local = $localNow.Date.Add($local.TimeOfDay)
+        if ($local -le $localNow.DateTime) { $local = $local.AddDays(1) }
+    }
+    $retry = [DateTimeOffset]::new([TimeZoneInfo]::ConvertTimeToUtc($local, $Zone))
+    if ($retry -le $Now) { return $Now.AddMinutes(55) }
+    return $retry
 }

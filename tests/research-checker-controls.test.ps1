@@ -82,5 +82,15 @@ Write-Output 'Release checkpoint survives atomic replacement.'
 Assert-Equal (Get-ResearchCandidateAction 0) 'complete'
 Assert-Equal (Get-ResearchCandidateAction 20) 'next'
 Assert-Equal (Get-ResearchCandidateAction 21) 'next'
+Assert-Equal (Get-ResearchCandidateAction 23) 'defer-quota'
 Assert-Equal (Get-ResearchCandidateAction 1) 'reconcile'
 Write-Output 'A verified release ends the cycle and an uncertain write stops fallback.'
+
+$now = [DateTimeOffset]::Parse('2026-11-16T03:00:00-08:00')
+$zone = [TimeZoneInfo]::FindSystemTimeZoneById('Pacific Standard Time')
+$retry = Get-ResearchQuotaRetry @('ERROR: You have hit your usage limit. Try again at Nov 20th, 2026 5:35 PM.') $now $zone
+Assert-Equal $retry ([DateTimeOffset]::Parse('2026-11-21T01:35:00Z'))
+$retry = Get-ResearchQuotaRetry @('ERROR: You have hit your usage limit. Try again at 2:59 AM.') $now $zone
+Assert-Equal $retry ([DateTimeOffset]::Parse('2026-11-16T10:59:00Z').AddDays(1))
+Assert-Equal (Get-ResearchQuotaRetry @('ERROR: Browser timed out') $now $zone) $null
+Write-Output 'Quota resets are interpreted in the runner time zone.'

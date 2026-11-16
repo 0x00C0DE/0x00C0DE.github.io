@@ -260,6 +260,13 @@ stops the cycle for reconciliation. Cleanup uses Git's Windows long-path support
 
 ### Recovery and recurring diagnosis
 
+On a Codex usage-limit response, the runner records `quota-deferred` and the
+announced reset in `tmp/local-handoff/codex-quota.json`. The 55-minute Windows
+poll continues, with model calls deferred until the reset. Afterward the
+runner revalidates the saved evaluation if its revision still matches main,
+or researches current main if it has changed. The original receipts and
+worktrees are retained. No feature report is created for a deferred cycle.
+
 GitHub metadata reads retry transient failures up to three total attempts.
 Before publishing a feature, the runner writes a checkpoint in the batch
 directory under `tmp/w/` and updates it as the push and Pages verification
