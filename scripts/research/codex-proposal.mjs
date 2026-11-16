@@ -5,17 +5,39 @@ import { verifyReactBits } from './react-bits.mjs';
 
 export const designRoutePattern = /^\/pages\/[a-z0-9-]+\.html$/;
 
-export function prioritizeSiteDesigns(features) {
-    const site = [];
-    const projects = [];
-    for (const feature of features) {
-        if (typeof feature.route !== 'string' || !designRoutePattern.test(feature.route)) {
-            throw new Error('Invalid public design route: ' + feature.route);
-        }
-        const group = /^\/pages\/projects?[-.]/.test(feature.route) ? projects : site;
-        group.push(feature);
+function experiencePath(route) {
+    if (typeof route !== 'string' || !designRoutePattern.test(route)) {
+        throw new Error('Invalid public design route: ' + route);
     }
-    return site.length ? [...site, ...projects] : [];
+    return route.slice(1);
+}
+
+function isExperiencePath(path) {
+    return !/^pages\/projects?[-.]/.test(path)
+        && !/(?:\/|-)(?:reader|archive|digest)(?:-|\.html$)/.test(path);
+}
+
+export function selectExperiences(features, existingPaths) {
+    const known = new Set(existingPaths);
+    return features.filter(feature => {
+        const path = experiencePath(feature.route);
+        return isExperiencePath(path) && !known.has(path);
+    });
+}
+
+export function validateExperience(changes, route) {
+    const page = experiencePath(route);
+    if (!isExperiencePath(page)) throw new Error('Selected route must be a standalone visual experience');
+    if (!changes.some(change => change.path === page && change.previousMode === '000000')) {
+        throw new Error('Experience must add the selected route as a new page');
+    }
+    for (const change of changes) {
+        if (change.path === 'README.md') continue;
+        if (change.previousMode !== '000000') throw new Error('Experience cannot modify existing file: ' + change.path);
+        if (change.path.startsWith('pages/') && change.path !== page) {
+            throw new Error('Experience can only add the selected public page; put new assets in src/');
+        }
+    }
 }
 
 export function selectDiscovery(report, revision) {
@@ -120,7 +142,7 @@ function git(...args) {
     return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1024 * 1024 });
 }
 
-function verifyIndex() {
+function verifyIndex(route) {
     const files = git('diff', '--cached', '--raw', '--no-renames', '-z').split('\0');
     const changes = [];
     for (let i = 0; i < files.length - 1; i += 2) {
@@ -129,6 +151,7 @@ function verifyIndex() {
         changes.push({ previousMode: match[1], mode: match[2], path: files[i + 1] });
     }
     validateChanges(changes);
+    validateExperience(changes, route);
     const stats = git('diff', '--cached', '--numstat', '--no-renames', '-z').split('\0').filter(Boolean);
     let lines = 0;
     for (const stat of stats) {
@@ -154,12 +177,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
             console.warn('Excluded repositories with invalid README evidence: ' + invalidEvidence.join(', '));
             if (!features.length) throw new Error('No verified feature selection with complete README evidence');
         }
-        const prioritized = prioritizeSiteDesigns(features);
-        if (features.length && !prioritized.length) console.log('Project-only proposals deferred pending a site-wide design.');
-        await writeFile(selectionPath, JSON.stringify(prioritized));
+        const existing = git('ls-files', '-z', '--', 'pages/').split('\0');
+        const experiences = selectExperiences(features, existing);
+        if (features.length && !experiences.length) console.log('No qualifying new visual experience route.');
+        await writeFile(selectionPath, JSON.stringify(experiences));
         console.log(`Verified ${evaluation.assessments.length} daily, weekly, and monthly Trending assessments.`);
     } else if (process.argv[2] === 'verify') {
-        verifyIndex();
+        verifyIndex(process.argv[3]);
     } else if (process.argv[2] === 'review') {
         const approved = reviewApproved(await readFile(process.argv[3], 'utf8'));
         await appendFile(process.env.GITHUB_OUTPUT, 'approved=' + approved + '\n');

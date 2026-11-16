@@ -1,15 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { prioritizeSiteDesigns, selectLead, validateChanges } from '../scripts/research/codex-proposal.mjs';
+import { selectExperiences, selectLead, validateChanges, validateExperience } from '../scripts/research/codex-proposal.mjs';
 
-test('prioritizes site-wide design candidates and holds project-only batches', () => {
-    const project = { route: '/pages/project-smallsh.html' };
-    const home = { route: '/' };
-    const resume = { route: '/pages/resume-intro.html' };
-    assert.deepEqual(prioritizeSiteDesigns([project, resume]), [resume, project]);
-    assert.throws(() => prioritizeSiteDesigns([home]), /route/i);
-    assert.deepEqual(prioritizeSiteDesigns([project]), []);
-    assert.throws(() => prioritizeSiteDesigns([{ route: '/pages/../admin.html' }]), /route/i);
+test('selects new standalone experience routes and rejects readers and existing pages', () => {
+    const experience = { route: '/pages/light-studio.html' };
+    const reader = { route: '/pages/archive-reader.html' };
+    const explore = { route: '/pages/explore.html' };
+    assert.deepEqual(selectExperiences([reader, explore, experience], ['pages/explore.html']), [experience]);
+    assert.throws(() => selectExperiences([{ route: '/' }], []), /route/i);
+    assert.throws(() => selectExperiences([{ route: '/pages/../admin.html' }], []), /route/i);
+});
+
+test('standalone experiences must add the selected page and cannot modify existing assets', () => {
+    const page = { path: 'pages/light-studio.html', previousMode: '000000' };
+    const asset = { path: 'src/codex-feature-light-studio.jsx', previousMode: '000000' };
+    const docs = { path: 'README.md', previousMode: '100644' };
+    const route = '/pages/light-studio.html';
+    assert.doesNotThrow(() => validateExperience([page, asset, docs], route));
+    assert.throws(() => validateExperience([asset, docs], route), /new page/);
+    assert.throws(() => validateExperience([page, { ...asset, previousMode: '100644' }], route), /existing/);
+    assert.throws(() => validateExperience([page, { ...page, path: 'pages/another.html' }], route), /selected/);
 });
 
 test('only current reports with a relevant lead trigger Codex', () => {

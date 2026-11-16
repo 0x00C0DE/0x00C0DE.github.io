@@ -236,11 +236,12 @@ For a local build with React Bits manifests, run
 before `node scripts/build-pages.mjs`. If the catalog cannot be collected or no candidate
 passes verification, that scan produces no React Bits release.
 
-Each Windows cycle prioritizes verified React Bits designs for post-entry
-sections, such as the résumé, Explore, or Bitcoin presentation. The homepage,
-intro assets, and entry transition are outside the permitted scope. A shortlist
-limited to Projects and project write-ups is deferred. Candidates declare a
-public route under `/pages/` and the browser plan must test that route.
+Each Windows cycle targets a standalone post-entry visual experience, such as
+an interactive lighting scene or motion playground. The design must make an
+upstream React Bits effect central to the interaction. Reader, archive, and
+existing-content interfaces are excluded. The staged changes must add the
+selected public HTML page and may add its assets and tests. Only the README
+may be modified. The browser plan tests the new route and its main interaction.
 The Pages build registers new lowercase `pages/<name>.html` files in
 terminal `help` under **Public pages**. Visitors can open them with
 `open <name>.html`. Pages with existing dedicated commands keep those
