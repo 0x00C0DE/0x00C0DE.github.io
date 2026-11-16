@@ -103,7 +103,7 @@ async function fetchTrending(window, fetchPage) {
     return repositories;
 }
 
-export async function discoverTrending(fetchPage = fetch, references = designReferences) {
+export async function discoverTrending(fetchPage = fetch, references = designReferences, { includeReadmes = true } = {}) {
     const results = await Promise.allSettled(windows.map(window => fetchTrending(window, fetchPage)));
     const byName = new Map();
     const unavailable = [];
@@ -126,6 +126,7 @@ export async function discoverTrending(fetchPage = fetch, references = designRef
         byName.set(key, repo);
     }
     const repositories = [...byName.values()];
+    if (!includeReadmes) return { repositories, unavailable };
     for (let offset = 0; offset < repositories.length; offset += readmeBatchSize) {
         await Promise.all(repositories.slice(offset, offset + readmeBatchSize).map(async repo => {
             repo.readme = await fetchReadme(repo.name, fetchPage);

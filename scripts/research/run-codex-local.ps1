@@ -9,6 +9,12 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath (Resolve-Path (Join-Path $PSScriptRoot '../..'))
 
+$policy = Get-Content -Raw -LiteralPath 'scripts/research/publication-policy.json' | ConvertFrom-Json
+if ($policy.mode -ne 'legacy-publication') {
+    Write-Output 'Research-only mode. Legacy feature implementation is disabled.'
+    exit 20
+}
+
 function Invoke-Checked {
     $program = $args[0]
     $arguments = @($args | Select-Object -Skip 1)

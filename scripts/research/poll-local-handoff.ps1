@@ -25,6 +25,15 @@ $lock = [IO.File]::Open((Join-Path $state.FullName 'poll.lock'), 'OpenOrCreate',
 try {
     $api = 'https://api.github.com/repos/0x00C0DE/0x00C0DE.github.io'
     $main = (Get-ResearchJson "$api/git/ref/heads/main").object.sha
+    # Resolve policy from the exact remote revision before consuming any receipt.
+    Git fetch origin main
+    if ((Git rev-parse FETCH_HEAD) -ne $main) { return }
+    $policy = Git show "${main}:scripts/research/publication-policy.json" | ConvertFrom-Json
+    if ($policy.mode -eq 'research-only') {
+        Write-Output 'Research-only mode. The scheduled innovation workflow produces reports.'
+        return
+    }
+    if ($policy.mode -ne 'legacy-publication') { throw 'Invalid scheduled research publication policy.' }
     $quotaPath = Join-Path $state.FullName 'codex-quota.json'
     $handoff = $null
     $resumeReport = $null

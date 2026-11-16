@@ -1,0 +1,78 @@
+name: Innovation discovery
+
+on:
+  schedule:
+    - cron: '32 */2 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/innovation-discovery.yml'
+      - 'scripts/innovation/**'
+      - 'scripts/research/trending.mjs'
+      - 'tests/research-innovation.test.mjs'
+  pull_request:
+    paths:
+      - '.github/workflows/innovation-discovery.yml'
+      - 'scripts/innovation/**'
+      - 'scripts/research/trending.mjs'
+      - 'tests/research-innovation.test.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: innovation-discovery-${{ github.event_name == 'pull_request' && github.ref || 'default' }}
+  cancel-in-progress: false
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - run: node --test tests/research-*.test.mjs
+      - uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+        with:
+          path: tmp/innovation/history.json
+          key: innovation-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: innovation-v1-
+      - name: Discover and rank opportunities
+        if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INNOVATION_REQUESTS: ${{ vars.INNOVATION_REQUESTS }}
+          INNOVATION_REPOSITORIES: ${{ vars.INNOVATION_REPOSITORIES }}
+          INNOVATION_INSPECTIONS: ${{ vars.INNOVATION_INSPECTIONS }}
+          INNOVATION_SEARCHES: ${{ vars.INNOVATION_SEARCHES }}
+          INNOVATION_TOPICS: ${{ vars.INNOVATION_TOPICS }}
+          INNOVATION_RETENTION: ${{ vars.INNOVATION_RETENTION }}
+          INNOVATION_PROPOSALS: ${{ vars.INNOVATION_PROPOSALS }}
+          INNOVATION_DURATION_MS: ${{ vars.INNOVATION_DURATION_MS }}
+          INNOVATION_WEIGHTS: ${{ vars.INNOVATION_WEIGHTS }}
+          INNOVATION_AI_ADAPTER: ${{ vars.INNOVATION_AI_ADAPTER }}
+          INNOVATION_AI_VERSION: ${{ vars.INNOVATION_AI_VERSION }}
+          INNOVATION_AI_CANDIDATES: ${{ vars.INNOVATION_AI_CANDIDATES }}
+          INNOVATION_AI_TOKENS: ${{ vars.INNOVATION_AI_TOKENS }}
+        run: node scripts/innovation/run.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+        with:
+          name: innovation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            tmp/innovation/report.json
+            tmp/innovation/report.md
+            tmp/innovation/history.json
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+        with:
+          path: tmp/innovation/history.json
+          key: innovation-v1-${{ github.run_id }}-${{ github.run_attempt }}

@@ -913,3 +913,5 @@ monitor, local usage-planning inputs, and how to run the checks.
   React, new dependencies, services, or remote runtime assets. From the repository root
   in PowerShell, verify with
   `node --test --test-isolation=none tests/codex-feature-shell-lifecycle.test.mjs`.
+
+See [Innovation discovery](docs/innovation-discovery.md) for scheduled research reports, backlog, and configuration.
