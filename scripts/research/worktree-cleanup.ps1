@@ -10,3 +10,9 @@ function Remove-ResearchWorktree([string]$Worktree, [string]$BatchDirectory) {
         Write-Warning "Could not clean up feature worktree $Worktree. The batch will continue. $($_.Exception.Message)"
     }
 }
+function Get-ResearchWorktreeRoot {
+    $common = Invoke-Checked git rev-parse --git-common-dir
+    $resolved = (Resolve-Path -LiteralPath $common).Path
+    return Split-Path -Parent $resolved
+}
+

@@ -25,6 +25,16 @@ Assert-Equal (Invoke-Checked node --version) (& node --version)
 Write-Output 'Single native command argument passed.'
 
 . (Join-Path $PSScriptRoot '../scripts/research/worktree-cleanup.ps1')
+$repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+Push-Location -LiteralPath $repo
+try {
+    $actualRoot = Get-ResearchWorktreeRoot
+    $common = (Resolve-Path -LiteralPath (git rev-parse --git-common-dir)).Path
+    Assert-Equal $actualRoot (Split-Path -Parent $common)
+} finally {
+    Pop-Location
+}
+Write-Output 'Worktree root resolves using the installed Git version.'
 function Invoke-Checked { throw 'simulated Filename too long' }
 $warnings = @(Remove-ResearchWorktree $PSScriptRoot (Split-Path -Parent $PSScriptRoot) 3>&1)
 Assert-Equal $warnings.Count 1

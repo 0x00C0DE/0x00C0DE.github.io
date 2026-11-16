@@ -106,8 +106,7 @@ if ($FeatureIndex -lt 0) {
     $expectedBase = $base
     $completed = 0
     $rejected = 0
-    $commonGitDir = Invoke-Checked git rev-parse --path-format=absolute --git-common-dir
-    $batch = Join-Path (Split-Path -Parent $commonGitDir) ('tmp/w/' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+    $batch = Join-Path (Get-ResearchWorktreeRoot) ('tmp/w/' + [guid]::NewGuid().ToString('N').Substring(0, 12))
     for ($index = 0; $index -lt $features.Count; $index++) {
         Invoke-Checked git fetch origin main
         if ((Invoke-Checked git rev-parse FETCH_HEAD) -ne $expectedBase) {
