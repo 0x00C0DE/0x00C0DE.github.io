@@ -14,6 +14,7 @@ function Invoke-Checked {
     & $program @arguments
     if ($LASTEXITCODE -ne 0) { throw "$program failed with exit code $LASTEXITCODE" }
 }
+. (Join-Path $PSScriptRoot 'worktree-cleanup.ps1')
 
 $remote = Invoke-Checked git remote get-url origin
 if ($remote -notmatch '^(https://github\.com/|git@github\.com:)0x00C0DE/0x00C0DE\.github\.io(\.git)?$') {
@@ -104,14 +105,15 @@ if ($FeatureIndex -lt 0) {
     $expectedBase = $base
     $completed = 0
     $rejected = 0
-    $batch = Join-Path $root ('tmp/features-' + [guid]::NewGuid())
+    $commonGitDir = Invoke-Checked git rev-parse --path-format=absolute --git-common-dir
+    $batch = Join-Path (Split-Path -Parent $commonGitDir) ('tmp/w/' + [guid]::NewGuid().ToString('N').Substring(0, 12))
     for ($index = 0; $index -lt $features.Count; $index++) {
         Invoke-Checked git fetch origin main
         if ((Invoke-Checked git rev-parse FETCH_HEAD) -ne $expectedBase) {
             throw 'Main changed outside this batch. Reassess from the new revision.'
         }
         $worktree = Join-Path $batch "feature-$($index + 1)"
-        Invoke-Checked git worktree add --detach $worktree $expectedBase
+        Invoke-Checked git -c core.longpaths=true worktree add --detach $worktree $expectedBase
         $options = @('-ReportPath', $selection, '-FeatureIndex', $index, '-BrowserDependencies', $BrowserDependencies)
         if ($Publish) { $options += '-Publish' }
         Write-Output "Processing feature $($index + 1) of $($features.Count) in $worktree"
@@ -122,12 +124,12 @@ if ($FeatureIndex -lt 0) {
                 $completed++
                 if ($Publish) {
                     $expectedBase = Invoke-Checked git -C $worktree rev-parse HEAD
-                    Invoke-Checked git worktree remove $worktree
+                    Remove-ResearchWorktree $worktree $batch
                 }
             }
             20 {
                 Write-Output 'Candidate yielded no changes against the current site.'
-                Invoke-Checked git worktree remove $worktree
+                Remove-ResearchWorktree $worktree $batch
             }
             21 {
                 $rejected++

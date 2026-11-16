@@ -23,3 +23,10 @@ Assert-Equal (Invoke-Checked node -p 'JSON.stringify(process.argv.slice(1))' '--
 Write-Output 'Native command flag forwarding passed.'
 Assert-Equal (Invoke-Checked node --version) (& node --version)
 Write-Output 'Single native command argument passed.'
+
+. (Join-Path $PSScriptRoot '../scripts/research/worktree-cleanup.ps1')
+function Invoke-Checked { throw 'simulated Filename too long' }
+$warnings = @(Remove-ResearchWorktree $PSScriptRoot (Split-Path -Parent $PSScriptRoot) 3>&1)
+Assert-Equal $warnings.Count 1
+if ($warnings[0].Message -notmatch 'Filename too long') { throw 'Cleanup failure was not logged.' }
+Write-Output 'Cleanup failure leaves the batch running.'
