@@ -24,6 +24,23 @@ Write-Output 'Native command flag forwarding passed.'
 Assert-Equal (Invoke-Checked node --version) (& node --version)
 Write-Output 'Single native command argument passed.'
 
+$diagnostics = [IO.Path]::GetTempFileName()
+try {
+    $script:verificationLog = $diagnostics
+    $failed = $false
+    try {
+        Invoke-Checked node -e 'console.error("diagnostic fixture"); process.exit(7)' | Out-Null
+    } catch {
+        $failed = $_.Exception.Message -match 'exit code 7'
+    }
+    Assert-Equal $failed $true
+    if ((Get-Content -Raw $diagnostics) -notmatch 'diagnostic fixture') { throw 'Diagnostic output was lost.' }
+} finally {
+    $script:verificationLog = $null
+    Remove-Item -LiteralPath $diagnostics
+}
+Write-Output 'Failed verification preserves diagnostic output and exit status.'
+
 . (Join-Path $PSScriptRoot '../scripts/research/worktree-cleanup.ps1')
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Push-Location -LiteralPath $repo
@@ -61,3 +78,9 @@ try {
     Remove-Item -LiteralPath $checkpoint
 }
 Write-Output 'Release checkpoint survives atomic replacement.'
+
+Assert-Equal (Get-ResearchCandidateAction 0) 'complete'
+Assert-Equal (Get-ResearchCandidateAction 20) 'next'
+Assert-Equal (Get-ResearchCandidateAction 21) 'next'
+Assert-Equal (Get-ResearchCandidateAction 1) 'reconcile'
+Write-Output 'A verified release ends the cycle and an uncertain write stops fallback.'

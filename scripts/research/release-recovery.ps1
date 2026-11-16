@@ -23,3 +23,10 @@ function Get-ResearchJson([string]$Uri, [int]$TimeoutSeconds = 20) {
         }
     }
 }
+function Get-ResearchCandidateAction([int]$ExitCode) {
+    switch ($ExitCode) {
+        0 { 'complete' }
+        { $_ -in (20, 21) } { 'next' }
+        default { 'reconcile' }
+    }
+}

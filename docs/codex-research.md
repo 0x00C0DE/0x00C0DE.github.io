@@ -249,18 +249,14 @@ new page.
 Successful release commits record the live route
 and inspiration so visitors can find the visible change.
 
-The runner takes distinct verified candidates and
-implements them one at a time in isolated worktrees under `tmp/w/` in the
-primary checkout, with ephemeral Codex
-sessions. Each candidate starts from the latest revision verified by that
-batch. Implementation, independent review, and browser failures before
-publication retain the failed worktree and allow the next candidate to
-proceed. The receipt distinguishes a partial publication from a batch that
-needs review. Cleanup uses Git's Windows long-path support. A failed cleanup
-logs the worktree path and lets later candidates proceed. A changed base,
-failed push, or unverified deployment stops
-the batch for reconciliation. Each successful feature has its own release
-branch, commit, and deployment.
+The runner targets one verified release per research cycle. It can try up
+to three qualified candidates in isolated worktrees under `tmp/w/`, stopping
+at the first verified deployment. A proposal validation, review, or browser
+failure can trigger one repair in the same worktree, with its diagnostics.
+The repair reruns the release checks. An exhausted candidate is retained and
+the next candidate may proceed. If no candidate verifies, the receipt records
+`needs-review`. A changed base, uncertain push, or unverified deployment
+stops the cycle for reconciliation. Cleanup uses Git's Windows long-path support.
 
 ### Recovery and recurring diagnosis
 
