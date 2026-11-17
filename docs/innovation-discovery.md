@@ -22,6 +22,9 @@ ranks concrete adaptations, and implements a standalone experience using
 upstream React Bits. The verifier checks any cited idea ID against the
 repository and its current Trending README. Ranked ideas are tried before
 uncited fallbacks, and published commits record the innovation ID and technique.
+If GitHub limits metadata access, current Trending READMEs can supply
+independent design inspiration. These leads permit original site code and
+the verified React Bits catalog, with upstream code reuse excluded.
 The separate Innovation workflow still publishes the broader research backlog.
 A cycle can end without a release when the runner is unavailable or all
 candidates fail review or browser verification.

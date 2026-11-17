@@ -128,3 +128,19 @@ test('prioritizes verified innovation-backed features and discards mismatched ci
     assert.deepEqual(prioritizeInnovations({ ...report, innovation: { backlog: [stale] } }, [supported]), []);
     assert.deepEqual(prioritizeInnovations(report, [{ ...supported, innovationId: '' }]), []);
 });
+
+test('ranks current Trending evidence when all GitHub API metadata is rate-limited', async () => {
+    const { rankHandoff } = await import('../scripts/research/innovation-handoff.mjs');
+    const fixture = { repositories: [
+        { name: 'lab/optics', ranks: { daily: 3, weekly: 2 }, tags: ['graphics and effects'],
+            readme: { text: '# Optics\nDraw light with layered transparent geometry.' } },
+        { name: 'lab/empty', ranks: { daily: 1 }, readme: { status: 'unavailable' } },
+    ], unavailable: [] };
+    const unavailable = async () => { throw new Error('GitHub rate limit reached'); };
+    const { report } = await rankHandoff({ trending: fixture, date: '2026-11-16',
+        github: { search: unavailable, metadata: unavailable, inspect: unavailable } });
+    assert.equal(report.backlog.length, 1);
+    assert.equal(report.backlog[0].sources[0], 'lab/optics');
+    assert.match(report.backlog[0].licensing, /inspiration only/);
+    assert.equal(report.backlog[0].evidence[0].excerpt, 'Draw light with layered transparent geometry.');
+});

@@ -1,4 +1,4 @@
-import { defaults, research } from '../innovation/engine.mjs';
+import { defaults, rank, research } from '../innovation/engine.mjs';
 import { githubClient } from '../innovation/github.mjs';
 
 const windows = ['daily', 'weekly', 'monthly'];
@@ -17,7 +17,7 @@ export function eligibleInnovations(trending, innovation) {
             item.repository === name && typeof item.excerpt === 'string' && normalize(item.excerpt).length >= 20
             && readmes.get(name).includes(normalize(item.excerpt))));
         return sources.length ? [{ ...opportunity, sources }] : [];
-    }).sort((a, b) => b.score - a.score || b.confidence - a.confidence);
+    });
 }
 
 export function prioritizeInnovations(report, features) {
@@ -31,13 +31,25 @@ export function prioritizeInnovations(report, features) {
     }).sort((a, b) => a.rank - b.rank).map(({ feature }) => feature);
 }
 
-export async function rankHandoff({ trending, date, history, token }) {
+export async function rankHandoff({ trending, date, history, token, github }) {
     const signal = AbortSignal.timeout(50_000);
     const config = { ...defaults, requests: 24, inspections: 12, searches: 5, proposals: 20 };
-    const github = githubClient({ requests: config.requests, token, signal });
+    github ??= githubClient({ requests: config.requests, token, signal });
     const result = await research({ github, config, date, history, signal, trend: async () => trending });
+    const primary = eligibleInnovations(trending, result.report)
+        .sort((a, b) => b.score - a.score || b.confidence - a.confidence);
+    const verifiedSources = new Set(primary.flatMap(item => item.sources));
+    const fallback = result.history.backlog.filter(item => item.status === 'deferred'
+        && item.licensing === 'unknown' && item.sources.every(source => !verifiedSources.has(source)))
+        .map(item => ({ ...item, ...rank({ originality: item.ratings.originality,
+            compatibility: item.ratings.compatibility }), status: 'experimental',
+        licensing: 'Unverified upstream license. Design inspiration only; no upstream code reuse.' }));
+    const visibility = new Map(trending.repositories.map(repo => [repo.name,
+        windows.reduce((sum, window) => sum + (repo.ranks?.[window] ? 1 / repo.ranks[window] : 0), 0)]));
+    const backup = eligibleInnovations(trending, { backlog: fallback }).sort((a, b) =>
+        b.score - a.score || visibility.get(b.sources[0]) - visibility.get(a.sources[0]));
     return { history: result.history, report: {
         schema: result.report.schema, errors: result.report.errors,
-        backlog: eligibleInnovations(trending, result.report),
+        backlog: [...primary, ...backup].slice(0, 12),
     } };
 }

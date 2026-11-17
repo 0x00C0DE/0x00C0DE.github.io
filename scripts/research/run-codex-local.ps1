@@ -105,6 +105,8 @@ if ($FeatureIndex -lt 0) {
     current site for novelty, user value, implementation effort, and fit with upstream React Bits.
     Prefer adapting the strongest usable technique to a new interactive feature. For any idea based
     on a ranked lead, return its exact id as innovationId and use one of its listed repository names.
+    If a lead is marked design inspiration only, implement the idea independently using upstream
+    React Bits and original site code. Do not copy code from the inspiration repository.
     Give an alternative with innovationId null when no ranked lead makes a viable feature.
     Keep acceptance checks simple and deterministic. Browser verification runs at desktop and mobile
     with OS reduced motion enabled, so controls should change a visible still state in that mode.
