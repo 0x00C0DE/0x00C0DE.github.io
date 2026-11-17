@@ -37,7 +37,7 @@ export async function collectReactBits(fetchPage = fetch) {
     return [...designs.values()];
 }
 
-export function verifyReactBits(catalog, evaluation) {
+export function selectReactBitsFeatures(catalog, evaluation) {
     const ids = new Set(catalog.map(design => design.id));
     const direct = new Set(catalog.filter(design => design.direct).map(design => design.id));
     const reviewed = evaluation.reactBitsReviewed;
@@ -45,12 +45,16 @@ export function verifyReactBits(catalog, evaluation) {
         || new Set(reviewed).size !== ids.size || reviewed.some(id => !ids.has(id))) {
         throw new Error('Incomplete or invalid React Bits catalog coverage');
     }
+    const features = [];
+    const rejected = [];
     for (const feature of evaluation.features ?? []) {
-        const components = feature.reactBitsComponents;
-        if (feature.repository?.toLowerCase() !== 'davidhdev/react-bits' || !Array.isArray(components)
-            || components.length < 2 || components.length > 6 || new Set(components).size !== components.length
-            || components.some(id => !direct.has(id))) {
-            throw new Error('Invalid React Bits component combination: ' + feature.title);
+        const components = feature?.reactBitsComponents;
+        if (!Array.isArray(components) || components.length < 2 || components.length > 6
+            || new Set(components).size !== components.length || components.some(id => !direct.has(id))) {
+            rejected.push(feature);
+        } else {
+            features.push(feature);
         }
     }
+    return { features, rejected };
 }

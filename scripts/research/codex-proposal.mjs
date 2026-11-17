@@ -2,7 +2,7 @@ import { prioritizeInnovations } from './innovation-handoff.mjs';
 import { execFileSync } from 'node:child_process';
 import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { verifyReactBits } from './react-bits.mjs';
+import { selectReactBitsFeatures } from './react-bits.mjs';
 
 export const designRoutePattern = /^\/pages\/[a-z0-9-]+\.html$/;
 
@@ -172,14 +172,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         const [, , , reportPath, evaluationPath, selectionPath] = process.argv;
         const report = JSON.parse(await readFile(reportPath, 'utf8'));
         const evaluation = JSON.parse(await readFile(evaluationPath, 'utf8'));
-        verifyReactBits(report.reactBits, evaluation);
         const { features, invalidEvidence } = selectVerifiedFeatures(report.trending, evaluation);
         if (invalidEvidence.length) {
             console.warn('Excluded repositories with invalid README evidence: ' + invalidEvidence.join(', '));
             if (!features.length) throw new Error('No verified feature selection with complete README evidence');
         }
         const existing = git('ls-files', '-z', '--', 'pages/').split('\0');
-        const experiences = selectExperiences(prioritizeInnovations(report, features), existing);
+        const selected = selectReactBitsFeatures(report.reactBits, { ...evaluation, features });
+        if (selected.rejected.length) {
+            console.warn(`Excluded ${selected.rejected.length} features with invalid React Bits combinations.`);
+        }
+        const experiences = selectExperiences(prioritizeInnovations(report, selected.features), existing);
         if (features.length && !experiences.length) console.log('No qualifying new visual experience route.');
         await writeFile(selectionPath, JSON.stringify(experiences));
         console.log(`Verified ${evaluation.assessments.length} daily, weekly, and monthly Trending assessments.`);

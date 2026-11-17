@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { collectReactBits, verifyReactBits } from '../scripts/research/react-bits.mjs';
+import { collectReactBits, selectReactBitsFeatures } from '../scripts/research/react-bits.mjs';
 import { componentFiles } from '../scripts/research/react-bits-build.mjs';
 
 test('accepts original JSX and CSS only for matching dependency-free registry items', () => {
@@ -29,12 +29,22 @@ test('requires full catalog coverage and verifies each combination', () => {
         reactBitsReviewed: ['Dock', 'SpotlightCard'],
         features: [{ repository: 'DavidHDev/react-bits', reactBitsComponents: ['Dock', 'SpotlightCard'] }],
     };
-    assert.doesNotThrow(() => verifyReactBits(catalog, evaluation));
-    assert.throws(() => verifyReactBits(catalog, { ...evaluation, reactBitsReviewed: ['Dock', 'Dock'] }), /coverage/);
-    assert.throws(() => verifyReactBits(catalog, { ...evaluation,
+    assert.deepEqual(selectReactBitsFeatures(catalog, evaluation), { features: evaluation.features, rejected: [] });
+    assert.throws(() => selectReactBitsFeatures(catalog, { ...evaluation, reactBitsReviewed: ['Dock', 'Dock'] }), /coverage/);
+    assert.deepEqual(selectReactBitsFeatures(catalog, { ...evaluation,
         features: [{ repository: 'DavidHDev/react-bits', reactBitsComponents: ['Dock', 'ProCard'] }],
-    }), /combination/);
-    assert.throws(() => verifyReactBits(catalog, { ...evaluation,
+    }).features, []);
+    assert.deepEqual(selectReactBitsFeatures(catalog, { ...evaluation,
         features: [{ repository: 'DavidHDev/react-bits', reactBitsComponents: ['Dock'] }],
-    }), /combination/);
+    }).features, []);
+});
+
+test('keeps a valid React Bits combination from a separate inspiration repository', () => {
+    const catalog = [{ id: 'Iridescence', direct: true }, { id: 'SpecularButton', direct: true }];
+    const valid = { title: 'Material Studio', repository: 'Nutlope/hallmark',
+        reactBitsComponents: ['Iridescence', 'SpecularButton'] };
+    const invalid = { ...valid, title: 'Unsupported effect', reactBitsComponents: ['Paid', 'SpecularButton'] };
+    const evaluation = { reactBitsReviewed: ['Iridescence', 'SpecularButton'], features: [invalid, valid] };
+    assert.deepEqual(selectReactBitsFeatures(catalog, evaluation), { features: [valid], rejected: [invalid] });
+    assert.throws(() => selectReactBitsFeatures(catalog, { ...evaluation, reactBitsReviewed: ['Iridescence'] }), /coverage/);
 });

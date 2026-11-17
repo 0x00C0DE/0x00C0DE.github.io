@@ -127,8 +127,8 @@ if ($FeatureIndex -lt 0) {
     page with simple local data and a few reliable assertions. Reject duplicates, unsafe proposals, and ideas requiring
     additional dependencies or services. For visual or interactive ideas, preserve keyboard
     and touch operation, reduced-motion preferences, and a usable fallback. Merge overlaps across windows.
-    Every feature must use upstream React Bits components (use the exact repository name in the report)
-    and combine two to six free catalog IDs marked direct in reactBitsComponents. Explain the role of each
+    Set repository to the exact name of the inspiration repository in the report. Every feature must
+    use upstream React Bits components and combine two to six free catalog IDs marked direct in reactBitsComponents. Explain the role of each
     pattern and how they work together as a coherent design. Give the feature a title under 80 characters
     and describe the visitor-facing benefit and acceptance criteria.
     Use at least one focal effect not already shipped in a standalone experience. A compact fallback
