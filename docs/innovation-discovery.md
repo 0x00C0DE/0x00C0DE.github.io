@@ -8,12 +8,19 @@ report.md, then use report.json for automation or history.json to recover
 the registry and backlog. Production research permissions are read-only.
 Pull requests run the mocked research suite without querying GitHub.
 
-The existing release-metadata workflow remains on its previous schedule.
-The checked-in publication policy sets both legacy implementation paths to
-research-only. The Windows task keeps its PT55M cadence and returns before
-processing handoffs once its runtime checkout uses the current poller. Its
-fresh candidate runner also rejects the research-only policy. Preserve
-artefacts and checkpoints from prior releases for reconciliation.
+The existing release-metadata and Trending workflow runs on its own schedule.
+The checked-in publication policy enables its reviewed implementation and
+handoff path. The Windows task keeps its PT55M cadence and applies the policy
+from the exact main revision. Feature candidates still pass automated review,
+tests, Pages deployment and live verification before the release reporter
+creates a chat.
+
+Innovation reports and their ranked backlog remain advisory. The shipping
+path selects candidates through the existing Trending and React Bits review.
+Setting the publication policy mode to research-only pauses automatic feature
+implementation and handoff while both research workflows continue producing
+reports. Preserve artifacts and checkpoints from prior releases for
+reconciliation.
 
 ## Run locally
 
