@@ -44,6 +44,37 @@ No frameworks. No frontend build step. No DOM reflow-driven text layout in the l
 
 ## Overview
 
+### Type Relief — sculpt a word in depth
+
+Run `open type-relief.html` in the terminal (automatically listed by `help`),
+or visit `/pages/type-relief.html`. Enter up to six letters or digits, adjust
+extrusion from 1× to 4×, and choose Solid or Outline. Reset restores FORM,
+1× depth, and solid layers. This is a typography sculpture, with the lettering
+as the main artwork on arrival; it adds authorship beyond the existing light,
+material, and text-wrapping studies. Nothing is saved or sent.
+
+Inspired by React Bits and Impeccable's selectable visual variants, the original
+integration uses pinned upstream **DepthText** for twelve real depth layers,
+fixed tilt, and outlined extrusion. **SpecularButton** supplies coordinated
+Solid, Outline, and Reset actions. The manifest selects these exact components;
+the Pages builder emits `src/codex-feature-type-relief.js` and `.css`.
+The page also loads its scoped local stylesheet. All integration styles are
+bounded by `#type-relief-page`; the React root owns only its feature container.
+
+Native text and range controls support keyboard and touch; actions are at least
+44px tall with visible focus. Intro, orbit, pointer tracking, floating, and
+automatic button animation are disabled. Reduced motion also removes button
+transitions and decorative light. A readable CSS FORM relief remains without
+JavaScript. Narrow layouts stack the controls and scale the artwork.
+
+From the repository root, run
+`node --test --test-isolation=none tests/codex-feature-type-relief.test.mjs`.
+`tmp/feature-browser-plan.json` checks the actual upstream face, changed layer
+transforms, outline selection, and reset in desktop and touch Chromium.
+Independent Pages build and browser review remain required: inspect visible
+focus, no horizontal overflow, reduced motion, and the no-JavaScript relief.
+No publication is performed by this proposal.
+
 ### Résumé passage reader
 
 Run `help`, then `open resume-reader.html` in the terminal, or visit
