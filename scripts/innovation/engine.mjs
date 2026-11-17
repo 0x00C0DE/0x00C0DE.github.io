@@ -125,15 +125,15 @@ function opportunity(repo, categories) {
         accessibility: 'Let keyboard and pointer users manipulate the same example with equivalent feedback.',
         experimental: 'Use a minimal simulation and make its output accessible through a text summary.',
     }[category] ?? 'Turn one mechanism described in the upstream evidence into a controllable input/output experiment.';
-    const destination = 'standalone post-entry page registered in terminal help';
+    const destination = 'refinement of an existing terminal command or UI interaction';
     const proposal = {
         id: id((repo.providerId ?? repo.name.toLowerCase()) + '\0' + label),
-        title: 'Explore ' + label + ' in an interactive lab',
+        title: 'Improve terminal interaction with ' + label,
         category, sources: [repo.name], technique: topic ?? 'README-described technique',
         evidence: [{ repository: repo.name, path: repo.evidence.path, excerpt }],
-        adaptation: 'Prototype an interactive demonstration of ' + label + ' as a ' + destination + '.',
-        value: 'Let visitors vary inputs and inspect the results directly.',
-        approach: design,
+        adaptation: 'Adapt ' + label + ' as a ' + destination + ', with acceptance checks on that existing task. Do not create standalone demos or new HTML pages.',
+        value: 'Help visitors discover commands, read output or navigate the existing terminal.',
+        approach: 'Apply to existing help, command output or navigation. ' + design,
         difficulty: 'needs assessment', performance: 'budget and measure on mobile before implementation',
         dependencies: [], compatibility: 'requires validation in a static browser-only prototype',
         security: 'review dependency and data boundaries before implementation',

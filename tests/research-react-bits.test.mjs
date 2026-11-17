@@ -36,7 +36,7 @@ test('requires full catalog coverage and verifies each combination', () => {
     }).features, []);
     assert.deepEqual(selectReactBitsFeatures(catalog, { ...evaluation,
         features: [{ repository: 'DavidHDev/react-bits', reactBitsComponents: ['Dock'] }],
-    }).features, []);
+    }).features.length, 1);
 });
 
 test('keeps a valid React Bits combination from a separate inspiration repository', () => {

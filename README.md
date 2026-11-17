@@ -1010,3 +1010,11 @@ focus between native controls. The pixel
 observer reads real upstream draws without driving them. Build and Chromium acceptance
 remain with the workflow; visual quality, touch ranges, focus, graphics-disabled fallback,
 and no-JavaScript rendering still require review against that artifact. Publication is deferred.
+
+## Automated terminal UI improvements
+
+The research handoff selects React Bits integrations for the existing terminal, such as help command lettering, command discovery, output hierarchy and navigation feedback. Each candidate must identify an existing visitor task and verify it at `/` or a terminal command link such as `/?command=help`. One useful component is sufficient.
+
+Selection rejects standalone HTML demos and component playgrounds. Staged-change validation rejects `pages/` edits and requires a modification to an existing terminal integration file. The implementation and independent review prompts require actual Canvas/Pretext integration, useful browser assertions, scoped styles and preservation of selection, copy, command execution, focus, keyboard, touch and reduced motion. The intro and entry transition remain protected.
+
+From the repository root in PowerShell, run `node --test --test-isolation=none tests/research-*.test.mjs` to verify the research workflow. The Windows handoff retains its 55-minute (`PT55M`) polling interval.

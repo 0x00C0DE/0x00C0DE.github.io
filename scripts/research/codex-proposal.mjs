@@ -4,40 +4,26 @@ import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { selectReactBitsFeatures } from './react-bits.mjs';
 
-export const designRoutePattern = /^\/pages\/[a-z0-9-]+\.html$/;
-
-function experiencePath(route) {
-    if (typeof route !== 'string' || !designRoutePattern.test(route)) {
-        throw new Error('Invalid public design route: ' + route);
-    }
-    return route.slice(1);
-}
-
-function isExperiencePath(path) {
-    return !/^pages\/projects?[-.]/.test(path)
-        && !/(?:\/|-)(?:reader|archive|digest)(?:-|\.html$)/.test(path);
-}
+// Automated UI work must be reachable in the existing terminal, including help deep links.
+export const designRoutePattern = /^\/(?:index\.html)?(?:\?command=[a-z0-9%+._-]+)?$/i;
+const terminalPathPattern = /^(?:index\.html|src\/(?:commands\.js|term\.js|terminal-[a-z0-9-]+\.mjs))$/;
 
 export function selectExperiences(features, existingPaths) {
     const known = new Set(existingPaths);
-    return features.filter(feature => {
-        const path = experiencePath(feature.route);
-        return isExperiencePath(path) && !known.has(path);
-    });
+    return features.filter(feature => typeof feature.route === 'string'
+        && designRoutePattern.test(feature.route) && known.has('index.html'));
 }
 
 export function validateExperience(changes, route) {
-    const page = experiencePath(route);
-    if (!isExperiencePath(page)) throw new Error('Selected route must be a standalone visual experience');
-    if (!changes.some(change => change.path === page && change.previousMode === '000000')) {
-        throw new Error('Experience must add the selected route as a new page');
+    if (typeof route !== 'string' || !designRoutePattern.test(route)) {
+        throw new Error('Selected route must be an existing terminal route');
     }
-    for (const change of changes) {
-        if (change.path === 'README.md') continue;
-        if (change.previousMode !== '000000') throw new Error('Experience cannot modify existing file: ' + change.path);
-        if (change.path.startsWith('pages/') && change.path !== page) {
-            throw new Error('Experience can only add the selected public page; put new assets in src/');
-        }
+    if (changes.some(change => change.path.startsWith('pages/'))) {
+        throw new Error('Standalone demo pages are outside terminal integration scope');
+    }
+    if (!changes.some(change => terminalPathPattern.test(change.path)
+        && ['100644', '100755'].includes(change.previousMode))) {
+        throw new Error('Feature must modify an existing terminal integration file');
     }
 }
 
@@ -121,7 +107,7 @@ export function selectLead(report, revision, acceptsSurface = () => true) {
 }
 
 export function validateChanges(changes) {
-    const allowed = /^(?:README\.md|pages\/[a-z0-9-]+\.(?:html|css|mjs)|src\/codex-feature-[a-z0-9-]+\.(?:mjs|css|jsx|react-bits\.json)|tests\/codex-feature-[a-z0-9-]+\.test\.mjs)$/;
+    const allowed = /^(?:README\.md|index\.html|src\/(?:commands\.js|term\.js|terminal-[a-z0-9-]+\.mjs)|src\/codex-feature-[a-z0-9-]+\.(?:mjs|css|jsx|react-bits\.json)|tests\/codex-feature-[a-z0-9-]+\.test\.mjs)$/;
     if (changes.length < 3 || changes.length > 10
         || changes.some(({ mode, previousMode, path }) => !allowed.test(path)
             || (mode !== '100644' && !(mode === '100755' && previousMode === mode)))
@@ -180,13 +166,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
             console.warn('Excluded repositories with invalid README evidence: ' + invalidEvidence.join(', '));
             if (!features.length) throw new Error('No verified feature selection with complete README evidence');
         }
-        const existing = git('ls-files', '-z', '--', 'pages/').split('\0');
+        const existing = git('ls-files', '-z', '--', 'index.html').split('\0');
         const selected = selectReactBitsFeatures(report.reactBits, { ...evaluation, features });
         if (selected.rejected.length) {
             console.warn(`Excluded ${selected.rejected.length} features with invalid React Bits combinations.`);
         }
         const experiences = selectExperiences(prioritizeInnovations(report, selected.features), existing);
-        if (features.length && !experiences.length) console.log('No qualifying new visual experience route.');
+        if (features.length && !experiences.length) console.log('No qualifying improvement to the existing terminal.');
         await writeFile(selectionPath, JSON.stringify(experiences));
         console.log('Verified required Trending and design-reference assessment coverage.');
     } else if (process.argv[2] === 'verify') {

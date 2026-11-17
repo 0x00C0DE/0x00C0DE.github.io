@@ -49,7 +49,7 @@ export function selectReactBitsFeatures(catalog, evaluation) {
     const rejected = [];
     for (const feature of evaluation.features ?? []) {
         const components = feature?.reactBitsComponents;
-        if (!Array.isArray(components) || components.length < 2 || components.length > 6
+        if (!Array.isArray(components) || components.length < 1 || components.length > 6
             || new Set(components).size !== components.length || components.some(id => !direct.has(id))) {
             rejected.push(feature);
         } else {

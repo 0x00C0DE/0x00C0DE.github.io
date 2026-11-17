@@ -2,24 +2,29 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { selectExperiences, selectLead, validateChanges, validateExperience } from '../scripts/research/codex-proposal.mjs';
 
-test('selects new standalone experience routes and rejects readers and existing pages', () => {
-    const experience = { route: '/pages/light-studio.html' };
-    const reader = { route: '/pages/archive-reader.html' };
-    const explore = { route: '/pages/explore.html' };
-    assert.deepEqual(selectExperiences([reader, explore, experience], ['pages/explore.html']), [experience]);
-    assert.throws(() => selectExperiences([{ route: '/' }], []), /route/i);
-    assert.throws(() => selectExperiences([{ route: '/pages/../admin.html' }], []), /route/i);
+test('selects existing terminal routes and rejects standalone demos and traversal', () => {
+    const help = { route: '/?command=help' };
+    const terminal = { route: '/index.html' };
+    assert.deepEqual(selectExperiences([
+        { route: '/pages/light-studio.html' }, { route: '/pages/explore.html' }, help, terminal,
+    ], ['index.html', 'pages/explore.html']), [help, terminal]);
+    assert.deepEqual(selectExperiences([terminal], []), []);
+    for (const route of ['/pages/../index.html', '/?command=help&redirect=evil', '//evil.test']) {
+        assert.deepEqual(selectExperiences([{ route }], ['index.html']), []);
+    }
 });
 
-test('standalone experiences must add the selected page and cannot modify existing assets', () => {
-    const page = { path: 'pages/light-studio.html', previousMode: '000000' };
-    const asset = { path: 'src/codex-feature-light-studio.jsx', previousMode: '000000' };
+test('requires actual terminal integration and rejects new HTML pages and demo-only assets', () => {
+    const terminal = { path: 'src/terminal-canvas-core.mjs', previousMode: '100644' };
+    const asset = { path: 'src/codex-feature-help.jsx', previousMode: '000000' };
     const docs = { path: 'README.md', previousMode: '100644' };
-    const route = '/pages/light-studio.html';
-    assert.doesNotThrow(() => validateExperience([page, asset, docs], route));
-    assert.throws(() => validateExperience([asset, docs], route), /new page/);
-    assert.throws(() => validateExperience([page, { ...asset, previousMode: '100644' }], route), /existing/);
-    assert.throws(() => validateExperience([page, { ...page, path: 'pages/another.html' }], route), /selected/);
+    const route = '/?command=help';
+    assert.doesNotThrow(() => validateExperience([terminal, asset, docs], route));
+    assert.throws(() => validateExperience([asset, docs], route), /terminal integration/i);
+    assert.throws(() => validateExperience([terminal, asset], '/pages/light-studio.html'), /terminal route/i);
+    assert.throws(() => validateExperience([terminal, {
+        path: 'pages/light-studio.html', previousMode: '000000',
+    }], route), /standalone/i);
 });
 
 test('only current reports with a relevant lead trigger Codex', () => {
@@ -30,12 +35,12 @@ test('only current reports with a relevant lead trigger Codex', () => {
 test('requires README and tests, and rejects privileged or nonregular paths', () => {
     const good = [
         { path: 'README.md', mode: '100644' },
-        { path: 'pages/bitcoin.html', mode: '100644' },
+        { path: 'src/commands.js', mode: '100644' },
         { path: 'tests/codex-feature-chart.test.mjs', mode: '100644' },
     ];
     assert.doesNotThrow(() => validateChanges(good));
-    for (const path of ['index.html', 'src/home-intro.css', 'src/home-intro.mjs', 'src/refresh-to-intro.js',
-        '.github/workflows/pages.yml', 'src/commands.js', 'worker/src/index.js', 'pages/../index.html']) {
+    for (const path of ['src/home-intro.css', 'src/home-intro.mjs', 'src/refresh-to-intro.js',
+        '.github/workflows/pages.yml', 'worker/src/index.js', 'pages/../index.html']) {
         assert.throws(() => validateChanges([...good, { path, mode: '100644' }]));
     }
     assert.throws(() => validateChanges(good.slice(1)));
@@ -54,14 +59,12 @@ test('automated review fails closed unless it explicitly approves with zero find
     }
 });
 
-test('allows native details on all seven project pages in one release', () => {
-    const paths = [
-        'README.md',
-        ...Array.from({ length: 7 }, (_, index) => 'pages/project-' + index + '.html'),
-        'src/codex-feature-project-details.css',
-        'tests/codex-feature-project-details.test.mjs',
-    ];
-    const changes = paths.map(path => ({ path, mode: '100644' }));
+test('rejects standalone page files even alongside a terminal edit', () => {
+    const changes = ['README.md', 'src/term.js', 'tests/codex-feature-help.test.mjs']
+        .map(path => ({ path, mode: '100644', previousMode: '100644' }));
     assert.doesNotThrow(() => validateChanges(changes));
-    assert.throws(() => validateChanges([...changes, { path: 'pages/other.html', mode: '100644' }]));
+    assert.doesNotThrow(() => validateChanges([...changes, { path: 'index.html', mode: '100644' }]));
+    assert.throws(() => validateChanges([...changes, {
+        path: 'pages/light-studio.html', mode: '100644', previousMode: '000000',
+    }]));
 });

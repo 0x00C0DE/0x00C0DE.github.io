@@ -27,3 +27,5 @@ The site uses static HTML, native JavaScript, Canvas, and Pretext. GitHub Pages 
 - Keep projects and the résumé discoverable.
 - Ground portfolio claims in project pages, write-ups, and demonstrations.
 - Preserve direct navigation and the terminal command interface.
+- Integrate React Bits into the existing terminal's help lettering, command output and controls where it improves a visitor task.
+- Automated design work must improve existing terminal interactions. Reject standalone component showcases and new HTML demo pages.
