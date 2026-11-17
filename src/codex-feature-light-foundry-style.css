@@ -1,0 +1,35 @@
+#light-foundry-page { margin: 0; background: #080b0a; color: #dce4dc; font: 15px/1.6 'Courier New', monospace; }
+#light-foundry-page * { box-sizing: border-box; }
+#light-foundry-page main { max-width: 1120px; margin: auto; padding: 28px clamp(18px, 5vw, 64px); }
+#light-foundry-page nav, #light-foundry-page footer { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; color: #a0afa3; }
+#light-foundry-page a { color: #8fe388; }
+#light-foundry-page header { margin: 40px 0 20px; }
+#light-foundry-page .eyebrow { text-transform: uppercase; letter-spacing: .13em; font-size: 11px; color: #a0afa3; }
+#light-foundry-page h1 { font-size: clamp(36px, 6vw, 70px); line-height: 1.1; letter-spacing: -.06em; margin: 12px 0; font-weight: 400; }
+#light-foundry-page h1 span { color: #8fe388; }
+#light-foundry-page .foundry-scene { --beam: 50%; --light: #9a8cff; --power: .7; position: relative; height: clamp(280px, 42vw, 420px); margin: 0; overflow: hidden; isolation: isolate; background: #050706; border: 1px solid #29352d; }
+#light-foundry-page .foundry-slab { position: absolute; left: 12%; right: 12%; top: 49%; height: 70%; border-radius: 18px; background: linear-gradient(125deg, #1a201d, #090d0b 70%); border: 1px solid #39423c; }
+#light-foundry-page .foundry-fallback { position: absolute; inset: 0; opacity: var(--power); pointer-events: none; background: radial-gradient(ellipse 180px 28px at var(--beam) 49%, var(--light), transparent); }
+#light-foundry-page .foundry-fallback::before { content: ''; position: absolute; top: 0; height: 49%; left: var(--beam); width: 3px; background: #fff; box-shadow: 0 0 8px 3px var(--light), 0 0 32px 8px var(--light); }
+#light-foundry-page .foundry-laser { position: absolute; inset: 0; pointer-events: none; }
+#light-foundry-page figcaption { position: absolute; bottom: 20px; left: 24px; right: 16px; z-index: 2; font-size: 12px; color: #dce4dc; }
+#light-foundry-page .foundry-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; padding: 24px 0 0; }
+#light-foundry-page label { display: flex; justify-content: space-between; }
+#light-foundry-page output { color: #8fe388; }
+#light-foundry-page input { width: 100%; min-height: 44px; accent-color: #9a8cff; margin: 0; }
+#light-foundry-page .foundry-palettes { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+#light-foundry-page button { min-height: 44px; border: 1px solid #455148; padding: 10px 16px; }
+#light-foundry-page button[aria-pressed=true] { border-color: #c0b6ff; background: #252333; }
+#light-foundry-page :focus-visible { outline: 2px solid #8fe388; outline-offset: 4px; }
+#light-foundry-page #foundry-status { color: #8fe388; font-size: 12px; }
+#light-foundry-page .foundry-note { max-width: 62ch; color: #a0afa3; font-size: 12px; }
+#light-foundry-page footer { border-top: 1px solid #29352d; margin-top: 32px; padding-top: 16px; }
+@media (max-width: 620px) {
+    #light-foundry-page .foundry-controls { grid-template-columns: 1fr; gap: 12px; }
+    #light-foundry-page nav span { display: none; }
+    #light-foundry-page footer { flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+    #light-foundry-page button { transition: none; transform: none; }
+    #light-foundry-page .specular-button__light { display: none; }
+}

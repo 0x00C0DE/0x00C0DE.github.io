@@ -915,3 +915,34 @@ monitor, local usage-planning inputs, and how to run the checks.
   `node --test --test-isolation=none tests/codex-feature-shell-lifecycle.test.mjs`.
 
 See [Innovation discovery](docs/innovation-discovery.md) for scheduled research reports, backlog, and configuration.
+
+### Light Foundry
+
+Run `open light-foundry.html` in the terminal, or visit [Light Foundry](pages/light-foundry.html).
+Compose a luminous beam across a dark slab: move position from 25% to 75%, change
+intensity, or choose violet, ember, and ice. Reset restores 50% / 70% / violet.
+Unlike the fixed intro, this post-entry scene lets visitors author the light.
+Original integration uses actual pinned [React Bits](https://github.com/DavidHDev/react-bits)
+components: **LaserFlow** supplies the focal beam, edge lighting, and corner spill;
+**SpecularButton** supplies palette and Reset actions with matching illuminated rims.
+No new dependencies, services, or saved state are introduced.
+
+Shader time is frozen, entrance motion is disabled, and explicit changes redraw the
+still scene for both motion preferences. Native labeled ranges support arrow keys,
+Home/End, and touch; actions have 44px targets and visible focus. Page styles are
+scoped to `#light-foundry-page`. A CSS composition remains interactive when graphics
+initialization fails or its context is lost. Without JavaScript, a static violet
+composition and terminal link remain available.
+
+From the repository root, run
+`node --test --test-isolation=none tests/codex-feature-light-foundry.test.mjs`.
+The proposal includes `tmp/feature-browser-plan.json` for desktop/touch Chromium.
+The workflow builds pinned JSX/CSS and performs browser acceptance independently;
+the plan asserts measurements from actual upstream WebGL pixels (beam centroid,
+RGB balance, brightness including layer opacity, and byte-identical Reset).
+It also checks frozen shader time, keyboard button activation, and range taps;
+the Windows runner uses reduced motion in both viewport profiles. The pixel probe
+reads after each redraw, never drives the effect, and exposes diagnostic
+attributes on the scene. Reset compares the full framebuffer and layer opacity;
+graphics-disabled fallback remains a manual build check.
+Publication remains with the workflow.
