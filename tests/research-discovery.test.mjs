@@ -26,6 +26,12 @@ test('evaluation accounts for every repository rank in all three windows', () =>
     assert.deepEqual(discovery.verifyEvaluation(trending, { assessments: withEvidence, features: [feature, second] }),
         [feature, second]);
     assert.deepEqual(discovery.verifyEvaluation(trending, { assessments: withEvidence, features: [] }), []);
+    const surplus = { ...withEvidence[0], window: 'monthly', readmeEvidence: 'Irrelevant evidence' };
+    assert.deepEqual(discovery.verifyEvaluation(trending,
+        { assessments: [...withEvidence, surplus], features: [second] }), [second]);
+    assert.throws(() => discovery.verifyEvaluation(trending,
+        { assessments: [...withEvidence, withEvidence[0]], features: [second] }), /duplicate/i);
+
     assert.throws(() => discovery.verifyEvaluation(trending,
         { assessments: withEvidence, features: [feature, { ...feature, title: ' project FILTERS ' }] }), /duplicate/i);
     assert.throws(() => discovery.verifyEvaluation(trending, { assessments: withEvidence.slice(1), feature }), /coverage/i);

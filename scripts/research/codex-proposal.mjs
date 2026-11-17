@@ -79,8 +79,11 @@ export function selectVerifiedFeatures(trending, evaluation) {
         repo.name, repo.readme?.text && normalizeExcerpt(repo.readme.text),
     ]));
     const invalidEvidence = new Set();
+    const missing = new Set(expected);
     for (const { window, repository, reason, readmeEvidence } of evaluation.assessments ?? []) {
-        if (!reason?.trim() || !expected.delete(window + '/' + repository)) {
+        const placement = window + '/' + repository;
+        if (!expected.has(placement)) continue;
+        if (!reason?.trim() || !missing.delete(placement)) {
             throw new Error('Invalid or duplicate Trending assessment coverage');
         }
         const readme = readmes.get(repository);
@@ -89,7 +92,7 @@ export function selectVerifiedFeatures(trending, evaluation) {
             invalidEvidence.add(repository);
         }
     }
-    if (expected.size) throw new Error('Incomplete Trending assessment coverage');
+    if (missing.size) throw new Error('Incomplete Trending assessment coverage');
     if (!Array.isArray(evaluation.features)) throw new Error('Missing Trending feature list');
     const titles = new Set();
     for (const feature of evaluation.features) {
@@ -185,7 +188,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         const experiences = selectExperiences(prioritizeInnovations(report, selected.features), existing);
         if (features.length && !experiences.length) console.log('No qualifying new visual experience route.');
         await writeFile(selectionPath, JSON.stringify(experiences));
-        console.log(`Verified ${evaluation.assessments.length} daily, weekly, and monthly Trending assessments.`);
+        console.log('Verified required Trending and design-reference assessment coverage.');
     } else if (process.argv[2] === 'verify') {
         verifyIndex(process.argv[3]);
     } else if (process.argv[2] === 'review') {
