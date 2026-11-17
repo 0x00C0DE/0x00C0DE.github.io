@@ -15,8 +15,16 @@ from the exact main revision. Feature candidates still pass automated review,
 tests, Pages deployment and live verification before the release reporter
 creates a chat.
 
-Innovation reports and their ranked backlog remain advisory. The shipping
-path selects candidates through the existing Trending and React Bits review.
+The shipping preflight runs the same Innovation Discovery engine against the
+current Trending evidence. It includes ranked, evidence-backed leads in the
+handoff. The local signed-in Codex runner checks novelty against the site,
+ranks concrete adaptations, and implements a standalone experience using
+upstream React Bits. The verifier checks any cited idea ID against the
+repository and its current Trending README. Ranked ideas are tried before
+uncited fallbacks, and published commits record the innovation ID and technique.
+The separate Innovation workflow still publishes the broader research backlog.
+A cycle can end without a release when the runner is unavailable or all
+candidates fail review or browser verification.
 Setting the publication policy mode to research-only pauses automatic feature
 implementation and handoff while both research workflows continue producing
 reports. Preserve artifacts and checkpoints from prior releases for

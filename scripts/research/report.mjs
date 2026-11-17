@@ -1,3 +1,4 @@
+import { rankHandoff } from './innovation-handoff.mjs';
 import { discoverTrending } from './trending.mjs';
 import { collectReactBits } from './react-bits.mjs';
 import { appendFile, lstat, mkdir, open, readFile, readdir, rename, writeFile } from 'node:fs/promises';
@@ -8,7 +9,7 @@ import { collectReleases } from './releases.mjs';
 
 const [stateDir = 'tmp/codex-research', inputFile] = process.argv.slice(2);
 const now = new Date();
-const statePath = join(stateDir, 'history.json');
+const statePath = process.env.CODEX_RESEARCH_HISTORY_PATH ?? join(stateDir, 'history.json');
 const reportPath = join(stateDir, 'report.json');
 let state = { schema: 1, history: [] };
 
@@ -56,9 +57,11 @@ if (!existingRobots && publicPages.length >= 3) {
         inspiration: trending.repositories.filter(repo => repo.fit?.surface === 'sitemap.xml').map(repo => repo.name),
     });
 }
+const innovation = await rankHandoff({ trending, date: now.toISOString().slice(0, 10),
+    history: state.innovation, token: process.env.GH_TOKEN });
 const report = {
     schema: 1, observedAt: now.toISOString(), revision: process.env.GITHUB_SHA ?? null,
-    decision, ...result, featureCandidates, trending, reactBits,
+    decision, ...result, featureCandidates, trending, reactBits, innovation: innovation.report,
     projectNavigationPublished: projects.includes('<nav aria-label="Pinned projects">'),
     handoff: {
         releaseSkill: skillPath,
@@ -68,7 +71,7 @@ const report = {
 
 await mkdir(stateDir, { recursive: true });
 const pendingState = statePath + '.' + process.pid + '.tmp';
-await writeFile(pendingState, JSON.stringify({ schema: 1, history: result.history }, null, 2) + '\n', { flag: 'wx' });
+await writeFile(pendingState, JSON.stringify({ schema: 1, history: result.history, innovation: innovation.history }, null, 2) + '\n', { flag: 'wx' });
 await rename(pendingState, statePath);
 await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
 
@@ -89,6 +92,7 @@ const summary = [
     '### GitHub Trending evaluation',
     '',
     '- Repositories collected — ' + trending.repositories.length,
+    '- Ranked innovation leads for Codex — ' + innovation.report.backlog.length,
     '- Free React Bits visual components collected — ' + reactBits.length,
     '- Design references — ' + trending.repositories.filter(repo => repo.designReference)
         .map(repo => '[' + repo.name + '](https://github.com/' + repo.name + ')').join(', '),

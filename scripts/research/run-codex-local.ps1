@@ -101,6 +101,13 @@ if ($FeatureIndex -lt 0) {
     Review every visual component in the report's reactBits catalog. Compare patterns with the site's
     current behavior and README so each cycle can add a design or substantively refine a previous one.
     Return each reviewed catalog ID once in reactBitsReviewed.
+    Read innovation.backlog in the report. Rank those evidence-backed Trending discoveries against the
+    current site for novelty, user value, implementation effort, and fit with upstream React Bits.
+    Prefer adapting the strongest usable technique to a new interactive feature. For any idea based
+    on a ranked lead, return its exact id as innovationId and use one of its listed repository names.
+    Give an alternative with innovationId null when no ranked lead makes a viable feature.
+    Keep acceptance checks simple and deterministic. Browser verification runs at desktop and mobile
+    with OS reduced motion enabled, so controls should change a visible still state in that mode.
     Use discovery tags as optional clues and look for original ideas beyond the tagged categories.
     Explore new visitor capabilities across creative tools, graphics, motion, simulation, play, spatial
     experiences, typography, audio, visualization, design systems, and novel input methods. Consider
@@ -278,8 +285,11 @@ $details
 Invoke-Checked git fetch origin main
 if ((Invoke-Checked git rev-parse FETCH_HEAD) -ne $base) { throw 'Main advanced. Reassess from the latest revision.' }
 $inspiration = "https://github.com/$($selectedFeature.repository)"
+$innovationNote = if ($selectedFeature.innovationId) {
+    "`nInnovation: $($selectedFeature.innovationId) — $($selectedFeature.innovationTechnique)"
+} else { '' }
 $patterns = $selectedFeature.reactBitsComponents -join ', '
-Invoke-Checked git -c core.hooksPath=/dev/null commit -m 'Implement reviewed Trending site feature' -m "Feature: $($selectedFeature.title)`nInspiration: $inspiration`nReact Bits components: $patterns`nLive route: https://0x00c0de.github.io$($selectedFeature.route)`nLive assets: /$assetStem.js, /$assetStem.css, /src/react-bits-license.txt" -m "Research brief: $($selectedFeature.brief)"
+Invoke-Checked git -c core.hooksPath=/dev/null commit -m 'Implement reviewed Trending site feature' -m "Feature: $($selectedFeature.title)`nInspiration: $inspiration`nReact Bits components: $patterns`nLive route: https://0x00c0de.github.io$($selectedFeature.route)`nLive assets: /$assetStem.js, /$assetStem.css, /src/react-bits-license.txt$innovationNote" -m "Research brief: $($selectedFeature.brief)"
 $revision = Invoke-Checked git rev-parse HEAD
 $publicPaths = @($changedPaths | Where-Object { $_ -match '^(pages|src)/' -and $_ -notmatch '\.jsx$|\.react-bits\.json$' })
 $publicPaths += @("$assetStem.js", "$assetStem.css", 'src/react-bits-license.txt')

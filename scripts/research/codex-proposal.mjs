@@ -1,3 +1,4 @@
+import { prioritizeInnovations } from './innovation-handoff.mjs';
 import { execFileSync } from 'node:child_process';
 import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -178,7 +179,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
             if (!features.length) throw new Error('No verified feature selection with complete README evidence');
         }
         const existing = git('ls-files', '-z', '--', 'pages/').split('\0');
-        const experiences = selectExperiences(features, existing);
+        const experiences = selectExperiences(prioritizeInnovations(report, features), existing);
         if (features.length && !experiences.length) console.log('No qualifying new visual experience route.');
         await writeFile(selectionPath, JSON.stringify(experiences));
         console.log(`Verified ${evaluation.assessments.length} daily, weekly, and monthly Trending assessments.`);

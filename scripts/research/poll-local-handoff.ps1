@@ -34,6 +34,7 @@ try {
         return
     }
     if ($policy.mode -ne 'legacy-publication') { throw 'Invalid scheduled research publication policy.' }
+    $env:CODEX_RESEARCH_HISTORY_PATH = Join-Path $state.FullName 'research-history.json'
     $quotaPath = Join-Path $state.FullName 'codex-quota.json'
     $handoff = $null
     $resumeReport = $null

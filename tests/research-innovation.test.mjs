@@ -107,3 +107,24 @@ test('Markdown preserves evidence as text and presents the same proposal as JSON
     assert.match(markdown(report), /https:\/\/github\.com\/lab\/maps/);
     assert.ok(markdown(report).includes('\\[project documentation\\]'));
 });
+
+test('prioritizes verified innovation-backed features and discards mismatched citations', async () => {
+    const { prioritizeInnovations } = await import('../scripts/research/innovation-handoff.mjs');
+    const opportunity = { id: '0123456789abcdefabcd', sources: ['lab/optics'],
+        status: 'experimental', score: 78, confidence: 80, technique: 'Layered beam rendering',
+        evidence: [{ repository: 'lab/optics', excerpt: 'Draw light with layered transparent geometry.' }] };
+    const fallback = { repository: 'lab/other', innovationId: null };
+    const supported = { repository: 'lab/optics', innovationId: opportunity.id };
+    const mismatch = { repository: 'lab/other', innovationId: opportunity.id };
+    const trending = { repositories: [{ name: 'lab/optics', ranks: { daily: 1 },
+        readme: { text: '# Optics\nDraw light with layered transparent geometry.' } }] };
+    const report = { trending, innovation: { backlog: [opportunity] } };
+    assert.deepEqual(prioritizeInnovations(report, [fallback, mismatch, supported]), [
+        { ...supported, innovationTechnique: opportunity.technique }, fallback,
+    ]);
+    assert.deepEqual(prioritizeInnovations({ ...report, trending: { repositories: [] } }, [supported]), []);
+    const stale = { ...opportunity, evidence: [{ repository: 'lab/optics',
+        excerpt: 'Old evidence removed from the current README.' }] };
+    assert.deepEqual(prioritizeInnovations({ ...report, innovation: { backlog: [stale] } }, [supported]), []);
+    assert.deepEqual(prioritizeInnovations(report, [{ ...supported, innovationId: '' }]), []);
+});

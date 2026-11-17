@@ -266,6 +266,8 @@ export async function research({ github, trend, date, history, config = defaults
         }
     }
     const ordered = [...pool.values()].sort((a, b) =>
+        Number(!!b.trendingEvidence?.text && compatibleLicenses.has(b.license))
+        - Number(!!a.trendingEvidence?.text && compatibleLicenses.has(a.license)) ||
         Number(!!b.license) - Number(!!a.license) || Number(!!b.topics.length) - Number(!!a.topics.length)
         || Number(!!b.trending) - Number(!!a.trending));
     const topics = evolveTopics(registry, ordered, outcomes, date, config.topics);
@@ -278,7 +280,9 @@ export async function research({ github, trend, date, history, config = defaults
         const previous = prior.repositories[key];
         const metrics = observe(previous?.metrics, repo.stars, date);
         const revision = repo.revision ?? (repo.trendingEvidence?.text ? id(repo.trendingEvidence.text) : null);
-        let evidence = previous && revision && previous.revision === revision ? previous.evidence : null;
+        let evidence = repo.trendingEvidence?.text ? { path: 'README (Trending evidence)',
+            text: repo.trendingEvidence.text.slice(0, 8000) } : null;
+        if (!evidence && previous && revision && previous.revision === revision) evidence = previous.evidence;
         if (!evidence && inspections < config.inspections && !signal?.aborted) {
             inspections++;
             try {
