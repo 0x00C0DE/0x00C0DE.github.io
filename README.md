@@ -946,3 +946,36 @@ reads after each redraw, never drives the effect, and exposes diagnostic
 attributes on the scene. Reset compares the full framebuffer and layer opacity;
 graphics-disabled fallback remains a manual build check.
 Publication remains with the workflow.
+
+### Silk & Chrome Material Mixer
+
+Run `open material-mixer.html` in the terminal, or visit
+[Silk & Chrome](pages/material-mixer.html). A large split material surface appears
+on arrival. Move Silk reveal from 25% to 75%, then raise Fold density to tighten
+the satin detail. Undo restores the previous setting; Reset restores 50% / density 1.
+Both surfaces stay mounted, preserving Chrome's random initial phase within the session.
+This adds material composition beyond Light Foundry's beam and palette controls.
+
+Original integration composes actual pinned [React Bits](https://github.com/DavidHDev/react-bits):
+**LiquidChrome** supplies reflective silver filaments; **Silk** supplies rose woven folds;
+**SpecularButton** supplies matching Undo and Reset rims. Hallmark's material-first
+composition is the conceptual inspiration; no Hallmark source or report artwork is reused.
+The research report's licensing restriction still applies. No dependencies are added.
+
+Shader speed is zero, entrances and pointer motion are disabled, and explicit settings
+redraw the scene. Native ranges support keyboard and touch; actions have 44px targets
+and visible focus. Surface pixel density is capped at 1.5. Styles stay within
+`#material-mixer-page`; reduced motion also removes decorative control transitions.
+Graphics failure or context loss leaves interactive CSS materials; without JavaScript,
+a static material study and terminal link remain usable. State lasts only until reload.
+
+From the repository root run
+`node --test --test-isolation=none tests/codex-feature-material-mixer.test.mjs`.
+The proposal's `tmp/feature-browser-plan.json` targets desktop and touch Chromium with
+reduced motion. It checks seam limits, actual nonblank upstream pixels, changed fold
+pixels, Undo and same-session Reset equality. A center tap must set density 2 and
+change rendered pixels before any keyboard action; Tab / Shift+Tab must move visible
+focus between native controls. The pixel
+observer reads real upstream draws without driving them. Build and Chromium acceptance
+remain with the workflow; visual quality, touch ranges, focus, graphics-disabled fallback,
+and no-JavaScript rendering still require review against that artifact. Publication is deferred.

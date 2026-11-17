@@ -1,0 +1,26 @@
+#material-mixer-page { margin: 0; background: #080b0a; color: #e3e9e3; font: 16px/1.5 monospace; }
+#material-mixer-page * { box-sizing: border-box; }
+#material-mixer-page main { max-width: 1120px; margin: auto; padding: 24px; }
+#material-mixer-page nav { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+#material-mixer-page a { color: #a6e5bc; }
+#material-mixer-page header { margin: 28px 0 20px; }
+#material-mixer-page h1 { font-size: clamp(32px, 6vw, 64px); line-height: 1.1; margin: 12px 0; letter-spacing: -.06em; }
+#material-mixer-page h1 span { color: #b7e3c5; }
+#material-mixer-page header p:first-child, #material-mixer-page footer { color: #a8b8ae; font-size: 12px; letter-spacing: .08em; }
+#material-mixer-page .mixer-scene { --seam: 50%; --fold: 44px; position: relative; margin: 0; height: clamp(240px, 43vh, 460px); overflow: hidden; border: 1px solid #61756a; background: #141b19; }
+#material-mixer-page .mixer-chrome, #material-mixer-page .mixer-silk { position: absolute; inset: 0; }
+#material-mixer-page .mixer-chrome { background: repeating-linear-gradient(115deg, #151a1b 0, #cbd6d8 16px, #fff 20px, #313b3c 30px, #0b1011 55px); }
+#material-mixer-page .mixer-silk { clip-path: inset(0 calc(100% - var(--seam)) 0 0); background: repeating-linear-gradient(32deg, #291321 0, #ad738e calc(var(--fold) * .45), #e2b4c6 calc(var(--fold) * .6), #4a263b var(--fold)); }
+#material-mixer-page .mixer-seam { position: absolute; left: var(--seam); top: 0; bottom: 0; border-left: 2px solid #d8f3e2; pointer-events: none; }
+#material-mixer-page figcaption { position: absolute; bottom: 12px; left: 12px; padding: 6px 10px; background: #080b0ae8; font-size: 12px; }
+#material-mixer-page .mixer-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 32px; margin-top: 20px; }
+#material-mixer-page label { display: flex; justify-content: space-between; gap: 12px; }
+#material-mixer-page input { width: 100%; min-height: 44px; accent-color: #e0abc2; cursor: ew-resize; }
+#material-mixer-page .mixer-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+#material-mixer-page button { min-height: 44px; min-width: 100px; border: 1px solid #708e7d; background: #132019; color: #e3e9e3; font: inherit; cursor: pointer; }
+#material-mixer-page button:disabled { opacity: .5; cursor: default; }
+#material-mixer-page :focus-visible { outline: 3px solid #c6f6d7; outline-offset: 4px; }
+#material-mixer-page [hidden] { display: none !important; }
+#material-mixer-page footer { margin-top: 32px; }
+@media (max-width: 600px) { #material-mixer-page main { padding: 16px; } #material-mixer-page .mixer-controls { grid-template-columns: 1fr; gap: 8px; } }
+@media (prefers-reduced-motion: reduce) { #material-mixer-page *, #material-mixer-page *::before, #material-mixer-page *::after { animation: none !important; transition: none !important; } }
