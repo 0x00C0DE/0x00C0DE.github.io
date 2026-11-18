@@ -80,7 +80,7 @@ export function selectVerifiedFeatures(trending, evaluation) {
             invalidEvidence.add(repository);
         }
     }
-    if (missing.size) throw new Error('Incomplete Trending assessment coverage');
+    if (missing.size) throw new Error('Incomplete Trending assessment coverage: ' + [...missing].join(', '));
     if (!Array.isArray(evaluation.features)) throw new Error('Missing Trending feature list');
     const titles = new Set();
     for (const feature of evaluation.features) {

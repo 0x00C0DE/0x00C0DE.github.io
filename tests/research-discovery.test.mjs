@@ -99,3 +99,12 @@ test('describes broad fallback discoveries without site fit hints', () => {
     assert.deepEqual(discovery.describeHandoff(candidate, 'local-123'),
         { lead: 'Trending discovery (local-123)', surface: null });
 });
+
+test('incomplete research identifies exact missing placements for the repair prompt', () => {
+    const repo = { name: 'example/tool', ranks: { daily: 1, weekly: 1, monthly: 1 },
+        readme: { text: 'Useful terminal navigation.' } };
+    const assessments = ['daily', 'weekly'].map(window => ({ window, repository: repo.name,
+        reason: 'Useful', readmeEvidence: repo.readme.text }));
+    assert.throws(() => discovery.verifyEvaluation({ repositories: [repo] }, { assessments, features: [] }),
+        /Incomplete Trending assessment coverage: monthly\/example\/tool/);
+});

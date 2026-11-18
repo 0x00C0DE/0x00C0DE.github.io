@@ -1018,3 +1018,11 @@ The research handoff selects React Bits integrations for the existing terminal, 
 Selection rejects standalone HTML demos and component playgrounds. Staged-change validation rejects `pages/` edits and requires a modification to an existing terminal integration file. The implementation and independent review prompts require actual Canvas/Pretext integration, useful browser assertions, scoped styles and preservation of selection, copy, command execution, focus, keyboard, touch and reduced motion. The intro and entry transition remain protected.
 
 From the repository root in PowerShell, run `node --test --test-isolation=none tests/research-*.test.mjs` to verify the research workflow. The Windows handoff retains its 55-minute (`PT55M`) polling interval.
+
+### Research through live release
+
+Each eligible Windows cycle aims to ship one useful improvement to the existing terminal. It validates full Trending and React Bits coverage and gives incomplete evaluations up to three attempts with exact validation feedback. A cycle can research three rounds of up to three candidates. Each candidate gets an initial implementation and up to three repairs using retained review and browser diagnostics. Later research rounds receive earlier failures and must choose a feasible smaller integration or another approach.
+
+A verified Pages deployment and matching public assets complete a published cycle. Empty proposals, exhausted candidate repairs and incomplete evaluations remain `research-pending`. Their feedback is retained, and the next 55-minute poll resumes research against current main without waiting for the six-hour fresh-discovery cooldown. Quotas retain their reset time. Configuration failures and uncertain publication outcomes require diagnosis or remote reconciliation before another write. The existing release reporter creates a chat after it verifies the feature deployment.
+
+From the repository root in PowerShell, verify with `pwsh -NoProfile -File tests/research-cycle.test.ps1`, `pwsh -NoProfile -File tests/research-checker-controls.test.ps1` and `node --test --test-isolation=none tests/research-*.test.mjs`.

@@ -3,6 +3,7 @@ param([switch]$Publish, [string]$StateDirectory = 'tmp/local-handoff')
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath (Resolve-Path (Join-Path $PSScriptRoot '../..'))
 . (Join-Path $PSScriptRoot 'release-recovery.ps1')
+. (Join-Path $PSScriptRoot 'research-cycle.ps1')
 
 function Git {
     & git.exe @args
@@ -36,6 +37,8 @@ try {
     if ($policy.mode -ne 'legacy-publication') { throw 'Invalid scheduled research publication policy.' }
     $env:CODEX_RESEARCH_HISTORY_PATH = Join-Path $state.FullName 'research-history.json'
     $quotaPath = Join-Path $state.FullName 'codex-quota.json'
+    $pendingPath = Join-Path $state.FullName 'pending-research.json'
+    $pendingFeedback = $null
     $handoff = $null
     $resumeReport = $null
     $resumeEvaluation = $null
@@ -56,6 +59,17 @@ try {
                 $resumeEvaluation = $previousEvaluation
             }
         }
+        $runId = "resume-$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
+        $receipt = Join-Path $state.FullName "$runId.json"
+        $handoff = '{"discovery":true}'
+    }
+    # Resume known pre-publication failures on the next 55-minute poll, without the fresh-scan cooldown.
+    if (-not $handoff -and (Test-Path -LiteralPath $pendingPath)) {
+        $pending = Get-Content -Raw -LiteralPath $pendingPath | ConvertFrom-Json
+        if ($pending.status -ne 'research-pending' -or !(Test-ResearchContinuation $pending.exitCode)) {
+            throw 'Invalid research continuation. Inspect pending-research.json before retrying.'
+        }
+        $pendingFeedback = Join-Path $state.FullName 'research-feedback.txt'
         $runId = "resume-$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
         $receipt = Join-Path $state.FullName "$runId.json"
         $handoff = '{"discovery":true}'
@@ -141,6 +155,9 @@ try {
             return
         }
         $options = @('-BrowserDependencies', $browserRoot)
+        if ($pendingFeedback -and (Test-Path -LiteralPath $pendingFeedback)) {
+            $options += @('-ResearchFeedbackPath', $pendingFeedback)
+        }
         if ($resumeReport) {
             $destination = Join-Path $checkout 'tmp/codex-research'
             New-Item -ItemType Directory -Force $destination | Out-Null
@@ -161,6 +178,10 @@ try {
         if (Test-Path -LiteralPath $quotaPath) {
             Move-Item -LiteralPath $quotaPath -Destination (Join-Path $state.FullName "$runId-quota-consumed.json")
         }
+        # Consume before launching. An interrupted or uncertain write must be reconciled, never blindly retried.
+        if (Test-Path -LiteralPath $pendingPath) {
+            Move-Item -LiteralPath $pendingPath -Destination (Join-Path $state.FullName "$runId-research-consumed.json")
+        }
         & (Get-Process -Id $PID).Path -NoProfile -NonInteractive -WindowStyle Hidden -File `
             (Join-Path $checkout 'scripts/research/run-codex-local.ps1') @options *> $runnerLog
         $runnerExit = $LASTEXITCODE
@@ -172,8 +193,7 @@ try {
         }
         $status = switch ($runnerExit) {
             0 { if ($Publish) { 'published' } else { 'previewed' } }
-            20 { 'no-proposal' }
-            21 { 'needs-review' }
+            { Test-ResearchContinuation $_ } { 'research-pending' }
             22 { if ($Publish) { 'partially-published' } else { 'partially-previewed' } }
             23 {
                 $retry = Get-Content -Raw -LiteralPath (Join-Path $checkout 'tmp/codex-quota.json') | ConvertFrom-Json
@@ -184,10 +204,20 @@ try {
             }
             default { throw "Local runner failed for $runId (exit $runnerExit). Inspect $runnerLog and $checkout before retrying." }
         }
+        if ($status -eq 'research-pending') {
+            $feedback = Join-Path $checkout 'tmp/research-feedback.txt'
+            if (Test-Path -LiteralPath $feedback) {
+                Copy-Item -LiteralPath $feedback -Destination (Join-Path $state.FullName 'research-feedback.txt')
+            }
+            Write-ResearchCheckpoint $pendingPath @{
+                status = $status; exitCode = $runnerExit; revision = $main; runId = "$runId"
+            }
+            Write-Warning "Feature release still pending ($runId). Research and repair resume on the next scheduled poll. Inspect $runnerLog."
+        }
         @{ status = $status } | ConvertTo-Json -Compress | Set-Content -LiteralPath $receipt -Encoding utf8
         Write-Output "Handoff result: $status ($runId)."
-        $removeCheckout = $status -in ('published', 'no-proposal')
-        if ($runnerExit -in (21, 22)) { exit $runnerExit }
+        $removeCheckout = $status -eq 'published'
+        if ($status -eq 'research-pending' -or $runnerExit -eq 22) { exit $runnerExit }
     } catch {
         @{ status = 'needs-review'; phase = $_.InvocationInfo.ScriptLineNumber } |
             ConvertTo-Json -Compress | Set-Content -LiteralPath $receipt -Encoding utf8
