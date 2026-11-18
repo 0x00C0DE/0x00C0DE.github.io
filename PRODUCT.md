@@ -29,3 +29,7 @@ The site uses static HTML, native JavaScript, Canvas, and Pretext. GitHub Pages 
 - Preserve direct navigation and the terminal command interface.
 - Integrate React Bits into the existing terminal's help lettering, command output and controls where it improves a visitor task.
 - Automated design work must improve existing terminal interactions. Reject standalone component showcases and new HTML demo pages.
+
+## Help interaction
+
+Help is a direct command reference. Visitors type commands in the existing prompt and press Enter to execute them. The owner rejected the command preview and staging strip. Future help improvements should preserve this interaction and focus on the existing lettering, readability and layout.

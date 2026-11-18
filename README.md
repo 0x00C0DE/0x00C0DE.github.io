@@ -1028,20 +1028,3 @@ A verified Pages deployment and matching public assets complete a published cycl
 From the repository root in PowerShell, verify with `pwsh -NoProfile -File tests/research-cycle.test.ps1`, `pwsh -NoProfile -File tests/research-checker-controls.test.ps1` and `node --test --test-isolation=none tests/research-*.test.mjs`.
 
 The release runner also executes every changed feature test against its served Pages artifact with `FEATURE_BROWSER_ORIGIN` enabled. It installs the locked root dependencies before this stage so deeper Playwright regressions can run outside the proposal sandbox. A failed browser regression blocks publication and feeds its diagnostics into the candidate repair pass.
-
-### Help example preview (proposal)
-
-Run `help` after entering the terminal, or visit `/?command=help` (which bypasses the intro).
-The full table remains; the normal homepage intro and entry transition are preserved.
-Pinned GradientText previews `ls`, `cat blog.txt`, or `history` and its existing description;
-pinned SpecularButton stages with **Use command**. Only Enter executes; drafts block staging.
-Shift+Tab reaches the selector, Tab the button, Escape the prompt. Copy/paste isolation,
-wheel/touch scrolling, 44px targets, focus and reduced-motion fallback are preserved.
-Measured roots unmount on commands/setup/viewers. Real directory output also appears in a
-screen-reader status, removed on the next command/clear. Canvas/Pretext remain intact.
-Run `node --test --test-isolation=none tests/codex-feature-help-examples.test.mjs`.
-The mandatory runner plan checks unchanged history after staging, exactly one `ls` after
-Enter, actual directory output, drafts and clear in desktop/touch Chromium with reduced motion.
-The broader browser test uses `HELP_EXAMPLES_TEST_ORIGIN` (localhost) and optionally
-`HELP_EXAMPLES_TEST_TOOLING` (pinned Playwright directory). Build/browser acceptance is deferred
-to the runner; no dependencies were installed. Publication remains with the workflow.
