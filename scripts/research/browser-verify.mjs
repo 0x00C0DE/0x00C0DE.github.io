@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
@@ -17,7 +19,28 @@ export function artifactPath(root, url) {
 const types = { '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript',
     '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
 
-async function verify(root, planPath, dependencyRoot, expectedRoute) {
+const executeProcess = promisify(execFile);
+
+export async function runFeatureBrowserTests(origin, testFiles, execute = executeProcess) {
+    if (testFiles.some(path => !/^tests\/codex-feature-[a-z0-9-]+\.test\.mjs$/.test(path))) {
+        throw new Error('Browser regressions must use reviewed feature test paths');
+    }
+    if (!testFiles.length) return;
+    try {
+        const result = await execute(process.execPath, ['--test', '--test-isolation=none', ...testFiles], {
+            env: { ...process.env, FEATURE_BROWSER_ORIGIN: origin },
+            timeout: 300_000, maxBuffer: 2 * 1024 * 1024, windowsHide: true,
+        });
+        if (result.stdout) console.log(result.stdout);
+        if (result.stderr) console.error(result.stderr);
+    } catch (error) {
+        if (error.stdout) console.error(error.stdout);
+        if (error.stderr) console.error(error.stderr);
+        throw error;
+    }
+}
+
+async function verify(root, planPath, dependencyRoot, expectedRoute, ...testFiles) {
     const plan = JSON.parse(await readFile(planPath, 'utf8'));
     assert.match(plan.route, designRoutePattern);
     if (expectedRoute) assert.equal(plan.route, expectedRoute, 'Browser plan must exercise the selected feature route');
@@ -64,7 +87,8 @@ async function verify(root, planPath, dependencyRoot, expectedRoute) {
             }
             await page.close();
         }
-        console.log('Verified feature interactions in desktop and mobile Chromium.');
+        await runFeatureBrowserTests(origin, testFiles);
+        console.log('Verified feature interactions and reviewed browser regressions.');
     } finally {
         try { await browser?.close(); } finally { server.close(); }
     }
