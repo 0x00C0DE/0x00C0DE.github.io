@@ -90,3 +90,12 @@ test('keeps verified candidates when another repository has an invalid excerpt',
     assert.throws(() => discovery.selectVerifiedFeatures(trending, { assessments: assessments.slice(1), features: [good] }),
         /coverage/i);
 });
+
+test('describes broad fallback discoveries without site fit hints', () => {
+    const revision = 'abc';
+    const candidate = discovery.selectDiscovery({ revision, trending: { repositories: [
+        { name: 'example/new-tech', fit: null, ranks: { daily: 1 } },
+    ] } }, revision);
+    assert.deepEqual(discovery.describeHandoff(candidate, 'local-123'),
+        { lead: 'Trending discovery (local-123)', surface: null });
+});

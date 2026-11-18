@@ -35,8 +35,10 @@ export function selectDiscovery(report, revision) {
 }
 
 export function describeHandoff(candidate, runId) {
-    if (candidate.discovery) return { lead: `Trending discovery (${runId})`, surface: null };
-    const [repo] = candidate.trending.repositories;
+    const [repo] = candidate.trending?.repositories ?? [];
+    if (candidate.discovery || !repo?.fit?.surface) {
+        return { lead: `Trending discovery (${runId})`, surface: null };
+    }
     return { lead: repo.name, surface: repo.fit.surface };
 }
 
