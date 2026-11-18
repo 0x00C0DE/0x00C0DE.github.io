@@ -1,3 +1,4 @@
+import { EXAMPLE_COMMANDS, stageExample } from './codex-feature-help-examples.mjs';
 import { splitBannerWaveGlyphs } from './banner-wave-core.mjs';
 import {
     createBitcoinDashboardLayout,
@@ -313,6 +314,60 @@ function getPalette(snapshot = getPromptSnapshot()) {
         return PALETTES.root;
     }
     return PALETTES.default;
+}
+
+let helpExamplesFactory = null;
+let helpExamplesView = null;
+let helpExamplesActive = false;
+let helpExamplesHeight = 240;
+
+export function registerHelpExamples(factory) {
+    helpExamplesFactory = factory;
+    markLayoutDirty();
+}
+
+function clearHelpExamples() {
+    helpExamplesActive = false;
+    helpExamplesView?.dispose();
+    helpExamplesView = null;
+    markLayoutDirty();
+}
+
+function syncHelpExamples() {
+    if (!helpExamplesActive || !helpExamplesFactory) return;
+    if (app.viewer) { clearHelpExamples(); return; }
+    if (!helpExamplesView) {
+        const entries = app.blocks.filter(block => block.data?.type === 'help-entry');
+        helpExamplesView = helpExamplesFactory({
+            examples: EXAMPLE_COMMANDS.map(command => ({ command,
+                description: entries.find(block => block.data.command === command)?.data.description || command })),
+            focus: focusTextInputProxy,
+            wheel: onWheel,
+            scroll(delta) { stopScrollGlide(); applyScrollDelta(delta); clampScroll(); },
+            measure(height) {
+                if (height > 0 && height !== helpExamplesHeight) {
+                    helpExamplesHeight = height;
+                    markLayoutDirty();
+                    scrollToBottom();
+                }
+            },
+            stage(command) {
+                if (!helpExamplesActive || app.viewer || document.querySelector('#home-intro[open]')) return false;
+                return stageExample(app, command, () => {
+                    syncTextInputProxyValue();
+                    markLayoutDirty();
+                    scrollToBottom();
+                    focusTextInputProxy();
+                });
+            }
+        });
+    }
+    ensureLayoutCurrent();
+    const metrics = resolveMetrics();
+    helpExamplesView.update({ inputValue: app.inputValue, history: app.commandHistory,
+        blocked: Boolean(document.querySelector('#home-intro[open]')),
+        left: metrics.paddingX, width: metrics.contentWidth,
+        top: app.inputTop - helpExamplesHeight - metrics.blockGap - app.scrollTop });
 }
 
 function ensureMeasureContext() {
@@ -2740,6 +2795,7 @@ function layoutScenePass(metrics, editorialSeedRects = []) {
         cursorY += block.layout.height + metrics.blockGap;
     });
 
+    if (helpExamplesActive && helpExamplesFactory) cursorY += helpExamplesHeight + metrics.blockGap;
     const inputLayoutBlock = app.inputLayoutBlock || (app.inputLayoutBlock = { id: '__inputLayoutBlock' });
     inputLayoutBlock.commandLine = app.inputValue;
     inputLayoutBlock.promptSnapshot = getPromptSnapshot();
@@ -3160,6 +3216,7 @@ function drawViewerScene(timestamp) {
 
 function frame(timestamp) {
     app.frameId = window.requestAnimationFrame(frame);
+    syncHelpExamples();
     advanceScrollGlide(timestamp);
     updateAnimatedMediaEntries(timestamp);
     if (app.viewer?.type === 'video') {
@@ -3248,6 +3305,9 @@ export async function executeCommand(commandLine) {
         return;
     }
 
+    const fromHelp = helpExamplesActive;
+    document.getElementById('help-example-result')?.remove();
+    clearHelpExamples();
     app.commandHistory.push(safeCommand);
     if (app.commandHistory.length > 100) {
         app.commandHistory.shift();
@@ -3279,6 +3339,17 @@ export async function executeCommand(commandLine) {
         ]);
     }
     appendOutput(output);
+    if (fromHelp && safeCommand === 'ls' && Array.isArray(output)) {
+        const result = document.createElement('pre');
+        result.id = 'help-example-result';
+        result.setAttribute('role', 'status');
+        result.setAttribute('aria-label', 'Directory contents');
+        result.dataset.history = JSON.stringify(app.commandHistory);
+        result.textContent = output.join('\n');
+        document.body.append(result);
+    }
+    helpExamplesActive = command === 'help';
+    markLayoutDirty();
     app.inputValue = '';
     syncTextInputProxyValue();
     const includesBitcoinDashboard = Array.isArray(output)
@@ -3289,6 +3360,8 @@ export async function executeCommand(commandLine) {
 }
 
 export function setupTerminal() {
+    document.getElementById('help-example-result')?.remove();
+    clearHelpExamples();
     if (app.viewer?.type === 'video' && typeof app.viewer.stop === 'function') {
         app.viewer.stop();
     }
@@ -4416,6 +4489,12 @@ function onKeyDown(event) {
         event.preventDefault();
         return;
     case 'Tab':
+        if (event.shiftKey && helpExamplesView && !document.querySelector('#home-intro[open]')) {
+            scrollToBottom();
+            document.getElementById('help-example-choice')?.focus();
+            event.preventDefault();
+            return;
+        }
         autocompleteInput();
         markLayoutDirty();
         event.preventDefault();
