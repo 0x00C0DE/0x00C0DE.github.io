@@ -1,0 +1,20 @@
+#help-examples { position: fixed; z-index: 2; box-sizing: border-box; color: #ffb3bb;
+    font: 16px/1.4 "Courier New", monospace; background: #0c0001; border: 1px solid #ff6b78;
+    padding: 12px; touch-action: none; overflow-wrap: anywhere; }
+#help-examples[hidden] { display: none; }
+#help-examples section { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+#help-examples select, #help-examples button { min-height: 44px; max-width: 100%;
+    font: inherit; color: #fff1f1; background: #210004; border: 1px solid #ff8585; }
+#help-examples p { margin: 0; flex-basis: 100%; }
+#help-example-preview { color: #fff1f1; }
+#help-examples :focus-visible { outline: 2px solid #ffd166; outline-offset: 2px; }
+#help-examples .gradient-text__content { -webkit-text-fill-color: currentColor; color: #fff1f1; }
+@supports (background-clip: text) {
+    #help-examples .gradient-text__content { -webkit-text-fill-color: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+    #help-examples button { transition: none; transform: none; }
+    #help-examples .specular-button__light { display: none; }
+}
+#help-example-result { position: fixed; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: pre; }

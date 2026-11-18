@@ -1026,3 +1026,20 @@ Each eligible Windows cycle aims to ship one useful improvement to the existing 
 A verified Pages deployment and matching public assets complete a published cycle. Empty proposals, exhausted candidate repairs and incomplete evaluations remain `research-pending`. Their feedback is retained, and the next 55-minute poll resumes research against current main without waiting for the six-hour fresh-discovery cooldown. Quotas retain their reset time. Configuration failures and uncertain publication outcomes require diagnosis or remote reconciliation before another write. The existing release reporter creates a chat after it verifies the feature deployment.
 
 From the repository root in PowerShell, verify with `pwsh -NoProfile -File tests/research-cycle.test.ps1`, `pwsh -NoProfile -File tests/research-checker-controls.test.ps1` and `node --test --test-isolation=none tests/research-*.test.mjs`.
+
+### Help example preview (proposal)
+
+Run `help` after entering the terminal, or visit `/?command=help` (which bypasses the intro).
+The full table remains; the normal homepage intro and entry transition are preserved.
+Pinned GradientText previews `ls`, `cat blog.txt`, or `history` and its existing description;
+pinned SpecularButton stages with **Use command**. Only Enter executes; drafts block staging.
+Shift+Tab reaches the selector, Tab the button, Escape the prompt. Copy/paste isolation,
+wheel/touch scrolling, 44px targets, focus and reduced-motion fallback are preserved.
+Measured roots unmount on commands/setup/viewers. Real directory output also appears in a
+screen-reader status, removed on the next command/clear. Canvas/Pretext remain intact.
+Run `node --test --test-isolation=none tests/codex-feature-help-examples.test.mjs`.
+The mandatory runner plan checks unchanged history after staging, exactly one `ls` after
+Enter, actual directory output, drafts and clear in desktop/touch Chromium with reduced motion.
+The broader browser test uses `HELP_EXAMPLES_TEST_ORIGIN` (localhost) and optionally
+`HELP_EXAMPLES_TEST_TOOLING` (pinned Playwright directory). Build/browser acceptance is deferred
+to the runner; no dependencies were installed. Publication remains with the workflow.
