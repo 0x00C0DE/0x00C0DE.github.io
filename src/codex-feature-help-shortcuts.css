@@ -1,0 +1,37 @@
+#help-shortcuts {
+    position: fixed;
+    z-index: 2;
+    box-sizing: border-box;
+    font: 14px/1.4 "Courier New", monospace;
+    color: #ffb0b0;
+}
+#help-shortcuts .help-shortcuts-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#help-shortcuts .specular-button {
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid #ff6b78;
+    background: #100204;
+    box-shadow: none;
+}
+#help-shortcuts .specular-button:focus-visible { outline: 2px solid #fff1f1; outline-offset: 2px; }
+#help-shortcuts .gradient-text__content { color: #fff1f1; -webkit-text-fill-color: #fff1f1; }
+@supports (background-clip: text) {
+    #help-shortcuts .gradient-text__content { -webkit-text-fill-color: transparent; }
+}
+#help-shortcuts-status { margin-top: 8px; }
+#help-shortcuts-output {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: pre;
+}
+@media (prefers-reduced-motion: reduce) {
+    #help-shortcuts .specular-button__light { display: none; }
+    #help-shortcuts .specular-button { transition: none; transform: none; }
+    #help-shortcuts .gradient-text__content { background: none; -webkit-text-fill-color: #fff1f1; }
+}
+@media (forced-colors: active) {
+    #help-shortcuts .gradient-text__content { background: none; -webkit-text-fill-color: ButtonText; }
+}

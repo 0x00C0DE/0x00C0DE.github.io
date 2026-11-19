@@ -2708,6 +2708,50 @@ function scrollToBottom() {
     applyScrollToBottom();
 }
 
+// This accessory shares Canvas document coordinates and reserves space before the prompt.
+let helpShortcuts = null;
+let helpShortcutGeneration = 0;
+function removeHelpShortcuts() {
+    helpShortcutGeneration += 1;
+    if (!helpShortcuts) return;
+    helpShortcuts.observer.disconnect();
+    helpShortcuts.unmount();
+    helpShortcuts.host.remove();
+    helpShortcuts = null;
+    markLayoutDirty();
+}
+async function showHelpShortcuts() {
+    removeHelpShortcuts();
+    const generation = helpShortcutGeneration;
+    let mountHelpShortcuts;
+    try {
+        ({ mountHelpShortcuts } = await import('./codex-feature-help-shortcuts.js'));
+    } catch (error) {
+        console.warn('Help shortcuts unavailable; type commands from help.', error);
+        return;
+    }
+    if (generation !== helpShortcutGeneration || app.viewer) return;
+    const host = document.createElement('div');
+    host.id = 'help-shortcuts';
+    document.body.append(host);
+    const controls = host.appendChild(document.createElement('div'));
+    const unmount = mountHelpShortcuts(controls, command => {
+        app.inputValue = command;
+        syncTextInputProxyValue();
+        focusTextInputProxy();
+        markLayoutDirty();
+        scrollToBottom();
+    });
+    const output = host.appendChild(document.createElement('pre'));
+    output.id = 'help-shortcuts-output';
+    output.setAttribute('role', 'log');
+    output.setAttribute('aria-label', 'Terminal shortcut result');
+    const observer = new ResizeObserver(() => markLayoutDirty());
+    helpShortcuts = { host, unmount, observer, top: 0 };
+    observer.observe(host);
+    markLayoutDirty();
+}
+
 function layoutScenePass(metrics, editorialSeedRects = []) {
     let cursorY = metrics.paddingY;
     const regions = [];
@@ -2740,6 +2784,12 @@ function layoutScenePass(metrics, editorialSeedRects = []) {
         cursorY += block.layout.height + metrics.blockGap;
     });
 
+    if (helpShortcuts) {
+        helpShortcuts.top = cursorY;
+        helpShortcuts.host.style.left = `${metrics.paddingX}px`;
+        helpShortcuts.host.style.width = `${metrics.contentWidth}px`;
+        cursorY += helpShortcuts.host.getBoundingClientRect().height + metrics.blockGap;
+    }
     const inputLayoutBlock = app.inputLayoutBlock || (app.inputLayoutBlock = { id: '__inputLayoutBlock' });
     inputLayoutBlock.commandLine = app.inputValue;
     inputLayoutBlock.promptSnapshot = getPromptSnapshot();
@@ -3009,6 +3059,11 @@ function drawScrollbar(ctx, palette, metrics) {
 
 function drawTerminalScene(timestamp) {
     ensureLayoutCurrent();
+    if (helpShortcuts) {
+        const top = helpShortcuts.top - app.scrollTop;
+        helpShortcuts.host.style.top = `${top}px`;
+        helpShortcuts.host.style.visibility = top < 0 ? 'hidden' : 'visible';
+    }
     const ctx = app.ctx;
     const metrics = resolveMetrics();
     const palette = getPalette();
@@ -3166,6 +3221,7 @@ function frame(timestamp) {
         updateMovieFrame();
     }
     if (app.viewer) {
+        removeHelpShortcuts();
         drawViewerScene(timestamp);
     } else {
         drawTerminalScene(timestamp);
@@ -3279,6 +3335,10 @@ export async function executeCommand(commandLine) {
         ]);
     }
     appendOutput(output);
+    if (helpShortcuts && ['ls', 'history'].includes(command) && Array.isArray(output)) {
+        helpShortcuts.host.querySelector('#help-shortcuts-output').textContent = output.join('\n');
+    }
+    if (command === 'help') await showHelpShortcuts();
     app.inputValue = '';
     syncTextInputProxyValue();
     const includesBitcoinDashboard = Array.isArray(output)
@@ -3289,6 +3349,7 @@ export async function executeCommand(commandLine) {
 }
 
 export function setupTerminal() {
+    removeHelpShortcuts();
     if (app.viewer?.type === 'video' && typeof app.viewer.stop === 'function') {
         app.viewer.stop();
     }
@@ -4324,6 +4385,7 @@ function autocompleteInput() {
 }
 
 function onPaste(event) {
+    if (event.target instanceof Element && event.target.closest('#help-shortcuts')) return;
     if (app.viewer) {
         return;
     }
@@ -4339,6 +4401,14 @@ function onPaste(event) {
 }
 
 function onKeyDown(event) {
+    if (event.target instanceof Element && event.target.closest('#help-shortcuts')) {
+        if (event.key === 'Tab' && ((event.shiftKey && event.target.id === 'help-shortcut-0')
+            || (!event.shiftKey && event.target.id === 'help-shortcut-2'))) {
+            focusTextInputProxy();
+            event.preventDefault();
+        }
+        return;
+    }
     if (app.viewer) {
         if (event.key === 'Escape') {
             closeViewer();
@@ -4416,6 +4486,13 @@ function onKeyDown(event) {
         event.preventDefault();
         return;
     case 'Tab':
+        if (helpShortcuts && !app.inputValue && event.target === app.textInputProxy) {
+            const id = event.shiftKey ? '#help-shortcut-2' : '#help-shortcut-0';
+            helpShortcuts.host.querySelector(id)?.focus();
+            scrollToBottom();
+            event.preventDefault();
+            return;
+        }
         autocompleteInput();
         markLayoutDirty();
         event.preventDefault();

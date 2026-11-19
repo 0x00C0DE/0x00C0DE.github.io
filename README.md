@@ -1028,3 +1028,40 @@ A verified Pages deployment and matching public assets complete a published cycl
 From the repository root in PowerShell, verify with `pwsh -NoProfile -File tests/research-cycle.test.ps1`, `pwsh -NoProfile -File tests/research-checker-controls.test.ps1` and `node --test --test-isolation=none tests/research-*.test.mjs`.
 
 The release runner also executes every changed feature test against its served Pages artifact with `FEATURE_BROWSER_ORIGIN` enabled. It installs the locked root dependencies before this stage so deeper Playwright regressions can run outside the proposal sandbox. A failed browser regression blocks publication and feeds its diagnostics into the candidate repair pass.
+
+### Help task shortcuts (proposal)
+
+Run `help` in the existing terminal, or visit `/?command=help`. Three compact actions
+prepare `ls`, `cat blog.txt`, and `history` in Terminal input and focus it. Press Enter
+to execute; activation alone leaves output and history unchanged. This improves
+finding files, opening the blog, and recalling commands without memorizing syntax.
+From an empty Terminal input, Tab reaches the first action and Shift+Tab the last.
+Tab between actions; Tab past either end returns to input. Typed commands retain
+Tab autocomplete. Directory/history results also enter a scoped accessible log.
+This task explicitly selects command preparation despite PRODUCT.md's earlier
+rejection of a staging strip; there is no separate preview panel.
+
+Pinned React Bits `SpecularButton` supplies native keyboard/touch buttons, with
+`followMouse=false` and `autoAnimate=false`. `GradientText` distinguishes the exact
+command within each action, with `followPointer=false`. The build resolves their
+IDs from `src/codex-feature-help-shortcuts.react-bits.json`; no upstream code is
+copied. Local scoped CSS retains the terminal palette, visible borders/focus, solid
+text fallback, and static reduced-motion rendering with decorative canvases hidden.
+
+The Canvas lifecycle reserves measured space before the real prompt, positions the
+bounded React root in the same scroll coordinates, and unmounts it on clear or
+viewer entry. ResizeObserver updates wrapping; native accessory key/paste events
+bypass terminal command interception. Existing help remains available if the bundle
+cannot load. Intro, Pretext wrapping and output drawing remain unchanged.
+
+From the repository root in PowerShell:
+`node --test --test-isolation=none tests/codex-feature-help-shortcuts.test.mjs`.
+Browser tests run only with `FEATURE_BROWSER_ORIGIN` pointing to the runner's served
+Pages artifact and use the existing Playwright dependency. They exercise normal
+help entry at 1280×800 and touch 390×844 with both motion preferences, keyboard
+Space/Enter/Tab, exact preparation, no premature execution, directory output exactly
+once, real input selection/copy, Canvas/output geometry, clear/remount and viewer
+cleanup. `tmp/feature-browser-plan.json` supplies the runner's short interaction plan;
+the guarded tests supply deeper assertions. Browser/build validation is deferred to
+the runner: React, build tooling and Playwright are not installed in this checkout.
+No dependency installation or publication is part of this proposal.
