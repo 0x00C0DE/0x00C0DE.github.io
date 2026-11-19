@@ -8,10 +8,30 @@ import { selectReactBitsFeatures } from './react-bits.mjs';
 export const designRoutePattern = /^\/(?:index\.html)?(?:\?command=[a-z0-9%+._-]+)?$/i;
 const terminalPathPattern = /^(?:index\.html|src\/(?:commands\.js|term\.js|terminal-[a-z0-9-]+\.mjs))$/;
 
+function preservesCommandEntry(feature) {
+    const description = `${feature.title ?? ''} ${feature.brief ?? ''}`;
+    const preparation = /\b(?:stag(?:e|es|ing)|prepar(?:e|es|ing)|prefill|pre-fill|preview)[\s\S]{0,80}\b(?:commands?|prompt|help example)\b|\bactivation loads the exact command\b/i;
+    return feature.changesCommandEntry === false && !preparation.test(description);
+}
+
+export function validateCommandEntry(feature) {
+    if (!preservesCommandEntry(feature)) {
+        throw new Error('Owner requires original command entry. Select a presentation improvement and explicitly preserve command entry.');
+    }
+}
+
+export function validateCommandEntryDiff(diff) {
+    const added = diff.split('\n').filter(line => line.startsWith('+') && !line.startsWith('+++'));
+    const promptWrite = /\b(?:app|state)(?:\.inputValue|\[['"]inputValue['"]\])\s*(?:=|\+=)|Object\.assign\((?:app|state),\s*\{\s*inputValue|\b(?:input|prompt|terminalInput|textInputProxy)\.value\s*=|\.setRangeText\(/;
+    if (added.some(line => promptWrite.test(line))) {
+        throw new Error('Automated UI additions must preserve original command entry. New prompt writes require an owner-requested interaction change.');
+    }
+}
+
 export function selectExperiences(features, existingPaths) {
     const known = new Set(existingPaths);
     return features.filter(feature => typeof feature.route === 'string'
-        && designRoutePattern.test(feature.route) && known.has('index.html'));
+        && designRoutePattern.test(feature.route) && known.has('index.html') && preservesCommandEntry(feature));
 }
 
 export function validateExperience(changes, route) {
@@ -144,6 +164,7 @@ function verifyIndex(route) {
     }
     validateChanges(changes);
     validateExperience(changes, route);
+    validateCommandEntryDiff(git('diff', '--cached', '--unified=0', '--', 'src/', 'index.html'));
     const stats = git('diff', '--cached', '--numstat', '--no-renames', '-z').split('\0').filter(Boolean);
     let lines = 0;
     for (const stat of stats) {
@@ -159,6 +180,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (process.argv[2] === 'describe') {
         const candidate = JSON.parse(await readFile(process.argv[3], 'utf8'));
         console.log(JSON.stringify(describeHandoff(candidate, process.argv[4])));
+    } else if (process.argv[2] === 'candidate') {
+        const features = JSON.parse(await readFile(process.argv[3], 'utf8'));
+        validateCommandEntry(features[Number(process.argv[4])]);
     } else if (process.argv[2] === 'evaluation') {
         const [, , , reportPath, evaluationPath, selectionPath] = process.argv;
         const report = JSON.parse(await readFile(reportPath, 'utf8'));

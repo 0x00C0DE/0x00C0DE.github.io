@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { selectExperiences, selectLead, validateChanges, validateExperience } from '../scripts/research/codex-proposal.mjs';
+import { selectExperiences, selectLead, validateChanges, validateExperience, validateCommandEntry, validateCommandEntryDiff } from '../scripts/research/codex-proposal.mjs';
 
 test('selects existing terminal routes and rejects standalone demos and traversal', () => {
-    const help = { route: '/?command=help' };
-    const terminal = { route: '/index.html' };
+    const help = { route: '/?command=help', changesCommandEntry: false };
+    const terminal = { route: '/index.html', changesCommandEntry: false };
     assert.deepEqual(selectExperiences([
         { route: '/pages/light-studio.html' }, { route: '/pages/explore.html' }, help, terminal,
     ], ['index.html', 'pages/explore.html']), [help, terminal]);
@@ -67,4 +67,31 @@ test('rejects standalone page files even alongside a terminal edit', () => {
     assert.throws(() => validateChanges([...changes, {
         path: 'pages/light-studio.html', mode: '100644', previousMode: '000000',
     }]));
+});
+
+test('rejects fresh and cached command preparation proposals while accepting visual help refinements', () => {
+    const lettering = { route: '/?command=help', title: 'Readable help lettering',
+        brief: 'Apply GradientText to existing section headings.', changesCommandEntry: false };
+    assert.doesNotThrow(() => validateCommandEntry(lettering));
+    assert.deepEqual(selectExperiences([lettering], ['index.html']), [lettering]);
+    for (const feature of [
+        { ...lettering, changesCommandEntry: true },
+        { ...lettering, changesCommandEntry: undefined },
+        { ...lettering, title: 'Help shortcuts that prepare real terminal commands' },
+        { ...lettering, brief: 'Activation loads the exact command and focuses Terminal input.' },
+        { ...lettering, brief: 'Prefill the prompt using a selected example.' },
+        { ...lettering, title: 'Preview and stage a help example before running it' },
+    ]) {
+        assert.throws(() => validateCommandEntry(feature), /command entry/i);
+        assert.deepEqual(selectExperiences([feature], ['index.html']), []);
+    }
+});
+
+test('release gate rejects new prompt writes but allows existing writes and output-only additions', () => {
+    assert.doesNotThrow(() => validateCommandEntryDiff(' app.inputValue = value;\n+ heading.style.color = color;'));
+    for (const line of ['+ app.inputValue = command;', '+state.inputValue += value;',
+        '+ app["inputValue"] = selected;', '+ Object.assign(app, { inputValue: selected });',
+        '+ input.value = "ls";', '+ input.setRangeText(command);']) {
+        assert.throws(() => validateCommandEntryDiff(line), /command entry/i);
+    }
 });

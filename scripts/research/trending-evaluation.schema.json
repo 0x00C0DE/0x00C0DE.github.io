@@ -23,13 +23,14 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["title", "repository", "brief", "reactBitsComponents", "route", "innovationId"],
+        "required": ["title", "repository", "brief", "reactBitsComponents", "route", "innovationId", "changesCommandEntry"],
         "properties": {
           "title": { "type": "string" },
           "repository": { "type": "string" },
           "innovationId": { "type": ["string", "null"] },
           "brief": { "type": "string" },
           "route": { "type": "string" },
+          "changesCommandEntry": { "type": "boolean", "enum": [false] },
           "reactBitsComponents": { "type": "array", "items": { "type": "string" } }
         }
       }
