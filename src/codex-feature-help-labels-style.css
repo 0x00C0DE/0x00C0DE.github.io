@@ -29,3 +29,23 @@
     clip-path: inset(50%);
     white-space: nowrap;
 }
+#terminal-help-labels .help-section-lettering {
+    position: relative;
+    display: block;
+    height: 100%;
+    background: #000;
+}
+#terminal-help-labels .help-section-lettering::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 25%;
+    height: 50%;
+    width: 2px;
+    background: #b77888;
+}
+#terminal-help-labels .help-section-lettering .gradient-text {
+    margin-left: 6px;
+    max-width: calc(100% - 6px);
+    white-space: nowrap;
+}

@@ -1036,7 +1036,10 @@ Owner interaction constraints apply to fresh and cached proposals. Evaluation mu
 Visitor task: type `help` in the original terminal prompt, press Enter, and locate
 command groups while scrolling. The existing group names and order remain intact.
 Pinned React Bits `GradientText` supplies restrained cream-to-pink lettering;
-`StarBorder` supplies a thin stationary outline, rendered as a noninteractive span.
+`StarBorder` frames only “Available commands:” with a thin stationary outline,
+rendered as a noninteractive span. Section names use unboxed `GradientText` with
+a short inset left rule. A six-pixel tracking adjustment keeps each label inside
+its original Canvas bounds while making command groups easier to distinguish.
 Both use the inspected registry APIs; pointer tracking, glow, sparkle, hover and
 click pulses are disabled. Reduced motion leaves readable stationary lettering.
 No command staging, prompt prefilling, new routes or page files are introduced.
@@ -1062,3 +1065,15 @@ require a localhost artifact origin for the existing terminal test hooks.
 
 Proposal only: dependency installation, pinned bundling and Chromium execution are
 deferred to the Windows runner. Browser success is required before publication.
+
+Help hierarchy proposal verification (publication is left to the runner):
+`node --test --test-isolation=none tests/codex-feature-help-hierarchy.test.mjs tests/codex-feature-help-labels.test.mjs`
+The hierarchy regression checks semantic roles across wrapped Canvas fragments.
+Overlay positions snap to CSS layout units so wrapped rows remain disjoint when
+fractional scrolling carries them across the viewport's top edge; Canvas alignment
+changes by at most 1/128 pixel. A focused regression covers this rounding boundary.
+Build and desktop/touch Chromium checks remain deferred to the runner. The local
+browser attempt failed at Chromium launch with `spawn EPERM`; no dependencies were installed.
+The runner must execute the guarded browser test against its built artifact;
+it checks one title frame, unboxed section rules, accessible text, and normal
+`echo hierarchy-check` input, selection/copy, scrolling and help/clear cleanup.

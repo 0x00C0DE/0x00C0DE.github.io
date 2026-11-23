@@ -1062,7 +1062,7 @@ function help_command() {
             ['open ' + filename, 'Open /pages/' + filename])]);
     }
     const width = Math.max(...sections.flatMap(([, entries]) => entries.map(([command]) => command.length)));
-    return [{ type: 'help-heading', text: 'Available commands:' }, ...sections.flatMap(([heading, entries]) => [
+    return [{ type: 'help-heading', role: 'title', text: 'Available commands:' }, ...sections.flatMap(([heading, entries]) => [
         ' ',
         { type: 'help-heading', text: heading },
         ...entries.map(([command, description]) => formatHelpEntry(command, description, width))

@@ -1,1 +1,6 @@
-{"components":["GradientText","StarBorder"]}
+{
+  "components": [
+    "GradientText",
+    "StarBorder"
+  ]
+}

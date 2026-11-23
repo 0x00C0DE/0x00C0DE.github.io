@@ -9,7 +9,7 @@ test('heading accents follow wrapped Canvas fragments and viewport clipping', ()
     const metrics = { paddingX: 12, lineHeight: 24, textFont: '18px monospace' };
     assert.deepEqual(headingLines([block], metrics, 50, 100), [{
         id: 'b1-0', text: 'Projects and links', x: 16, y: 50, width: 180,
-        height: 24, font: '18px monospace'
+        height: 24, font: '18px monospace', kind: 'section'
     }]);
     assert.deepEqual(headingLines([block], metrics, 140, 100), []);
     assert.deepEqual(headingLines([{ ...block, data: 'Projects and links' }], metrics, 50, 100), []);
@@ -48,10 +48,13 @@ test('served help labels preserve desktop and touch terminal tasks', { skip: !or
                     const border = el.querySelector('.star-border');
                     const rect = el.getBoundingClientRect();
                     return { text: el.textContent, image: getComputedStyle(gradient).backgroundImage,
-                        border: getComputedStyle(border, '::before').boxShadow,
+                        border: border ? getComputedStyle(border, '::before').boxShadow : 'none',
                         pointer: getComputedStyle(gradient).pointerEvents,
+                        textRight: gradient.getBoundingClientRect().right,
+                        textLeft: gradient.getBoundingClientRect().left,
                         x: rect.x, y: rect.y, right: rect.right, height: rect.height,
-                        track: getComputedStyle(border).getPropertyValue('--star-border-track').trim() };
+                        kind: el.dataset.helpKind, rule: getComputedStyle(el.querySelector('.help-section-lettering') || border, '::before').width,
+                        track: border ? getComputedStyle(border).getPropertyValue('--star-border-track').trim() : '' };
                 }));
                 assert.ok(result.length);
                 for (let i = 1; i < result.length; i++) {
@@ -61,11 +64,18 @@ test('served help labels preserve desktop and touch terminal tasks', { skip: !or
                     assert.ok(item.text.trim());
                     assert.match(item.image, /gradient/);
                     assert.match(item.image, /255, 240, 212/);
-                    assert.equal(item.track, '#b77888');
-                    assert.notEqual(item.border, 'none');
+                    if (item.kind === 'title') {
+                        assert.equal(item.track, '#b77888');
+                        assert.notEqual(item.border, 'none');
+                    } else {
+                        assert.equal(item.border, 'none');
+                        assert.equal(item.rule, '2px');
+                    }
                     assert.equal(item.pointer, 'none');
                     assert.ok(item.x >= 0 && item.right <= (touch ? 390 : 1280));
                     assert.ok(item.height > 0);
+                    assert.ok(item.textLeft >= item.x && item.textRight <= item.right + 1,
+                        'upstream lettering remains inside Canvas fragment bounds');
                 }
             }
             // Use real wheel input to reveal the start of the long command reference.
@@ -75,6 +85,10 @@ test('served help labels preserve desktop and touch terminal tasks', { skip: !or
             await geometry();
             assert.equal(await page.locator('[data-help-label]').first().textContent(), 'Available commands:');
             assert.equal(await page.locator('#terminal-help-labels button').count(), 0);
+            assert.equal(await page.locator('#terminal-help-labels .star-border').count(), 1);
+            assert.equal(await page.locator('[data-help-kind="section"] .star-border').count(), 0);
+            const headings = await page.locator('.help-label-accessible').allTextContents();
+            assert.deepEqual(headings, await page.locator('[data-help-label]').allTextContents());
             await page.waitForFunction(() => getComputedStyle(document.querySelector(
                 '[data-help-label] .gradient-text__content')).backgroundImage.includes('repeating-linear-gradient'));
             // Sample the actual upstream paint across frames: a motion preference alone
@@ -114,16 +128,16 @@ test('served help labels preserve desktop and touch terminal tasks', { skip: !or
             else await page.locator('#terminal-canvas').click({ position: { x: 180, y: 650 } });
             await page.waitForFunction(() => document.activeElement?.id === 'terminal-mobile-input');
             // Native input selection remains available for copying command text.
-            await input.fill('echo label-check');
-            await input.evaluate(el => el.setSelectionRange(5, 16));
-            assert.equal(await input.evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd)), 'label-check');
+            await input.fill('echo hierarchy-check');
+            await input.evaluate(el => el.setSelectionRange(5, 20));
+            assert.equal(await input.evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd)), 'hierarchy-check');
             // Exercise Chromium's native copy path, rather than inferring copy from selection.
             await page.evaluate(() => navigator.clipboard.writeText('copy-sentinel'));
             await input.press('Control+c');
-            await page.waitForFunction(async () => await navigator.clipboard.readText() === 'label-check');
-            assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'label-check');
+            await page.waitForFunction(async () => await navigator.clipboard.readText() === 'hierarchy-check');
+            assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'hierarchy-check');
             await input.press('Enter');
-            await page.waitForFunction(() => window.__terminalCanvasTestHooks.getState().blocks.some(b => b.text === 'label-check'));
+            await page.waitForFunction(() => window.__terminalCanvasTestHooks.getState().blocks.some(b => b.text === 'hierarchy-check'));
             for (let i = 0; i < 2; i++) {
                 await command('clear');
                 await page.waitForSelector('#terminal-help-labels', { state: 'detached' });

@@ -9,14 +9,15 @@ function Label({ line }) {
     useLayoutEffect(() => {
         ref.current.dataset.ready = 'true';
     }, []);
-    return <React.Fragment><span className="help-label-accessible" role="heading" aria-level="2">{line.text}</span><span aria-hidden="true" ref={ref} data-help-label={line.id} style={{ position: 'absolute',
+    const lettering = <GradientText colors={['#fff0d4', '#ffb8cb']} glow={0}
+        followPointer={false} showBorder={false} animationSpeed={16}>{line.text}</GradientText>;
+    return <React.Fragment><span className="help-label-accessible" role="heading" aria-level="2">{line.text}</span><span aria-hidden="true" ref={ref} data-help-label={line.id} data-help-kind={line.kind} style={{ position: 'absolute',
         left: line.x, top: line.y, width: line.width, height: line.height,
         font: line.font, lineHeight: `${line.height}px` }}>
-        <StarBorder as="span" borderColor="#b77888" backgroundColor="#000000"
+        {line.kind === 'title' ? <StarBorder as="span" borderColor="#b77888" backgroundColor="#000000"
             radius={2} thickness={1} glow={0} hover="none" clickPulse={false} sparkle={false}>
-            <GradientText colors={['#fff0d4', '#ffb8cb']} glow={0} followPointer={false}
-                animationSpeed={16}>{line.text}</GradientText>
-        </StarBorder>
+            {lettering}
+        </StarBorder> : <span className="help-section-lettering" style={{ letterSpacing: `${-6 / Math.max(1, line.text.length)}px` }}>{lettering}</span>}
     </span></React.Fragment>;
 }
 
