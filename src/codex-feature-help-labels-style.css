@@ -1,0 +1,31 @@
+#terminal-help-labels {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+}
+#terminal-help-labels * { pointer-events: none !important; }
+#terminal-help-labels [data-help-label] { visibility: hidden; }
+#terminal-help-labels [data-ready="true"] { visibility: visible; }
+#terminal-help-labels .star-border {
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    justify-content: flex-start;
+    font-weight: 400;
+    line-height: inherit;
+}
+#terminal-help-labels .gradient-text { line-height: inherit; }
+#terminal-help-labels .star-border__light { display: none; }
+@media (forced-colors: active) {
+    #terminal-help-labels { display: none; }
+}
+#terminal-help-labels .help-label-accessible {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}

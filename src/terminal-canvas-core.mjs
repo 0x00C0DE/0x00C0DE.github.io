@@ -1,3 +1,4 @@
+import { headingLines } from './codex-feature-help-labels-model.mjs';
 import { splitBannerWaveGlyphs } from './banner-wave-core.mjs';
 import {
     createBitcoinDashboardLayout,
@@ -3012,6 +3013,8 @@ function drawTerminalScene(timestamp) {
     const ctx = app.ctx;
     const metrics = resolveMetrics();
     const palette = getPalette();
+    window.terminalHelpAccents?.sync(document.querySelector('#home-intro[open]') ? []
+        : headingLines(app.blocks, metrics, app.scrollTop, app.viewportHeight));
     drawBackground(ctx, palette, timestamp);
 
     ctx.save();
@@ -3166,6 +3169,7 @@ function frame(timestamp) {
         updateMovieFrame();
     }
     if (app.viewer) {
+        window.terminalHelpAccents?.clear();
         drawViewerScene(timestamp);
     } else {
         drawTerminalScene(timestamp);
@@ -3289,6 +3293,7 @@ export async function executeCommand(commandLine) {
 }
 
 export function setupTerminal() {
+    window.terminalHelpAccents?.clear();
     if (app.viewer?.type === 'video' && typeof app.viewer.stop === 'function') {
         app.viewer.stop();
     }
@@ -4539,7 +4544,7 @@ function describeTerminalBlock(block) {
         panelCount: block.data?.type === 'bitcoin-dashboard' && Array.isArray(block.data.dashboard?.panels)
             ? block.data.dashboard.panels.length
             : null,
-        text: typeof block.data === 'string' ? String(block.data) : null,
+        text: typeof block.data === 'string' ? String(block.data) : block.data?.text || null,
         title: block.data?.type === 'banner' ? String(block.data.title || '') : null,
         top: Number.isFinite(block.top) ? block.top : null,
         type: typeof block.data === 'object' && block.data

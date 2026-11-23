@@ -1030,3 +1030,35 @@ From the repository root in PowerShell, verify with `pwsh -NoProfile -File tests
 The release runner also executes every changed feature test against its served Pages artifact with `FEATURE_BROWSER_ORIGIN` enabled. It installs the locked root dependencies before this stage so deeper Playwright regressions can run outside the proposal sandbox. A failed browser regression blocks publication and feeds its diagnostics into the candidate repair pass.
 
 Owner interaction constraints apply to fresh and cached proposals. Evaluation must explicitly declare `changesCommandEntry: false`; unversioned cached selections are re-evaluated. Candidate startup checks that declaration and rejects command-preparation proposals. The staged release diff also rejects newly added prompt writes. Research and review must read PRODUCT.md before using a lead. Help remains a direct command reference, with improvements focused on lettering, readability and layout.
+
+### Help section lettering proposal
+
+Visitor task: type `help` in the original terminal prompt, press Enter, and locate
+command groups while scrolling. The existing group names and order remain intact.
+Pinned React Bits `GradientText` supplies restrained cream-to-pink lettering;
+`StarBorder` supplies a thin stationary outline, rendered as a noninteractive span.
+Both use the inspected registry APIs; pointer tracking, glow, sparkle, hover and
+click pulses are disabled. Reduced motion leaves readable stationary lettering.
+No command staging, prompt prefilling, new routes or page files are introduced.
+
+`codex-feature-help-labels.jsx` owns a local React root synchronized from the actual
+Canvas frame after layout. Wrapped Canvas fragments determine label positions and
+widths; no command columns or line heights change. Only visible labels mount.
+The overlay ignores all pointer input and clips to the viewport. Canvas text stays
+underneath for module/CSS failure and forced colors. Accessible heading text is
+provided beside aria-hidden visual spans. Clear/reset and viewer entry unmount the
+root and upstream observers; intro entry retains its original behavior.
+
+From the repository root in PowerShell:
+`node --test --test-isolation=none tests/codex-feature-help-labels.test.mjs`
+The unit test checks wrapping geometry and clipping. With `FEATURE_BROWSER_ORIGIN`
+set to the served Pages artifact, the same test uses Playwright at 1280×800 and
+390×844 with reduced motion to check upstream DOM, colors, borders, Canvas block
+alignment, wheel/drag scrolling, tap focus, native input selection and Ctrl+C clipboard
+contents, stationary gradient/border samples across frames under reduced motion, typed echo and
+repeated help/clear cleanup. `tmp/feature-browser-plan.json` exercises normal prompt
+entry with positive output and negative cleanup/control assertions. Browser tests
+require a localhost artifact origin for the existing terminal test hooks.
+
+Proposal only: dependency installation, pinned bundling and Chromium execution are
+deferred to the Windows runner. Browser success is required before publication.
